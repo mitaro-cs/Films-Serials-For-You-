@@ -1,0 +1,53 @@
+name: Release
+# Тег v1.2.3 → выпуск с установщиками: .dmg (Apple Silicon и Intel) и .exe для Windows.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ffmpeg: macos-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            ffmpeg: macos-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ffmpeg: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ matrix.target }}" }
+      - uses: Swatinem/rust-cache@v2
+      - name: Интерфейс
+        working-directory: web
+        run: npm ci && npm run build
+      - name: ffmpeg в установщик
+        shell: bash
+        run: scripts/fetch-ffmpeg.sh ${{ matrix.ffmpeg }}
+      - name: Зависимости оболочки
+        working-directory: desktop
+        run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: desktop
+          tauriScript: npm run tauri --
+          args: --target ${{ matrix.target }}
+          tagName: ${{ github.ref_name }}
+          releaseName: "Films & Serials For You ${{ github.ref_name }}"
+          releaseBody: "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md."
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

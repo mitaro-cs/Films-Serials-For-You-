@@ -1,0 +1,15 @@
+export interface Status {
+  version: string;
+  titles: number;
+  files: number;
+  size: number;
+  metaPending: number;
+  unprobed: number;
+  scan: { running: boolean; at: number | null; error: string | null; last: { files: number; added: number; missing: number; titles: number } | null };
+  meta: { running: boolean; error: string | null; done: number };
+  ffmpeg: boolean;
+  ffprobe: boolean;
+  watching: { user: string; title: string; episode: string; position: number; duration: number }[];
+  canPick: boolean;
+  publicUrl: string | null;
+}
