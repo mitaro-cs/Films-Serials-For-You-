@@ -1,0 +1,9 @@
+/target
+/web/build
+/web/.svelte-kit
+/web/node_modules
+/desktop/node_modules
+/data-dev
+/test-results
+/playwright-report
+.DS_Store
