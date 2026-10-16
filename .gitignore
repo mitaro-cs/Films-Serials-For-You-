@@ -7,3 +7,6 @@
 /test-results
 /playwright-report
 .DS_Store
+/desktop/src-tauri/gen
+/desktop/src-tauri/resources/ffmpeg*
+/desktop/src-tauri/resources/ffprobe*

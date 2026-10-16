@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["server"]
-default-members = ["server"]
+members = ["server", "desktop/src-tauri"]
+default-members = ["server", "desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
