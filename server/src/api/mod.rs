@@ -53,7 +53,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/admin/titles/{id}/match", post(admin::match_meta))
         .route("/api/admin/titles/{id}/refresh", post(admin::refresh_title))
         .route("/api/admin/titles/{id}/merge", post(admin::merge_title))
-        .route("/api/admin/titles/{id}/image/{which}", put(admin::upload_image))
+        .route(
+            "/api/admin/titles/{id}/image/{which}",
+            put(admin::upload_image).layer(axum::extract::DefaultBodyLimit::max(crate::images::MAX_IMAGE + 1024)),
+        )
         .route("/api/admin/files/{id}", patch(admin::edit_file))
         .route("/api/admin/users", get(admin::users).post(admin::create_user))
         .route("/api/admin/users/{id}", patch(admin::edit_user).delete(admin::delete_user))

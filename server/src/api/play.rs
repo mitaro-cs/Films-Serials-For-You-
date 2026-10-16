@@ -10,7 +10,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -45,7 +45,7 @@ fn file_row(app: &App, id: i64) -> ApiResult<FileRow> {
     })
 }
 
-pub async fn info(State(app): State<Arc<App>>, _v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
+pub async fn info(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
     let f = file_row(&app, id)?;
     let has_ff = app.tools.read().ffmpeg.is_some();
     let path = f.path.clone();
@@ -71,10 +71,22 @@ pub async fn info(State(app): State<Arc<App>>, _v: Viewer, Path(id): Path<i64>) 
     })?;
     let name: Option<String> =
         app.db.with(|c| c.query_row("SELECT name FROM files WHERE id = ?", [id], |r| r.get(0)))?;
+    // С какого места продолжить (досмотренное — сначала).
+    let position: f64 = app
+        .db
+        .with(|c| {
+            c.query_row(
+                "SELECT CASE WHEN done THEN 0 ELSE position END FROM progress WHERE user_id = ? AND file_id = ?",
+                params![v.id, id],
+                |r| r.get(0),
+            )
+            .optional()
+        })?
+        .unwrap_or(0.0);
     Ok(Json(json!({
         "play": info, "titleId": title_id, "kind": kind, "title": f.title,
         "episode": super::catalog::episode_label(f.season, f.episode, name.as_deref()),
-        "prev": prev, "next": next,
+        "prev": prev, "next": next, "position": position,
     })))
 }
 
