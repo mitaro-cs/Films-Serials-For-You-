@@ -37,8 +37,10 @@ pub async fn status(State(app): State<Arc<App>>, _m: Manager) -> Out {
     // «Сейчас смотрят»: прогресс за последнюю минуту (плеер шлёт его раз в 10 с).
     let watching: Vec<Value> = app.db.with(|c| {
         let mut st = c.prepare(
-            "SELECT u.name, t.title, f.season, f.episode, p.position, p.duration FROM progress p
-             JOIN users u ON u.id = p.user_id JOIN files f ON f.id = p.file_id JOIN titles t ON t.id = f.title_id
+            "SELECT CASE WHEN pr.name = u.name THEN u.name ELSE u.name || ' · ' || pr.name END,
+                    t.title, f.season, f.episode, p.position, p.duration FROM progress p
+             JOIN profiles pr ON pr.id = p.profile_id JOIN users u ON u.id = pr.user_id
+             JOIN files f ON f.id = p.file_id JOIN titles t ON t.id = f.title_id
              WHERE p.updated_at > ? ORDER BY p.updated_at DESC",
         )?;
         let r = st.query_map([now_ms() - 60_000], |r| {
@@ -291,6 +293,8 @@ pub struct TitleEdit {
     hidden: Option<bool>,
     locked: Option<bool>,
     genres: Option<Vec<String>>,
+    /// Возрастной рейтинг («12+», «PG-13»); пусто — неизвестен.
+    age: Option<String>,
 }
 
 pub async fn edit_title(
@@ -341,6 +345,11 @@ pub async fn edit_title(
         }
         if let Some(v) = &b.locked {
             set("locked", v)?;
+        }
+        if let Some(v) = &b.age {
+            let v = v.trim();
+            set("age", &(!v.is_empty()).then_some(v))?;
+            set("age_min", &crate::taste::age_min(v))?;
         }
         if let Some(v) = &b.genres {
             set("genres", &serde_json::to_string(v).unwrap_or_else(|_| "[]".into()))?;
@@ -439,7 +448,11 @@ pub async fn merge_title(
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
         tx.execute("UPDATE files SET title_id = ? WHERE title_id = ?", params![b.into, id])?;
-        tx.execute("INSERT OR IGNORE INTO my_list (user_id, title_id, added_at) SELECT user_id, ?, added_at FROM my_list WHERE title_id = ?", params![b.into, id])?;
+        tx.execute("INSERT OR IGNORE INTO my_list (profile_id, title_id, added_at) SELECT profile_id, ?, added_at FROM my_list WHERE title_id = ?", params![b.into, id])?;
+        tx.execute(
+            "INSERT OR IGNORE INTO ratings (profile_id, title_id, value, updated_at) SELECT profile_id, ?, value, updated_at FROM ratings WHERE title_id = ?",
+            params![b.into, id],
+        )?;
         tx.execute("DELETE FROM titles WHERE id = ?", [id])
     })?;
     ok()
@@ -466,7 +479,7 @@ pub async fn upload_image(
         .map_err(|e| ApiError::bad("bad_image", e.to_string()))?;
     app.db.with(|c| {
         c.execute(
-            &format!("UPDATE titles SET {col} = ?, locked = 1, updated_at = ? WHERE id = ?"),
+            &format!("UPDATE titles SET {col} = ?, poster_sm = CASE WHEN '{col}' = 'poster' THEN NULL ELSE poster_sm END, locked = 1, updated_at = ? WHERE id = ?"),
             params![name, now_ms(), id],
         )
     })?;

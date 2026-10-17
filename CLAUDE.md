@@ -9,13 +9,22 @@
 
 - `server/` — крейт `fsfy-server` (библиотека `fsfy` + бинарник `fsfy serve`): axum 0.8, tokio,
   rusqlite (одно соединение под мьютексом, WAL), reqwest (rustls).
-  - `library/` — `parse` (имя файла → название, год, сезон/серия), `scan` (обход, `missing`
-    вместо удаления), `probe` (ffprobe/ffmpeg, поиск ffmpeg), `jobs` (фоновые обход и ffprobe).
+  - `library/` — `parse` (имя файла → название, год, сезон/серия; папка «Название (год)»
+    главнее имени файла), `scan` (обход, `missing` вместо удаления), `probe` (ffprobe с главами,
+    `chapter_markers`, кадры перемотки, уменьшение постеров), `jobs` (обход, ffprobe, потом
+    лёгкие постеры `poster_sm` и кадры перемотки `files.trickplay`).
   - `meta/` — `imdb` (по умолчанию, без ключа: подсказки + GraphQL сайта IMDb, неофициально),
     `tmdb`, `kp`; `apply` скачивает картинки и пишет описание; `worker` — очередь `pending`.
   - `stream` — Range, перепаковка ffmpeg в фрагментированный MP4 (`?t=` — с места), субтитры
     в WebVTT (cp1251 → UTF-8).
   - `auth` — Argon2id, сессии (в базе — SHA-256 токена), `Viewer`/`Manager`, `Limiter`.
+    У `Viewer` всегда есть `profile` (сессия помнит выбранный, `sessions.profile_id`); прогресс,
+    `my_list`, `ratings` — по `profile_id`. Детский профиль — `api::visible(kids)` (`KIDS`:
+    `titles.age_min` ≤ 12 или жанры мультфильмов).
+  - `taste` — вкус профиля: веса жанров → `match_pct`, «не для меня», `age_min()`.
+  - `hls` — адаптивный поток: плейлист заранее (кусочки по 6 с), ffmpeg с `-ss`,
+    `-force_key_frames` на границах и `-output_ts_offset`; задача на (файл, высота, дорожка),
+    `janitor` останавливает убежавшие вперёд и брошенные.
   - `access` — режимы `lan` / `fxtunnel` (клиент с GitHub по SHA-256) / `custom`.
   - `api/` — маршруты (`mod.rs`), `account`, `catalog`, `play`, `admin`.
   - `web.rs` — встроенный интерфейс (rust-embed из `web/build`) и заголовки.
@@ -36,7 +45,11 @@
   (после первого выпуска).
 - Права: `Viewer` — вошёл, `Manager` — хост или администратор; назначать администраторов — хост.
 - Никаких `confirm()/alert()`: в окне приложения на Mac (WKWebView) они не показываются —
-  `ui/ask.svelte.ts`.
+  `ui/dialogs.svelte.ts`.
+- Имена файлов не должны совпадать без учёта регистра (`x.svelte.ts` и `X.svelte` — тоже):
+  на Mac и Windows импорт находит не тот файл (сборка 0.1.0 так упала). Ловит
+  `web/src/lib/paths.test.ts`.
+- hls.js — только `hls.js/light` и только лениво из плеера (это ~120 КБ gzip).
 - Внешних запросов из фронта нет (шрифты системные, иконки свои); картинки IMDb/TMDB сервер
   скачивает к себе (`images/<sha256>.ext`).
 - Коммиты — Conventional Commits (`feat:`, `fix:`, …).

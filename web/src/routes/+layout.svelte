@@ -4,6 +4,7 @@
   import { page } from '$app/state';
   import Ask from '$lib/ui/Ask.svelte';
   import Header from '$lib/ui/Header.svelte';
+  import HoverCard from '$lib/ui/HoverCard.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Logo from '$lib/ui/Logo.svelte';
   import { loadMe, net, session } from '$lib/session.svelte';
@@ -13,7 +14,7 @@
   const AUTH = ['/login', '/join', '/register'];
   const path = $derived(page.url.pathname);
   const auth = $derived(AUTH.some((p) => path.startsWith(p)));
-  const bare = $derived(auth || path.startsWith('/watch'));
+  const bare = $derived(auth || path.startsWith('/watch') || path === '/profiles');
 
   $effect(() => {
     if (auth || session.me) {
@@ -21,8 +22,12 @@
       return;
     }
     loadMe().then((me) => {
+      const here = location.pathname + location.search;
       if (!me && !AUTH.some((p) => location.pathname.startsWith(p))) {
-        goto(`/login?next=${encodeURIComponent(location.pathname + location.search)}`, { replaceState: true });
+        goto(`/login?next=${encodeURIComponent(here)}`, { replaceState: true });
+      } else if (me && me.profiles.length > 1 && !me.user.profileChosen && location.pathname !== '/profiles') {
+        // Как у Netflix: на новом устройстве сначала «Кто смотрит?».
+        goto(`/profiles?next=${encodeURIComponent(here)}`, { replaceState: true });
       }
     });
   });
@@ -45,6 +50,7 @@
 {:else if session.me}
   <Header />
   <main>{@render children()}</main>
+  <HoverCard />
   <footer>
     <Logo />
     <p class="muted">Фильмы и сериалы с компьютера {session.me.site.name === 'Films & Serials For You' ? 'хоста' : `«${session.me.site.name}»`}. Смотрите онлайн или скачивайте.</p>

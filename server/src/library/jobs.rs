@@ -3,7 +3,7 @@
 use super::probe;
 use super::scan::{scan, ScanStats};
 use crate::App;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -85,6 +85,68 @@ pub async fn probe_worker(app: Arc<App>) {
                 continue;
             }
         }
+        if let Some(ffmpeg) = tools.ffmpeg {
+            // Когда новых файлов нет: лёгкие постеры для рядов, потом кадры для перемотки.
+            if thumbs(&app, &ffmpeg).await || trickplay_one(&app, &ffmpeg).await {
+                continue;
+            }
+        }
         let _ = tokio::time::timeout(Duration::from_secs(900), app.probe_kick.notified()).await;
     }
+}
+
+/// Уменьшенные постеры (342 px) — ряды на главной грузятся в разы быстрее. true — что-то сделано.
+async fn thumbs(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
+    let todo: Vec<(i64, String)> = app
+        .db
+        .with(|c| {
+            let mut st =
+                c.prepare("SELECT id, poster FROM titles WHERE poster IS NOT NULL AND poster_sm IS NULL LIMIT 20")?;
+            let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            r.collect()
+        })
+        .unwrap_or_default();
+    for (id, poster) in &todo {
+        let small = match app.images.path(poster) {
+            Some(src) => probe::scale_image(ffmpeg, &src, 342).await.ok().and_then(|b| app.images.save(&b).ok()),
+            None => None,
+        };
+        // Не вышло — берём исходный, чтобы не пробовать по кругу.
+        let small = small.unwrap_or_else(|| poster.clone());
+        let _ = app.db.with(|c| c.execute("UPDATE titles SET poster_sm = ? WHERE id = ?", params![small, id]));
+    }
+    !todo.is_empty()
+}
+
+/// Кадры для полосы перемотки, как у Netflix: раз в 10 секунд, листы 10×10 по 240 px.
+/// Декодируются только ключевые кадры — быстро даже для длинного фильма. true — что-то сделано.
+async fn trickplay_one(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
+    if app.db.setting_or("media.trickplay", "1") != "1" {
+        return false;
+    }
+    let next: Option<(i64, String, String)> = app
+        .db
+        .with(|c| {
+            c.query_row(
+                "SELECT id, path, probe FROM files WHERE trickplay IS NULL AND missing = 0 AND probe IS NOT NULL ORDER BY added_at DESC LIMIT 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()
+        })
+        .ok()
+        .flatten();
+    let Some((id, path, probe)) = next else { return false };
+    let p: probe::Probe = serde_json::from_str(&probe).unwrap_or_default();
+    let dir = app.data.join("trickplay").join(id.to_string());
+    let result = match (&p.video, p.duration) {
+        (Some(v), Some(d)) if v.width > 0 && v.height > 0 && d >= 10.0 => {
+            let _ = std::fs::remove_dir_all(&dir);
+            probe::trickplay(ffmpeg, std::path::Path::new(&path), &dir, v.width, v.height, d).await.ok()
+        }
+        _ => None,
+    };
+    let json = result.map(|t| serde_json::to_string(&t).unwrap_or_default()).unwrap_or_else(|| "{}".into());
+    let _ = app.db.with(|c| c.execute("UPDATE files SET trickplay = ? WHERE id = ?", params![json, id]));
+    true
 }

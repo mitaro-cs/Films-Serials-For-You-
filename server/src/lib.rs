@@ -6,11 +6,13 @@ pub mod api;
 pub mod auth;
 pub mod db;
 pub mod error;
+pub mod hls;
 pub mod host;
 pub mod images;
 pub mod library;
 pub mod meta;
 pub mod stream;
+pub mod taste;
 pub mod util;
 pub mod web;
 
@@ -50,6 +52,7 @@ pub struct App {
     /// Перекодирование нагружает процессор — одновременно немного.
     pub transcode: Arc<Semaphore>,
     pub remux: Arc<Semaphore>,
+    pub hls: hls::Hls,
 }
 
 impl App {
@@ -182,13 +185,16 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         entries: Mutex::default(),
         transcode: Arc::new(Semaphore::new(2)),
         remux: Arc::new(Semaphore::new(8)),
+        hls: hls::Hls::default(),
     });
     auth::ensure_host(&app)?;
+    backfill(&app)?;
 
     tokio::spawn(library::jobs::scan_worker(app.clone()));
     tokio::spawn(library::jobs::probe_worker(app.clone()));
     tokio::spawn(meta::worker(app.clone()));
     tokio::spawn(cleanup(app.clone()));
+    tokio::spawn(hls::janitor(app.clone()));
     access::Access::restart(&app);
 
     let router = api::router(app.clone());
@@ -210,6 +216,21 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
     }
     tracing::info!(port = ports.0, window_port = ports.1, "сервер запущен");
     Ok(Running { app, stop, servers })
+}
+
+/// Данные, появившиеся в новой версии, для старых записей.
+fn backfill(app: &App) -> rusqlite::Result<()> {
+    let ages: Vec<(i64, String)> = app.db.with(|c| {
+        let mut st = c.prepare("SELECT id, age FROM titles WHERE age IS NOT NULL AND age_min IS NULL")?;
+        let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        r.collect()
+    })?;
+    app.db.tx(|tx| {
+        for (id, age) in ages {
+            tx.execute("UPDATE titles SET age_min = ? WHERE id = ?", rusqlite::params![taste::age_min(&age), id])?;
+        }
+        Ok(())
+    })
 }
 
 /// Раз в час: просроченные сессии и приглашения.

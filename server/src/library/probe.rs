@@ -14,6 +14,38 @@ pub struct Probe {
     pub video: Option<Video>,
     pub audio: Vec<Track>,
     pub subs: Vec<Track>,
+    #[serde(default)]
+    pub chapters: Vec<Chapter>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Chapter {
+    pub start: f64,
+    pub end: f64,
+    pub title: String,
+}
+
+/// Заставка и титры по названиям глав (MKV с главами «Opening», «Intro», «Заставка», «Credits»…).
+pub fn chapter_markers(chapters: &[Chapter], duration: Option<f64>) -> (Option<(f64, f64)>, Option<f64>) {
+    let is = |t: &str, words: &[&str]| {
+        let t = t.to_lowercase();
+        let toks: Vec<&str> = t.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+        words.iter().any(|w| if w.contains(' ') { t.contains(w) } else { toks.contains(w) })
+    };
+    let intro = chapters
+        .iter()
+        .find(|c| is(&c.title, &["intro", "opening", "op", "заставка", "вступление", "начальные титры"]))
+        .filter(|c| c.end > c.start && c.end - c.start < 300.0)
+        .map(|c| (c.start, c.end));
+    let credits = chapters
+        .iter()
+        .rev()
+        .find(|c| {
+            is(&c.title, &["credits", "ending", "ed", "end credits", "титры", "финальные титры", "конечные титры"])
+        })
+        .map(|c| c.start)
+        .filter(|s| duration.is_none_or(|d| *s > d * 0.5));
+    (intro, credits)
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -108,7 +140,7 @@ pub async fn probe(ffprobe: &Path, file: &Path) -> anyhow::Result<Probe> {
     let out = tokio::time::timeout(
         Duration::from_secs(60),
         command(ffprobe)
-            .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams"])
+            .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams", "-show_chapters"])
             .arg(file)
             .stderr(Stdio::null())
             .output(),
@@ -126,6 +158,13 @@ pub fn from_json(v: &serde_json::Value) -> Probe {
         duration: v["format"]["duration"].as_str().and_then(|d| d.parse().ok()),
         ..Default::default()
     };
+    for ch in v["chapters"].as_array().into_iter().flatten() {
+        let t = |k: &str| ch[k].as_str().and_then(|s| s.parse::<f64>().ok());
+        if let (Some(start), Some(end)) = (t("start_time"), t("end_time")) {
+            let title = ch["tags"]["title"].as_str().unwrap_or_default().to_string();
+            p.chapters.push(Chapter { start, end, title });
+        }
+    }
     let (mut na, mut ns) = (0, 0);
     for st in v["streams"].as_array().into_iter().flatten() {
         let codec = st["codec_name"].as_str().unwrap_or_default().to_string();
@@ -192,6 +231,81 @@ pub async fn frame(ffmpeg: &Path, file: &Path, at: f64, width: u32) -> anyhow::R
     Ok(out.stdout)
 }
 
+/// Картинка меньшего размера (JPEG) — для лёгких постеров.
+pub async fn scale_image(ffmpeg: &Path, src: &Path, width: u32) -> anyhow::Result<Vec<u8>> {
+    let out = tokio::time::timeout(
+        Duration::from_secs(30),
+        command(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(src)
+            .args([
+                "-vf",
+                &format!("scale='min({width},iw)':-2"),
+                "-q:v",
+                "4",
+                "-frames:v",
+                "1",
+                "-f",
+                "image2",
+                "-c:v",
+                "mjpeg",
+                "pipe:1",
+            ])
+            .stderr(Stdio::null())
+            .output(),
+    )
+    .await??;
+    anyhow::ensure!(out.status.success() && !out.stdout.is_empty(), "ffmpeg не уменьшил картинку");
+    Ok(out.stdout)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Trickplay {
+    /// Секунд между кадрами.
+    pub interval: u32,
+    pub width: u32,
+    pub height: u32,
+    pub cols: u32,
+    pub rows: u32,
+    /// Всего кадров и листов.
+    pub count: u32,
+    pub sheets: u32,
+}
+
+pub async fn trickplay(
+    ffmpeg: &Path,
+    file: &Path,
+    dir: &Path,
+    w: i64,
+    h: i64,
+    duration: f64,
+) -> anyhow::Result<Trickplay> {
+    let (interval, width, cols, rows) = (10u32, 240u32, 10u32, 10u32);
+    let height = ((width as f64 * h as f64 / w as f64 / 2.0).round() as u32 * 2).max(2);
+    std::fs::create_dir_all(dir)?;
+    let status = tokio::time::timeout(
+        Duration::from_secs(900),
+        command(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-skip_frame", "nokey", "-i"])
+            .arg(file)
+            .args(["-an", "-sn", "-dn", "-vf"])
+            .arg(format!("fps=1/{interval},scale={width}:{height},tile={cols}x{rows}"))
+            .args(["-fps_mode", "vfr", "-q:v", "5", "-start_number", "0"])
+            .arg(dir.join("%d.jpg"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status(),
+    )
+    .await??;
+    anyhow::ensure!(status.success(), "ffmpeg не сделал кадры");
+    let sheets = std::fs::read_dir(dir)?
+        .filter(|e| e.as_ref().is_ok_and(|e| e.path().extension().is_some_and(|x| x == "jpg")))
+        .count() as u32;
+    anyhow::ensure!(sheets > 0, "нет кадров");
+    let count = ((duration / interval as f64).ceil() as u32).min(sheets * cols * rows);
+    Ok(Trickplay { interval, width, height, cols, rows, count, sheets })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,5 +328,20 @@ mod tests {
         assert_eq!(p.audio[1].index, 1);
         assert_eq!(p.audio[0].title.as_deref(), Some("Дубляж"));
         assert!(p.subs[0].forced);
+    }
+
+    #[test]
+    fn markers_from_chapters() {
+        let ch = |s: f64, e: f64, t: &str| Chapter { start: s, end: e, title: t.into() };
+        let list = vec![
+            ch(0.0, 60.0, "Пролог"),
+            ch(60.0, 150.0, "Opening"),
+            ch(150.0, 1300.0, "Part A"),
+            ch(1300.0, 1400.0, "Ending"),
+        ];
+        assert_eq!(chapter_markers(&list, Some(1400.0)), (Some((60.0, 150.0)), Some(1300.0)));
+        assert_eq!(chapter_markers(&[ch(0.0, 10.0, "Chapter 1")], Some(100.0)), (None, None));
+        // «Титры» в начале фильма — это не финальные титры.
+        assert_eq!(chapter_markers(&[ch(5.0, 60.0, "Титры")], Some(5000.0)).1, None);
     }
 }

@@ -2,7 +2,7 @@
   import { api, del, errorText, patch, post } from '$lib/api';
   import { ago } from '$lib/fmt';
   import { session } from '$lib/session.svelte';
-  import { ask } from '$lib/ui/ask.svelte';
+  import { ask } from '$lib/ui/dialogs.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Modal from '$lib/ui/Modal.svelte';
 

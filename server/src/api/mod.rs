@@ -4,6 +4,9 @@ mod account;
 mod admin;
 mod catalog;
 mod play;
+mod profiles;
+
+pub use play::busy;
 
 use crate::App;
 use axum::routing::{delete, get, patch, post, put};
@@ -30,6 +33,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/titles/{id}", get(catalog::title))
         .route("/api/genres", get(catalog::genres))
         .route("/api/list", get(catalog::my_list))
+        .route("/api/titles/{id}/rating", put(catalog::set_rating))
+        .route("/api/profiles", get(profiles::list).post(profiles::create))
+        .route("/api/profiles/{id}", patch(profiles::edit).delete(profiles::delete))
+        .route("/api/profiles/{id}/select", post(profiles::select))
         .route("/api/list/{id}", put(catalog::set_list))
         .route("/img/{name}", get(catalog::image))
         // просмотр
@@ -38,6 +45,11 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/files/{id}/download", get(play::download))
         .route("/api/files/{id}/play", get(play::remux))
         .route("/api/files/{id}/subs/{sid}", get(play::subs))
+        .route("/api/files/{id}/hls/master.m3u8", get(play::hls_master))
+        .route("/api/files/{id}/hls/{h}/index.m3u8", get(play::hls_variant))
+        .route("/api/files/{id}/hls/{h}/{seg}", get(play::hls_segment))
+        .route("/api/files/{id}/trickplay/{sheet}", get(play::trickplay))
+        .route("/api/files/{id}/markers", put(play::set_markers))
         .route("/api/progress/{id}", put(play::save_progress).delete(play::clear_progress))
         // управление
         .route("/api/admin/status", get(admin::status))
@@ -86,7 +98,9 @@ pub struct Card {
     pub title: String,
     pub original_title: Option<String>,
     pub year: Option<i32>,
+    /// Постер для рядов (уменьшенный, если есть).
     pub poster: Option<String>,
+    pub poster_large: Option<String>,
     pub backdrop: Option<String>,
     pub logo: Option<String>,
     pub rating: Option<f64>,
@@ -98,6 +112,10 @@ pub struct Card {
     /// Серий у сериала / частей у фильма.
     pub files: i64,
     pub seasons: i64,
+    /// Для профиля: в «Моём списке», своя оценка (-1, 1, 2), «совпадение» в процентах.
+    pub in_list: bool,
+    pub my_rating: Option<i32>,
+    pub match_pct: Option<i32>,
 }
 
 pub fn img(name: Option<String>) -> Option<String> {
@@ -111,7 +129,19 @@ pub fn json_list(s: Option<String>) -> Vec<String> {
 /// Видно зрителям: не скрыто и хотя бы один файл на месте.
 pub const VISIBLE: &str = "t.hidden = 0 AND EXISTS (SELECT 1 FROM files f WHERE f.title_id = t.id AND f.missing = 0)";
 
-pub const CARD_COLS: &str = "t.id, t.kind, t.title, t.original_title, t.year, t.poster,
+/// Детский профиль: возраст до 12+ или мультфильмы и семейное.
+pub const KIDS: &str = "((t.age_min IS NOT NULL AND t.age_min <= 12) OR EXISTS (SELECT 1 FROM json_each(t.genres)
+    WHERE value IN ('Мультфильм', 'Семейный', 'Анимация', 'Детский', 'Мультсериал', 'Family', 'Animation')))";
+
+pub fn visible(kids: bool) -> String {
+    if kids {
+        format!("{VISIBLE} AND {KIDS}")
+    } else {
+        VISIBLE.to_string()
+    }
+}
+
+pub const CARD_COLS: &str = "t.id, t.kind, t.title, t.original_title, t.year, COALESCE(t.poster_sm, t.poster), t.poster,
     COALESCE(t.backdrop, (SELECT f.still FROM files f WHERE f.title_id = t.id AND f.still IS NOT NULL ORDER BY f.season, f.episode LIMIT 1)),
     t.logo, t.rating, t.genres, t.overview, t.runtime, t.age, t.added_at,
     (SELECT COUNT(*) FROM files f WHERE f.title_id = t.id AND f.missing = 0),
@@ -125,31 +155,49 @@ pub fn card(r: &Row) -> rusqlite::Result<Card> {
         original_title: r.get(3)?,
         year: r.get(4)?,
         poster: img(r.get(5)?),
-        backdrop: img(r.get(6)?),
-        logo: img(r.get(7)?),
-        rating: r.get(8)?,
-        genres: json_list(r.get(9)?),
-        overview: r.get(10)?,
-        runtime: r.get(11)?,
-        age: r.get(12)?,
-        added_at: r.get(13)?,
-        files: r.get(14)?,
-        seasons: r.get(15)?,
+        poster_large: img(r.get(6)?),
+        backdrop: img(r.get(7)?),
+        logo: img(r.get(8)?),
+        rating: r.get(9)?,
+        genres: json_list(r.get(10)?),
+        overview: r.get(11)?,
+        runtime: r.get(12)?,
+        age: r.get(13)?,
+        added_at: r.get(14)?,
+        files: r.get(15)?,
+        seasons: r.get(16)?,
+        in_list: false,
+        my_rating: None,
+        match_pct: None,
     })
 }
 
 pub fn cards(
     app: &App,
+    kids: bool,
     where_sql: &str,
     order: &str,
     limit: i64,
     params: &[&dyn rusqlite::ToSql],
 ) -> rusqlite::Result<Vec<Card>> {
-    let sql =
-        format!("SELECT {CARD_COLS} FROM titles t WHERE {VISIBLE} AND ({where_sql}) ORDER BY {order} LIMIT {limit}");
+    let sql = format!(
+        "SELECT {CARD_COLS} FROM titles t WHERE {} AND ({where_sql}) ORDER BY {order} LIMIT {limit}",
+        visible(kids)
+    );
     app.db.with(|c| {
         let mut st = c.prepare(&sql)?;
         let rows = st.query_map(params, card)?;
         rows.collect()
     })
+}
+
+/// Карточки по списку id в том же порядке (Топ-10, история).
+pub fn cards_by_ids(app: &App, kids: bool, ids: &[i64]) -> rusqlite::Result<Vec<Card>> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+    let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let mut out = cards(app, kids, &format!("t.id IN ({list})"), "t.id", ids.len() as i64, &[])?;
+    out.sort_by_key(|c| ids.iter().position(|i| *i == c.id));
+    Ok(out)
 }

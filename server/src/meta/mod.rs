@@ -232,16 +232,40 @@ pub async fn apply(
     let imdb_id = d.imdb_id.clone().or_else(|| (provider == "imdb").then(|| provider_id.to_string()));
     app.db.tx(|tx| {
         tx.execute(
-            "UPDATE titles SET title = COALESCE(NULLIF(?, ''), title), original_title = ?, year = COALESCE(?, year), overview = ?, tagline = ?,
-               genres = ?, countries = ?, languages = ?, aka = ?, people = ?, rating = ?, votes = ?, runtime = ?, age = ?,
-               release_date = ?, poster = COALESCE(?, poster), backdrop = COALESCE(?, backdrop), logo = ?,
-               gallery = ?, imdb_id = ?, provider = ?, provider_id = ?, meta_status = ?, updated_at = ?
-             WHERE id = ?",
+            "UPDATE titles SET title = COALESCE(NULLIF(?1, ''), title), original_title = ?2, year = COALESCE(?3, year),
+               overview = ?4, tagline = ?5, genres = ?6, countries = ?7, languages = ?8, aka = ?9, people = ?10,
+               rating = ?11, votes = ?12, runtime = ?13, age = ?14, age_min = ?15, release_date = ?16,
+               poster_sm = CASE WHEN ?17 IS NOT NULL THEN NULL ELSE poster_sm END, poster = COALESCE(?17, poster),
+               backdrop = COALESCE(?18, backdrop), logo = ?19, gallery = ?20, imdb_id = ?21, provider = ?22,
+               provider_id = ?23, meta_status = ?24, updated_at = ?25
+             WHERE id = ?26",
             params![
                 d.title,
-                d.original, d.year, d.overview, d.tagline, js(&d.genres), js(&d.countries), js(&d.languages), js(&d.aka),
-                serde_json::to_string(&people).unwrap_or_else(|_| "[]".into()), d.rating, d.votes, d.runtime, d.age,
-                d.release_date, poster, backdrop, logo, js(&gallery), imdb_id, provider, provider_id, status, now_ms(), title_id
+                d.original,
+                d.year,
+                d.overview,
+                d.tagline,
+                js(&d.genres),
+                js(&d.countries),
+                js(&d.languages),
+                js(&d.aka),
+                serde_json::to_string(&people).unwrap_or_else(|_| "[]".into()),
+                d.rating,
+                d.votes,
+                d.runtime,
+                d.age,
+                d.age.as_deref().and_then(crate::taste::age_min),
+                d.release_date,
+                poster,
+                backdrop,
+                logo,
+                js(&gallery),
+                imdb_id,
+                provider,
+                provider_id,
+                status,
+                now_ms(),
+                title_id
             ],
         )?;
         for (e, still) in d.episodes.iter().zip(stills) {

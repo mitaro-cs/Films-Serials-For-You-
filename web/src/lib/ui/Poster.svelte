@@ -1,20 +1,29 @@
 <script lang="ts">
+  import { hoverEnter, hoverLeave } from '$lib/cards.svelte';
   import type { Card } from '$lib/types';
   import { placeholder } from './art';
   import Stars from './Stars.svelte';
 
   let { card, width }: { card: Card; width?: number } = $props();
   let failed = $state(false);
+  let el: HTMLDivElement | undefined = $state();
 </script>
 
-<a class="poster" href="/title/{card.id}" style:width={width ? `${width}px` : undefined}>
-  <div class="img" style:background={card.poster && !failed ? undefined : placeholder(card.title)}>
+<a
+  class="poster"
+  href="/title/{card.id}"
+  style:width={width ? `${width}px` : undefined}
+  onmouseenter={() => el && hoverEnter(card, el)}
+  onmouseleave={hoverLeave}
+>
+  <div class="img" bind:this={el} style:background={card.poster && !failed ? undefined : placeholder(card.title)}>
     {#if card.poster && !failed}
       <img src={card.poster} alt="" loading="lazy" decoding="async" onerror={() => (failed = true)} />
     {:else}
       <span class="ph">{card.title}</span>
     {/if}
     {#if card.kind === 'series'}<span class="tag">Сериал</span>{/if}
+    {#if card.inList}<span class="mark" title="В моём списке">✓</span>{/if}
   </div>
   <div class="t" title={card.title}>{card.title}</div>
   <div class="sub">
@@ -71,6 +80,19 @@
     backdrop-filter: blur(6px);
     font-size: 11px;
     font-weight: 700;
+  }
+  .mark {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent);
+    font-size: 12px;
+    font-weight: 800;
   }
   .t {
     margin-top: 10px;

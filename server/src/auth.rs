@@ -76,6 +76,59 @@ pub struct Viewer {
     pub can_download: bool,
     #[serde(skip)]
     pub local: bool,
+    /// Профиль («Кто смотрит?»): прогресс, список и оценки — у него.
+    pub profile: Profile,
+    /// Профиль выбран в этой сессии (иначе интерфейс спросит «Кто смотрит?»).
+    pub profile_chosen: bool,
+    #[serde(skip)]
+    pub token_hash: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Profile {
+    pub id: i64,
+    pub name: String,
+    pub avatar: i64,
+    pub kids: bool,
+    pub autoplay: bool,
+}
+
+impl Profile {
+    pub fn from_row(r: &rusqlite::Row) -> rusqlite::Result<Self> {
+        Ok(Profile { id: r.get(0)?, name: r.get(1)?, avatar: r.get(2)?, kids: r.get(3)?, autoplay: r.get(4)? })
+    }
+}
+
+pub const PROFILE_COLS: &str = "id, name, avatar, kids, autoplay";
+
+/// Профиль сессии; нет ни одного (новый аккаунт) — создаётся с именем аккаунта.
+fn profile_for(app: &App, user: i64, name: &str, wanted: Option<i64>) -> rusqlite::Result<Profile> {
+    app.db.with(|c| {
+        let found = c
+            .query_row(
+                &format!("SELECT {PROFILE_COLS} FROM profiles WHERE user_id = ? ORDER BY id = ? DESC, id LIMIT 1"),
+                params![user, wanted.unwrap_or(-1)],
+                Profile::from_row,
+            )
+            .optional()?;
+        match found {
+            Some(p) => Ok(p),
+            None => {
+                c.execute(
+                    "INSERT INTO profiles (user_id, name, avatar, created_at) VALUES (?, ?, ?, ?)",
+                    params![user, name, user % 12, now_ms()],
+                )?;
+                Ok(Profile {
+                    id: c.last_insert_rowid(),
+                    name: name.to_string(),
+                    avatar: user % 12,
+                    kids: false,
+                    autoplay: true,
+                })
+            }
+        }
+    })
 }
 
 impl Viewer {
@@ -148,31 +201,35 @@ fn load(app: &App, parts: &Parts) -> Option<Viewer> {
         .db
         .with(|c| {
             c.query_row(
-                "SELECT u.id, u.login, u.name, u.role, u.can_download, s.local, s.seen_at, s.expires_at
+                "SELECT u.id, u.login, u.name, u.role, u.can_download, s.local, s.seen_at, s.expires_at, s.profile_id
                  FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.hash = ? AND u.disabled = 0",
                 [&hash],
                 |r| {
                     Ok((
-                        Viewer {
-                            id: r.get(0)?,
-                            login: r.get(1)?,
-                            name: r.get(2)?,
-                            role: r.get(3)?,
-                            can_download: r.get(4)?,
-                            local: r.get(5)?,
-                        },
+                        (
+                            r.get::<_, i64>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, String>(3)?,
+                            r.get::<_, bool>(4)?,
+                            r.get::<_, bool>(5)?,
+                        ),
                         r.get::<_, i64>(6)?,
                         r.get::<_, i64>(7)?,
+                        r.get::<_, Option<i64>>(8)?,
                     ))
                 },
             )
             .optional()
         })
         .ok()??;
-    let (v, seen, expires) = row;
-    if expires < now || v.local && !via.window {
+    let ((id, login, name, role, can_download, local), seen, expires, wanted) = row;
+    if expires < now || local && !via.window {
         return None;
     }
+    let profile = profile_for(app, id, &name, wanted).ok()?;
+    let profile_chosen = wanted == Some(profile.id);
+    let v = Viewer { id, login, name, role, can_download, local, profile, profile_chosen, token_hash: hash.clone() };
     // Скользящий срок: продлеваем не чаще раза в час, чтобы не писать на каждый запрос.
     if now - seen > 3600 * 1000 {
         let _ = app.db.with(|c| {
