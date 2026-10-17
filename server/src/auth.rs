@@ -92,15 +92,24 @@ pub struct Profile {
     pub avatar: i64,
     pub kids: bool,
     pub autoplay: bool,
+    /// Своё фото (`/img/…`); нет — рисованный аватар `avatar`.
+    pub photo: Option<String>,
 }
 
 impl Profile {
     pub fn from_row(r: &rusqlite::Row) -> rusqlite::Result<Self> {
-        Ok(Profile { id: r.get(0)?, name: r.get(1)?, avatar: r.get(2)?, kids: r.get(3)?, autoplay: r.get(4)? })
+        Ok(Profile {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            avatar: r.get(2)?,
+            kids: r.get(3)?,
+            autoplay: r.get(4)?,
+            photo: crate::api::img(r.get(5)?),
+        })
     }
 }
 
-pub const PROFILE_COLS: &str = "id, name, avatar, kids, autoplay";
+pub const PROFILE_COLS: &str = "id, name, avatar, kids, autoplay, photo";
 
 /// Профиль сессии; нет ни одного (новый аккаунт) — создаётся с именем аккаунта.
 fn profile_for(app: &App, user: i64, name: &str, wanted: Option<i64>) -> rusqlite::Result<Profile> {
@@ -125,6 +134,7 @@ fn profile_for(app: &App, user: i64, name: &str, wanted: Option<i64>) -> rusqlit
                     avatar: user % 12,
                     kids: false,
                     autoplay: true,
+                    photo: None,
                 })
             }
         }

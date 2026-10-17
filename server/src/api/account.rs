@@ -20,7 +20,7 @@ pub async fn health() -> Json<Value> {
 fn site_json(app: &App) -> Value {
     json!({
         "name": app.site_name(),
-        "registration": app.db.setting_or("site.registration", "invite"),
+        "registration": app.db.setting_or("site.registration", crate::api::account::REGISTRATION_DEFAULT),
         "downloads": app.db.setting_or("site.downloads", "1") == "1",
         "version": crate::VERSION,
     })
@@ -137,19 +137,32 @@ pub struct RegisterBody {
     password: String,
 }
 
+/// Регистрация по умолчанию — открытая: друзья заводят аккаунт сами, без приглашений
+/// (просьба владельца, 0.4). Хост может включить «по приглашениям» или закрыть.
+pub const REGISTRATION_DEFAULT: &str = "open";
+
 pub async fn register(
     State(app): State<Arc<App>>,
     Ip(ip): Ip,
     headers: HeaderMap,
     Json(b): Json<RegisterBody>,
 ) -> ApiResult<Response> {
-    let mode = app.db.setting_or("site.registration", "invite");
+    let mode = app.db.setting_or("site.registration", crate::api::account::REGISTRATION_DEFAULT);
     let key = format!("invite:{ip}");
     if app.login_limit.blocked(&key) {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "rate_limited",
             "Слишком много попыток. Подождите 10 минут",
+        ));
+    }
+    // Новых аккаунтов с одного адреса — не больше 5 за 10 минут (от ботов при открытой регистрации).
+    let signups = format!("signup:{ip}");
+    if app.signup_limit.blocked(&signups) {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limited",
+            "С этого адреса уже заводили аккаунты. Подождите 10 минут",
         ));
     }
     let code = b.invite.as_deref().map(|c| c.trim().to_uppercase()).filter(|c| !c.is_empty());
@@ -187,6 +200,7 @@ pub async fn register(
     let Some(id) = id else {
         return Err(ApiError::new(StatusCode::CONFLICT, "login_taken", "Такой логин уже занят"));
     };
+    app.signup_limit.fail(&signups);
     let t = auth::create_session(&app, id, false)?;
     Ok(with_cookie(json!({"ok": true}), auth::session_cookie(auth::COOKIE, &t, auth::secure(&headers), 365 * 86400)))
 }

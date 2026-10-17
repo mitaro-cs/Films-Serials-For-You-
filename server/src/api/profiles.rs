@@ -59,7 +59,7 @@ pub async fn create(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<NewPro
         Ok(Some(tx.last_insert_rowid()))
     })?;
     let id = id.ok_or_else(|| ApiError::new(StatusCode::CONFLICT, "too_many", "Не больше 6 профилей"))?;
-    Ok(Json(Profile { id, name, avatar, kids, autoplay: true }))
+    Ok(Json(Profile { id, name, avatar, kids, autoplay: true, photo: None }))
 }
 
 #[derive(Deserialize)]
@@ -70,7 +70,7 @@ pub struct EditProfile {
     autoplay: Option<bool>,
 }
 
-fn own(app: &App, v: &Viewer, id: i64) -> ApiResult<()> {
+pub fn own(app: &App, v: &Viewer, id: i64) -> ApiResult<()> {
     let mine: bool = app.db.with(|c| {
         c.query_row("SELECT EXISTS (SELECT 1 FROM profiles WHERE id = ? AND user_id = ?)", params![id, v.id], |r| {
             r.get(0)

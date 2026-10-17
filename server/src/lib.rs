@@ -49,6 +49,9 @@ pub struct App {
     pub probe_kick: Notify,
     pub access: access::Access,
     pub login_limit: auth::Limiter,
+    pub signup_limit: auth::Limiter,
+    /// Сообщений от профиля — не больше 30 в минуту.
+    pub message_limit: auth::Limiter,
     pub entries: Mutex<HashMap<String, i64>>,
     /// Перекодирование нагружает процессор — одновременно немного.
     pub transcode: Arc<Semaphore>,
@@ -183,6 +186,8 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         probe_kick: Notify::new(),
         access: access::Access::default(),
         login_limit: auth::Limiter::new(10, 10 * 60 * 1000),
+        signup_limit: auth::Limiter::new(5, 10 * 60 * 1000),
+        message_limit: auth::Limiter::new(30, 60 * 1000),
         entries: Mutex::default(),
         transcode: Arc::new(Semaphore::new(2)),
         remux: Arc::new(Semaphore::new(8)),

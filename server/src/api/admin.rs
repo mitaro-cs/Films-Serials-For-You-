@@ -72,7 +72,7 @@ pub async fn settings(State(app): State<Arc<App>>, _m: Manager) -> Out {
     let tools = app.tools.read().clone();
     Ok(Json(json!({
         "siteName": app.site_name(),
-        "registration": db.setting_or("site.registration", "invite"),
+        "registration": db.setting_or("site.registration", crate::api::account::REGISTRATION_DEFAULT),
         "downloads": db.setting_or("site.downloads", "1") == "1",
         "provider": db.setting_or("meta.provider", "imdb"),
         "tmdbKeySet": !db.setting_or("meta.tmdb.key", "").is_empty(),
