@@ -1,4 +1,4 @@
-.PHONY: dev web build test lint fmt desktop desktop-run
+.PHONY: dev web build test e2e screenshots lint fmt desktop desktop-run
 
 dev:            ## сервер на :17480 (данные в ./data-dev) + vite на :5173
 	cargo run -p fsfy-server -- serve --data ./data-dev & cd web && npm run dev
@@ -12,6 +12,12 @@ build: web      ## сервер с встроенным интерфейсом: 
 test:
 	cargo test -p fsfy-server
 	cd web && npm test
+
+e2e: build      ## Playwright: вёрстка, статусы, скорость (телефон, планшет, компьютер)
+	cd web && npx playwright test
+
+screenshots: build  ## картинки для README из демо-данных
+	cd web && SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts
 
 lint:
 	cargo fmt --all --check
