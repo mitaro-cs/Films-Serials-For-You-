@@ -62,7 +62,8 @@ make desktop      # установщик для этой ОС
 cargo run -p fsfy-server -- serve --data ./data-dev   # сервер без приложения
 ```
 
-Выпуск: тег `v0.1.0` → GitHub Actions соберёт `.dmg` и `.exe` и опубликует выпуск.
+Выпуск: тег `vX.Y.Z` (как `version` в `desktop/src-tauri/tauri.conf.json`) → GitHub Actions соберёт
+`.dmg` и `.exe` и опубликует выпуск.
 
 ## Устройство
 
