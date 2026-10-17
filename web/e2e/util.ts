@@ -2,7 +2,12 @@ import { expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const env = (): { baseURL: string; publicURL: string; ids: Record<string, number> } =>
+export const env = (): {
+  baseURL: string;
+  publicURL: string;
+  ids: Record<string, number>;
+  people: { me: number; anna: number; boris: number };
+} =>
   JSON.parse(readFileSync(join(import.meta.dirname, '.env.json'), 'utf8'));
 
 export const url = (path: string) => env().baseURL + path;
@@ -46,9 +51,10 @@ export async function expectClean(page: Page, what: string) {
       return null;
     };
     // Обрезка прокручиваемым или overflow:hidden предком — видимая часть.
+    // Считая и сам элемент: текст с многоточием обрезан своим же `overflow: hidden`.
     const clip = (el: Element, r: DOMRect) => {
       let { left, top, right, bottom } = r;
-      for (let e = el.parentElement; e; e = e.parentElement) {
+      for (let e: Element | null = el; e; e = e.parentElement) {
         const s = getComputedStyle(e);
         if (s.overflowX !== 'visible' || s.overflowY !== 'visible') {
           const c = e.getBoundingClientRect();
@@ -136,4 +142,19 @@ export async function resetStatuses() {
   await set('Ла-Ла Ленд', false, true);
   await set('Паразиты', false, true);
   await api.dispose();
+}
+
+/** Новый человек на сайте (заводит хост) и его вход — для сценариев, которые меняют дружбу. */
+export async function stranger(name: string) {
+  const { baseURL, publicURL } = env();
+  const { request } = await import('@playwright/test');
+  const host = await request.newContext({ baseURL, storageState: join(import.meta.dirname, '.state.json'), extraHTTPHeaders: { 'x-fsfy': '1' } });
+  const login = `u${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`;
+  const r = await host.post('/api/admin/users', { data: { name, login, password: 'пароль-12345' } });
+  if (!r.ok()) throw new Error(`новый человек: ${r.status()} ${await r.text()}`);
+  await host.dispose();
+  const c = await request.newContext({ baseURL: publicURL, extraHTTPHeaders: { 'x-fsfy': '1' } });
+  await c.post('/api/auth/login', { data: { login, password: 'пароль-12345' } });
+  const id = (await (await c.get('/api/me')).json()).user.profile.id as number;
+  return { c, id };
 }

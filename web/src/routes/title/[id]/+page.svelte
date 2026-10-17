@@ -1,33 +1,47 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, errorText } from '$lib/api';
+  import { api, errorText, patch, post } from '$lib/api';
+  import { rate, toggleList, toggleWatched } from '$lib/cards.svelte';
   import { count, date, kindLabel, runtime, size, votes } from '$lib/fmt';
-  import type { FileItem, Person, TitleDetail } from '$lib/types';
+  import { day, left, percent } from '$lib/library';
+  import { session } from '$lib/session.svelte';
+  import Reviews from '$lib/social/Reviews.svelte';
+  import ShareTitle from '$lib/social/ShareTitle.svelte';
+  import StarInput from '$lib/social/StarInput.svelte';
+  import type { FileItem, Person, Review, Reviews as ReviewsData, TitleDetail } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
-  import Ticket from '$lib/ui/Ticket.svelte';
-  import { day, left, percent } from '$lib/library';
-  import Rate from '$lib/ui/Rate.svelte';
-  import { toggleList, toggleWatched } from '$lib/cards.svelte';
-  import Stars from '$lib/ui/Stars.svelte';
 
+  // Страница фильма по референсу: большой кадр, постер и «Смотреть», панель действий
+  // (хочу / просмотрено / нравится, оценка, обсудить, отзыв), ниже — лист: оценки и отзывы,
+  // серии, актёры, отзывы, похожие, сюжет, детали.
   let t = $state<TitleDetail | null>(null);
+  let rv = $state<ReviewsData | null>(null);
   let error = $state('');
   let season = $state<number | null>(null);
   let castAll = $state(false);
   let shot = $state<number | null>(null);
-  let copied = $state(false);
+  let sharing = $state(false);
+  let reviewsBox = $state<ReturnType<typeof Reviews>>();
 
   const id = $derived(Number(page.params.id));
 
+  // Фильм и отзывы — вместе: если отзывы придут позже, разделы под ними сдвинутся (CLS).
   $effect(() => {
     const want = id;
     t = null;
+    rv = null;
     error = '';
-    api<TitleDetail>(`/api/titles/${want}`).then(
-      (d) => {
+    const empty: ReviewsData = { average: null, votes: 0, total: 0, items: [], canWrite: false };
+    Promise.all([
+      api<TitleDetail>(`/api/titles/${want}`),
+      api<ReviewsData>(`/api/titles/${want}/reviews`).catch(() => empty),
+    ]).then(
+      ([d, r]) => {
+        if (want !== id) return;
+        rv = r;
         t = d;
         const cur = d.files.find((f) => f.id === d.next?.fileId);
         season = cur?.season ?? d.seasons[0] ?? null;
@@ -39,41 +53,36 @@
 
   const c = $derived(t?.card);
   const people = $derived(t?.people ?? []);
-  const directors = $derived(people.filter((p) => p.job === 'director' || p.job === 'creator'));
-  const writers = $derived(people.filter((p) => p.job === 'writer'));
+  const crew = $derived(people.filter((p) => p.job === 'director' || p.job === 'creator'));
   const cast = $derived(people.filter((p) => p.job === 'actor'));
+  const team = $derived([...crew.map((p) => ({ ...p, role: p.job === 'creator' ? 'Создатель' : 'Режиссёр' })), ...cast]);
   const episodes = $derived((t?.files ?? []).filter((f) => season === null || f.season === season));
   const isSeries = $derived(c?.kind === 'series');
-  const watchLabel = $derived(
-    t?.next && t.next.position > 5 ? 'Продолжить' : isSeries && t?.next?.label ? 'Смотреть' : 'Смотреть',
-  );
-
-  function toggle() {
-    if (t) toggleList(t.card);
-  }
-
-  function watched() {
-    if (!t) return;
-    const was = t.card.status === 'watched';
-    toggleWatched(t.card);
-    // Сняли отметку — прогресс с начала: обновим серии и «Смотреть».
-    if (was) setTimeout(() => api<TitleDetail>(`/api/titles/${id}`).then((d) => (t = d), () => {}), 300);
-  }
-
   const started = $derived(!!t?.next && t.next.position > 5);
+  const kids = $derived(!!session.me?.user.profile.kids);
+  /** Своя оценка — последняя из своих отзывов со звёздами. */
+  const mine = $derived(rv?.items.find((r) => r.mine && r.stars) ?? null);
 
-  async function share() {
+  async function setStars(v: number | null) {
+    if (!rv) return;
     try {
-      await navigator.clipboard.writeText(location.href);
-      copied = true;
-      setTimeout(() => (copied = false), 1800);
+      if (mine && v) Object.assign(mine, await patch<Review>(`/api/reviews/${mine.id}`, { body: mine.body, stars: v }));
+      else if (v) rv.items = [await post<Review>(`/api/titles/${id}/reviews`, { stars: v }), ...rv.items];
+      else return;
+      const last = new Map<number, number>();
+      for (const r of [...rv.items].reverse()) if (r.stars) last.set(r.author.id, r.stars);
+      const all = [...last.values()];
+      rv.votes = all.length;
+      rv.average = all.length ? all.reduce((a, b) => a + b, 0) / all.length / 2 : null;
+      rv.total = rv.items.length;
     } catch {
-      /* буфер обмена недоступен (http) — ничего страшного */
+      /* оценку можно поставить ещё раз */
     }
   }
 
-  function names(list: Person[]) {
-    return list.map((p) => p.name).join(', ');
+  function writeReview() {
+    document.getElementById('reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setTimeout(() => reviewsBox?.focus(), 400);
   }
 
   function epLabel(f: FileItem) {
@@ -86,121 +95,107 @@
     if (f.progress.done) return 100;
     return Math.min(100, (f.progress.position / f.progress.duration) * 100);
   }
+
+  const initials = (p: Person | { name: string }) =>
+    p.name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('');
 </script>
 
 {#if error}
   <div class="page empty"><Icon name="info" size={40} /> {error}</div>
 {:else if t && c}
   <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
-    <div class="bg" style:background-image={c.backdrop ? `url(${c.backdrop})` : placeholder(c.title)}></div>
-    <div class="shade"></div>
-    {#if t.next}
-      <a class="bigplay" href="/watch/{t.next.fileId}" aria-label="Смотреть"><Icon name="play" size={34} /></a>
-    {/if}
-    <div class="bar">
-      <h1>{c.title} {#if c.year}<span class="y">({c.year})</span>{/if}</h1>
-      <div class="chips">
-        {#if c.rating}<span class="chip imdbchip"><span class="imdb">IMDb</span> {c.rating.toFixed(1)}</span>{/if}
-        <button class="chip" class:on={c.status === 'want'} onclick={toggle} disabled={c.status === 'watching' || c.status === 'watched'}>
-          <Icon name="bookmark" size={15} /> Хочу посмотреть
-        </button>
-        <button class="chip" class:on={c.status === 'watched'} onclick={watched}>
-          <Icon name="check" size={15} /> Просмотрено
-        </button>
-        <Rate card={t.card} size="md" />
-        <button class="chip" onclick={share}><Icon name={copied ? 'check' : 'share'} size={15} /> {copied ? 'Ссылка скопирована' : 'Поделиться'}</button>
+    <div class="bg" aria-hidden="true">
+      {#if c.backdrop}<img src={c.backdrop} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
+    </div>
+    <div class="wrap">
+      <div class="poster-col">
+        <div class="poster" style:view-transition-name="poster-{c.id}" style:background={c.posterLarge ? undefined : placeholder(c.title)}>
+          {#if c.posterLarge}<img src={c.posterLarge} alt={c.title} width="460" height="690" decoding="async" />{:else}<span>{c.title}</span>{/if}
+        </div>
+        {#if t.next}
+          <a class="btn white block watch" href="/watch/{t.next.fileId}">
+            <Icon name="play" size={16} /> {started ? 'Продолжить' : 'Смотреть'}
+          </a>
+        {/if}
       </div>
+
+      <div class="info">
+        <h1>{c.title}</h1>
+        <p class="meta">
+          {#if c.year}<span>{c.year}</span>{/if}
+          {#if c.runtime}<span>{runtime(c.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
+          {#if isSeries}<span>{count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')}</span>{/if}
+          {#if c.age}<span class="age">{c.age}</span>{/if}
+        </p>
+        {#if t.tagline}<p class="tagline">{t.tagline}</p>{/if}
+        {#if c.overview}<p class="overview">{c.overview}</p>{/if}
+        {#if t.next && (started || (isSeries && t.next.label && c.status === 'watching'))}
+          <!-- Где остановились: место в фильме или следующая серия сериала. -->
+          <div class="where">
+            <span>{t.next.label || 'Вы остановились'}{started ? ` · ${left(t.next.position, t.next.duration)}` : ' · дальше'}</span>
+            {#if started}<span class="pbar"><i style:width="{percent(t.next.position, t.next.duration)}%"></i></span>{/if}
+          </div>
+        {/if}
+        {#if c.genres.length}
+          <div class="genres">
+            {#each c.genres as g (g)}<a class="pill" href="/search?q={encodeURIComponent(g)}">{g}</a>{/each}
+          </div>
+        {/if}
+      </div>
+
+      <aside class="panel" aria-label="Действия">
+        <div class="acts">
+          <button class:on={c.status === 'watched'} aria-pressed={c.status === 'watched'} onclick={() => toggleWatched(c)}>
+            <Icon name="eye" size={22} /><span>{c.status === 'watched' ? 'Просмотрено' : 'Смотрел'}</span>
+          </button>
+          <button class:on={c.myRating === 2} aria-pressed={c.myRating === 2} onclick={() => rate(c, 2)}>
+            <Icon name="heart" size={22} /><span>Нравится</span>
+          </button>
+          <button
+            class:on={c.status === 'want'}
+            aria-pressed={c.status === 'want'}
+            disabled={c.status === 'watching' || c.status === 'watched'}
+            onclick={() => toggleList(c)}
+          >
+            <Icon name="bookmark" size={22} /><span>Хочу</span>
+          </button>
+        </div>
+        {#if !kids}
+          <div class="rate">
+            <small>Оценка</small>
+            <StarInput value={mine?.stars ?? null} onchange={setStars} size={24} label="Ваша оценка" />
+          </div>
+          <button class="btn block" onclick={() => (sharing = true)}><Icon name="share" size={15} /> Обсудить с другом</button>
+          <button class="btn block" onclick={writeReview}><Icon name="edit" size={15} /> Написать отзыв</button>
+        {/if}
+        {#if c.status === 'watched' && c.watchedAt}<p class="stub">Просмотрено {day(c.watchedAt)}</p>{/if}
+      </aside>
     </div>
   </section>
 
-  <div class="body">
-    <aside class="left">
-      <div class="poster" style:background={c.poster ? undefined : placeholder(c.title)}>
-        {#if c.posterLarge}<img src={c.posterLarge} alt={c.title} />{:else}<span>{c.title}</span>{/if}
+  <main class="sheet">
+    <section class="block summary" aria-labelledby="s-rating">
+      <h2 id="s-rating">Оценки и отзывы</h2>
+      <div class="score">
+        <span class="big"><Icon name="star" size={22} /> {rv?.average ? rv.average.toFixed(1).replace('.', ',') : '—'}</span>
+        <span class="muted">{rv ? (rv.votes ? count(rv.votes, 'оценка', 'оценки', 'оценок') : 'оценок пока нет') : ''}</span>
+        <span class="grow"></span>
+        {#if c.rating}<span class="chip-o"><b class="imdb">IMDb</b> {c.rating.toFixed(1)}</span>{/if}
+        {#if t.votes}<span class="chip-o"><Icon name="users" size={14} /> {votes(t.votes)}</span>{/if}
+        {#if c.matchPct}<span class="chip-o match">{c.matchPct}% совпадение</span>{/if}
       </div>
-      {#if t.next}
-        <a class="btn primary block" href="/watch/{t.next.fileId}"><Icon name="play" size={16} /> {watchLabel}</a>
-        {#if started || t.next.label}
-          <div class="where" style:--tint={c.accent ?? '#2c2c2e'}>
-            {#if t.next.label}<b>{t.next.label}</b>{/if}
-            {#if started}
-              <span>Остановились на {Math.floor(t.next.position / 60)} мин — {left(t.next.position, t.next.duration)}</span>
-              <span class="pbar"><i style:width="{percent(t.next.position, t.next.duration)}%"></i></span>
-            {/if}
-          </div>
-        {/if}
-      {/if}
-      {#if c.status === 'watched' && c.watchedAt}
-        <div class="stub">Просмотрено {day(c.watchedAt)}</div>
-      {/if}
-      {#if t.canDownload && !isSeries && t.files[0]}
-        <a class="btn block" href="/api/files/{t.files[0].id}/download" download><Icon name="download" size={16} /> Скачать · {size(t.files[0].size)}</a>
-      {/if}
-    </aside>
+    </section>
 
-    <div class="main">
-      <div class="titleline">
-        <h2>{c.title}</h2>
-        {#if c.rating}<span class="imdb">IMDb <b>{c.rating.toFixed(1)}</b></span>{/if}
-      </div>
-      {#if t.tagline}<p class="tagline">{t.tagline}</p>{/if}
-      <div class="meta">
-        {#if c.matchPct}<span class="match">{c.matchPct}% совпадение</span>{/if}
-        {#if t.votes}<span><Icon name="eye" size={15} /> {votes(t.votes)}</span>{/if}
-        {#if c.rating}<span><Stars rating={c.rating} size={13} /></span>{/if}
-        {#if c.age}<span class="age">{c.age}</span>{/if}
-        {#if c.runtime}<span>{runtime(c.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
-        {#if c.genres.length}<span>{c.genres.join(', ')}</span>{/if}
-        <span>{isSeries ? count(c.seasons || 1, 'сезон', 'сезона', 'сезонов') : kindLabel(c.kind)}</span>
-        {#if c.year}<span>{c.year}</span>{/if}
-      </div>
-
-      <div class="cols">
-        <div>
-          <h3>Детали</h3>
-          <dl>
-            {#if directors.length}<dt>{isSeries ? 'Создатели' : 'Режиссёр'}</dt><dd>{names(directors)}</dd>{/if}
-            {#if writers.length}<dt>Сценарий</dt><dd>{names(writers)}</dd>{/if}
-            {#if t.countries.length}<dt>Страна</dt><dd>{t.countries.join(', ')}</dd>{/if}
-            {#if t.languages.length}<dt>Язык</dt><dd>{t.languages.slice(0, 3).join(', ')}</dd>{/if}
-            {#if t.releaseDate}<dt>Премьера</dt><dd>{date(t.releaseDate)}</dd>{/if}
-            {#if c.originalTitle && c.originalTitle !== c.title}<dt>Оригинал</dt><dd>{c.originalTitle}</dd>{/if}
-            {#if t.aka.length}<dt>Также известен</dt><dd>{t.aka.join(', ')}</dd>{/if}
-            {#if isSeries}<dt>На сайте</dt><dd>{count(t.files.length, 'серия', 'серии', 'серий')}</dd>{/if}
-          </dl>
-        </div>
-        {#if cast.length}
-          <div>
-            <h3>В ролях</h3>
-            <ul class="cast">
-              {#each castAll ? cast : cast.slice(0, 5) as p (p.name + p.role)}
-                <li>
-                  <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
-                    {#if p.photo}<img src={p.photo} alt="" loading="lazy" />{:else}{p.name[0]}{/if}
-                  </span>
-                  <span class="pn">{p.name}{#if p.role}<small>{p.role}</small>{/if}</span>
-                </li>
-              {/each}
-            </ul>
-            {#if cast.length > 5}
-              <button class="more" onclick={() => (castAll = !castAll)}>
-                <Icon name={castAll ? 'back' : 'plus'} size={14} /> {castAll ? 'Свернуть' : 'Показать всех'}
-              </button>
-            {/if}
-          </div>
-        {/if}
-      </div>
-
-      {#if c.overview}
-        <h3>Сюжет</h3>
-        <p class="story">{c.overview}</p>
-      {/if}
-
-      {#if isSeries}
+    {#if isSeries}
+      <section class="block" aria-labelledby="s-eps">
         <div class="eps-head">
-          <h3>Серии</h3>
+          <h2 id="s-eps">Серии</h2>
           {#if t.seasons.length > 1}
-            <div class="seasons" role="tablist">
+            <div class="seasons" role="tablist" aria-label="Сезоны">
               {#each t.seasons as s (s)}
                 <button class="chip" class:on={season === s} role="tab" aria-selected={season === s} onclick={() => (season = s)}>{s} сезон</button>
               {/each}
@@ -211,17 +206,15 @@
           {#each episodes as f (f.id)}
             <li>
               <a class="still" href="/watch/{f.id}" style:background={f.still ? undefined : placeholder(c.title + f.id)}>
-                {#if f.still}<img src={f.still} alt="" loading="lazy" />{/if}
+                {#if f.still}<img src={f.still} alt="" loading="lazy" decoding="async" />{/if}
                 <span class="p"><Icon name="play" size={16} /></span>
                 {#if pct(f)}<span class="pbar"><i style:width="{pct(f)}%"></i></span>{/if}
               </a>
               <div class="ep">
-                <div class="eptitle">
-                  <a href="/watch/{f.id}"><b>{epLabel(f)}.</b> {f.name ?? `${f.episode ?? ''} серия`}{#if Date.now() - f.addedAt < 14 * 864e5 && Date.now() - c.addedAt > 864e5}<span class="new">Новая</span>{/if}</a>
-                  {#if f.duration && f.duration >= 60}<span class="faint">{Math.round(f.duration / 60)} мин</span>{/if}
-                </div>
+                <a href="/watch/{f.id}" class="ept"><b>{epLabel(f)}.</b> {f.name ?? `${f.episode ?? ''} серия`}</a>
                 {#if f.overview}<p>{f.overview}</p>{/if}
                 <div class="epmeta faint">
+                  {#if f.duration && f.duration >= 60}<span>{Math.round(f.duration / 60)} мин</span>{/if}
                   {#if f.airDate}<span>{date(f.airDate)}</span>{/if}
                   {#if f.progress?.done}<span class="ok"><Icon name="check" size={13} /> Просмотрено</span>{/if}
                   {#if t.canDownload}<a href="/api/files/{f.id}/download" download class="dl"><Icon name="download" size={13} /> {size(f.size)}</a>{/if}
@@ -230,165 +223,170 @@
             </li>
           {/each}
         </ol>
-      {:else if t.files.length > 1}
-        <h3>Файлы</h3>
+      </section>
+    {/if}
+
+    {#if team.length}
+      <section class="block" aria-labelledby="s-cast">
+        <h2 id="s-cast">Актёры и съёмочная группа</h2>
+        <ul class="cast">
+          {#each castAll ? team : team.slice(0, 10) as p, i (i)}
+            <li>
+              <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
+                {#if p.photo}<img src={p.photo} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p)}{/if}
+              </span>
+              <b>{p.name}</b>
+              {#if p.role}<small>{p.role}</small>{/if}
+            </li>
+          {/each}
+        </ul>
+        {#if team.length > 10}
+          <button class="btn ghost sm" onclick={() => (castAll = !castAll)}>{castAll ? 'Свернуть' : `Все (${team.length})`}</button>
+        {/if}
+      </section>
+    {/if}
+
+    <section class="block" id="reviews" aria-labelledby="s-reviews">
+      <h2 id="s-reviews">Отзывы {#if rv?.total}<span class="faint">{rv.total}</span>{/if}</h2>
+      {#if rv}
+        <Reviews bind:this={reviewsBox} titleId={c.id} bind:data={rv} manage={!!session.me?.manage} />
+      {:else}
+        <div class="sk-reviews skeleton"></div>
+      {/if}
+    </section>
+
+    {#if t.similar.length}
+      <section class="block" aria-labelledby="s-similar">
+        <h2 id="s-similar">Похожие</h2>
+        <ul class="similar">
+          {#each t.similar.slice(0, 12) as s (s.id)}
+            <li>
+              <a href="/title/{s.id}" title={s.title} style:background={s.poster ? undefined : placeholder(s.title)}>
+                {#if s.poster}<img src={s.poster} alt={s.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{s.title}</span>{/if}
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
+
+    {#if c.overview || t.tagline}
+      <section class="block" aria-labelledby="s-story">
+        <h2 id="s-story">Сюжет</h2>
+        <div class="story">
+          <b>{c.title}</b>
+          <small>{[kindLabel(c.kind), ...c.genres.slice(0, 3)].join(' · ')}</small>
+          {#if c.overview}<p>{c.overview}</p>{/if}
+        </div>
+      </section>
+    {/if}
+
+    <section class="block details" aria-labelledby="s-details">
+      <h2 id="s-details">Детали</h2>
+      <dl>
+        {#if t.countries.length}<dt>Страна</dt><dd>{t.countries.join(', ')}</dd>{/if}
+        {#if t.languages.length}<dt>Язык</dt><dd>{t.languages.slice(0, 3).join(', ')}</dd>{/if}
+        {#if t.releaseDate}<dt>Премьера</dt><dd>{date(t.releaseDate)}</dd>{/if}
+        {#if c.originalTitle && c.originalTitle !== c.title}<dt>Оригинал</dt><dd>{c.originalTitle}</dd>{/if}
+        {#if t.aka.length}<dt>Также</dt><dd>{t.aka.slice(0, 4).join(', ')}</dd>{/if}
+        {#if isSeries}<dt>На сайте</dt><dd>{count(t.files.length, 'серия', 'серии', 'серий')}</dd>{/if}
+      </dl>
+      <div class="links">
+        {#if t.canDownload && !isSeries && t.files[0]}
+          <a class="btn sm" href="/api/files/{t.files[0].id}/download" download><Icon name="download" size={14} /> Скачать · {size(t.files[0].size)}</a>
+        {/if}
+        {#if t.imdbId}
+          <a class="btn sm" href="https://www.imdb.com/title/{t.imdbId}/" target="_blank" rel="noopener noreferrer"><b class="imdb">IMDb</b> Открыть</a>
+        {/if}
+      </div>
+      {#if !isSeries && t.files.length > 1}
         <ul class="files">
           {#each t.files as f (f.id)}
             <li>
               <a href="/watch/{f.id}"><Icon name="play" size={14} /> {f.fileName}</a>
               <span class="faint">{size(f.size)}</span>
-              {#if t.canDownload}<a href="/api/files/{f.id}/download" download aria-label="Скачать"><Icon name="download" size={16} /></a>{/if}
             </li>
           {/each}
         </ul>
       {/if}
-    </div>
-
-    <aside class="right">
       {#if t.gallery.length}
-        <h3>Галерея</h3>
         <div class="gallery">
-          {#each t.gallery.slice(0, 7) as g, k (k)}
-            <button class:first={k === 0} onclick={() => (shot = k)} aria-label="Кадр {k + 1}">
-              <img src={g} alt="" loading="lazy" />
-              {#if k === 0 && t.next}<span class="p"><Icon name="play" size={18} /></span>{/if}
-            </button>
+          {#each t.gallery.slice(0, 8) as g, k (k)}
+            <button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img src={g} alt="" loading="lazy" decoding="async" /></button>
           {/each}
         </div>
       {/if}
-      {#if t.imdbId}
-        <a class="btn block sm imdblink" href="https://www.imdb.com/title/{t.imdbId}/" target="_blank" rel="noopener noreferrer">
-          <span class="imdb">IMDb</span> Открыть на IMDb
-        </a>
-      {/if}
-    </aside>
-  </div>
-
-  {#if t.similar.length}
-    <section class="similar">
-      <h2 class="section-title"><Icon name="film" /> Похожие</h2>
-      <div class="grid">
-        {#each t.similar.slice(0, 12) as s (s.id)}
-          <Ticket card={s} />
-        {/each}
-      </div>
     </section>
-  {/if}
+  </main>
 
+  <ShareTitle bind:open={sharing} titleId={c.id} title={c.title} />
   <Lightbox images={t.gallery} bind:index={shot} />
 {:else}
-  <div class="sk skeleton"></div>
+  <div class="sk-hero skeleton" aria-busy="true"></div>
 {/if}
 
 <style>
+  /* ---------- большой кадр ---------- */
   .hero {
     position: relative;
-    height: min(64vh, 640px);
-    min-height: 380px;
-    display: flex;
-    align-items: flex-end;
+    padding: calc(var(--header) + clamp(120px, 22vw, 260px)) var(--gutter) 34px;
     overflow: hidden;
+    isolation: isolate;
   }
   .bg {
     position: absolute;
     inset: 0;
-    background-size: cover;
-    background-position: center 30%;
-    animation: zoom 1.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+    z-index: -1;
   }
-  @keyframes zoom {
-    from {
-      transform: scale(1.08);
-      opacity: 0;
-    }
+  .bg img,
+  .bg .ph {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 25%;
+    /* Медленное приближение кадра — только transform, без сдвигов. */
+    animation: kenburns 24s ease-out both;
   }
-  .shade {
+  .bg::after {
+    content: '';
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(0deg, var(--bg) 0%, color-mix(in srgb, var(--tint) 45%, transparent) 55%, rgba(0, 0, 0, 0.25) 100%),
-      radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.5) 100%);
+      linear-gradient(0deg, var(--bg) 0%, rgba(0, 0, 0, 0.55) 45%, rgba(0, 0, 0, 0.25) 100%),
+      linear-gradient(90deg, color-mix(in srgb, var(--tint) 35%, transparent), transparent 60%);
   }
-  .bigplay {
-    position: absolute;
-    left: 50%;
-    top: 46%;
-    transform: translate(-50%, -50%);
-    width: 84px;
-    height: 84px;
-    border-radius: 50%;
+  @keyframes kenburns {
+    from {
+      transform: scale(1.12);
+      opacity: 0;
+    }
+    8% {
+      opacity: 1;
+    }
+    to {
+      transform: scale(1);
+    }
+  }
+  .wrap {
+    max-width: 1060px;
+    margin: 0 auto;
     display: grid;
-    place-items: center;
-    padding-left: 5px;
-    background: #fff;
-    color: #0a0a0a;
-    box-shadow:
-      0 0 0 10px rgba(255, 255, 255, 0.14),
-      0 20px 50px -10px rgba(0, 0, 0, 0.6);
-    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    grid-template-columns: 220px minmax(0, 1fr) 220px;
+    gap: 32px;
+    align-items: end;
   }
-  .bigplay:hover {
-    transform: translate(-50%, -50%) scale(1.08);
-  }
-  .bar {
-    position: relative;
-    width: 100%;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    justify-content: space-between;
+  .poster-col {
+    display: grid;
     gap: 14px;
-    padding: 0 var(--gutter) 18px;
-    border-bottom: 1px solid var(--line);
-  }
-  h1 {
-    font-size: clamp(26px, 3.4vw, 40px);
-    font-weight: 700;
-    text-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-  }
-  .y {
-    font-weight: 400;
-    color: rgba(255, 255, 255, 0.7);
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .chips .chip:not(.on) {
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(10px);
-  }
-  .chips .chip:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-  .imdbchip .imdb {
-    height: 18px;
-    font-size: 10px;
-  }
-
-  .body {
-    display: grid;
-    grid-template-columns: 230px minmax(0, 1fr) 300px;
-    gap: 36px;
-    padding: 30px var(--gutter) 0;
-  }
-  .left {
-    display: grid;
-    align-content: start;
-    gap: 10px;
-    position: relative;
+    animation: rise 0.6s 0.1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
   .poster {
     aspect-ratio: 2 / 3;
     border-radius: 12px;
     overflow: hidden;
-    box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.9);
-    margin-bottom: 8px;
     display: grid;
     align-items: end;
-    padding: 0;
+    box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.9);
   }
   .poster img {
     width: 100%;
@@ -400,203 +398,461 @@
     font-weight: 800;
     font-size: 20px;
   }
-  .where {
+  .watch {
+    height: 44px;
+  }
+  .info {
     display: grid;
-    gap: 4px;
-    padding: 12px 14px;
-    border-radius: 12px;
-    background: var(--tint);
-    font-size: 13px;
+    gap: 10px;
+    align-content: end;
+    min-width: 0;
+    animation: rise 0.6s 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
-  .where span:not(.pbar) {
-    color: rgba(255, 255, 255, 0.75);
-    font-size: 12px;
-  }
-  .where .pbar {
-    height: 4px;
-    margin-top: 4px;
-    border-radius: 2px;
-    overflow: hidden;
-    background: rgba(0, 0, 0, 0.35);
-  }
-  .where .pbar i {
-    display: block;
-    height: 100%;
-    background: #fff;
-  }
-  .stub {
-    padding: 10px 14px;
-    border-radius: 12px;
-    background: var(--ticket);
-    color: var(--ticket-ink);
-    font-family: var(--mono);
-    font-size: 12.5px;
-    text-align: center;
-  }
-  .titleline {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  h2 {
-    font-size: 26px;
-  }
-  .tagline {
-    margin: 6px 0 0;
-    color: var(--muted);
-    font-style: italic;
+  h1 {
+    font-size: clamp(30px, 4.6vw, 52px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    overflow-wrap: anywhere;
   }
   .meta {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 0;
-    margin: 14px 0 6px;
-    font-size: 13px;
-    color: var(--muted);
+    gap: 0 10px;
+    margin: 0;
+    color: #d4d4d8;
+    font-size: 14px;
   }
-  .meta > span {
+  .meta span + span::before {
+    content: '|';
+    margin-right: 10px;
+    color: rgba(255, 255, 255, 0.35);
+  }
+  .age {
+    padding: 0 6px;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 99px;
+    font-size: 12px;
+  }
+  .meta .age::before {
+    content: none !important;
+  }
+  .tagline {
+    margin: 4px 0 0;
+    color: #e4e4e7;
+    font-weight: 600;
+  }
+  .overview {
+    margin: 0;
+    color: #d4d4d8;
+    font-size: 14px;
+    line-height: 1.6;
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    line-clamp: 5;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .where {
+    display: grid;
+    gap: 6px;
+    max-width: 420px;
+    font-size: 12.5px;
+    color: #e4e4e7;
+  }
+  .pbar {
+    height: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.2);
+  }
+  .pbar i {
+    display: block;
+    height: 100%;
+    background: #fff;
+  }
+  .genres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .pill {
+    padding: 7px 14px;
+    border-radius: 99px;
+    background: rgba(40, 40, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    font-size: 13px;
+    font-weight: 600;
+    transition:
+      background 0.15s,
+      transform 0.15s;
+  }
+  .pill:hover {
+    background: rgba(60, 60, 64, 0.95);
+    transform: translateY(-1px);
+  }
+
+  /* Панель действий справа — стекло, как на референсе. */
+  .panel {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    border-radius: 16px;
+    background: rgba(28, 28, 30, 0.72);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    animation: rise 0.6s 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .acts {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+  }
+  .acts button {
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+    padding: 8px 2px;
+    border: 0;
+    border-radius: 12px;
+    background: none;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+    transition:
+      color 0.15s,
+      background 0.15s,
+      transform 0.15s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+  }
+  .acts button:hover:not(:disabled) {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .acts button:active:not(:disabled) {
+    transform: scale(0.9);
+  }
+  .acts button.on {
+    color: #fff;
+  }
+  .acts button.on :global(svg) {
+    fill: currentColor;
+    animation: pop 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.6);
+  }
+  .acts button:nth-child(2).on {
+    color: #ff5c7a;
+  }
+  .acts button:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  @keyframes pop {
+    40% {
+      transform: scale(1.3);
+    }
+  }
+  .rate {
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+    padding: 8px 0 10px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .rate small {
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .panel .btn {
+    height: 38px;
+    font-size: 13px;
+  }
+  .stub {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: var(--ticket);
+    color: var(--ticket-ink);
+    font-family: var(--mono);
+    font-size: 12px;
+    text-align: center;
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+  }
+
+  /* ---------- лист с разделами ---------- */
+  .sheet {
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 8px clamp(18px, 4vw, 54px) 40px;
+    background: #1a1a1c;
+    border-radius: 22px;
+  }
+  .block {
+    padding: 28px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .block:last-child {
+    border-bottom: 0;
+  }
+  h2 {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+  .score {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+  }
+  .big {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    font-size: 30px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  .grow {
+    flex: 1;
+  }
+  .chip-o {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
     padding: 0 12px;
-    border-left: 1px solid var(--line);
+    border-radius: 99px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 13px;
+    font-weight: 600;
   }
-  .match {
+  .chip-o.match {
     color: var(--ok);
-    font-weight: 700;
   }
-  .meta > span:first-child {
-    padding-left: 0;
-    border-left: 0;
-  }
-  .age {
-    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  .imdb {
+    padding: 1px 5px;
     border-radius: 4px;
-    padding: 0 6px !important;
-    margin: 0 12px;
+    background: var(--imdb);
+    color: #111;
+    font-size: 10.5px;
+    font-weight: 800;
   }
-  h3 {
-    font-size: 17px;
-    margin: 28px 0 12px;
-  }
-  .cols {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 28px;
-    border-top: 1px solid var(--line);
-    margin-top: 18px;
-  }
-  dl {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 8px 16px;
-    margin: 0;
-    font-size: 14px;
-  }
-  dt {
-    color: var(--muted);
-  }
-  dd {
-    margin: 0;
-  }
+
   .cast {
     list-style: none;
-    margin: 0;
+    margin: 0 0 12px;
     padding: 0;
     display: grid;
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 18px 12px;
   }
   .cast li {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 14px;
+    display: grid;
+    justify-items: center;
+    gap: 2px;
+    text-align: center;
+    min-width: 0;
   }
-  .ava {
-    width: 34px;
-    height: 34px;
+  .cast .ava {
+    width: 72px;
+    height: 72px;
+    margin-bottom: 6px;
     border-radius: 50%;
     overflow: hidden;
-    flex: none;
     display: grid;
     place-items: center;
-    font-weight: 700;
-    font-size: 13px;
+    font-weight: 800;
+    font-size: 20px;
+    transition: transform 0.2s;
   }
-  .ava img {
+  .cast li:hover .ava {
+    transform: scale(1.06);
+  }
+  .cast .ava img {
     width: 100%;
     height: 100%;
     object-fit: cover;
   }
-  .pn {
-    display: grid;
+  .cast b {
+    font-size: 12.5px;
+    font-weight: 600;
     line-height: 1.25;
+    overflow-wrap: anywhere;
   }
-  .pn small {
+  .cast small {
+    font-size: 11.5px;
     color: var(--faint);
-    font-size: 12px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
   }
-  .more {
+
+  .similar {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 12px;
+  }
+  .similar a {
+    display: grid;
+    align-items: end;
+    aspect-ratio: 2 / 3;
+    border-radius: 10px;
+    overflow: hidden;
+    transition:
+      transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+      box-shadow 0.25s;
+  }
+  .similar a:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 16px 30px -14px #000;
+  }
+  .similar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .similar span {
+    padding: 10px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .story {
+    display: grid;
+    gap: 4px;
+    padding: 18px 20px;
+    border-radius: 14px;
+    background: #232325;
+  }
+  .story small {
+    color: var(--faint);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .story p {
+    margin: 8px 0 0;
+    color: #d4d4d8;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .details dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 8px 18px;
+    margin: 0 0 14px;
+    font-size: 13.5px;
+  }
+  .details dt {
+    color: var(--muted);
+  }
+  .details dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .files {
+    list-style: none;
+    margin: 14px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .files li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 13px;
+  }
+  .files a {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-top: 12px;
-    border: 0;
-    background: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 13px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .gallery button {
     padding: 0;
+    border: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    cursor: zoom-in;
+    background: var(--surface);
   }
-  .more:hover {
-    color: var(--text);
+  .gallery img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s;
   }
-  .story {
-    margin: 0;
-    color: #d3d0e6;
-    max-width: 75ch;
+  .gallery button:hover img {
+    transform: scale(1.05);
   }
 
+  /* ---------- серии ---------- */
   .eps-head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    margin-top: 28px;
+    margin-bottom: 14px;
   }
-  .eps-head h3 {
+  .eps-head h2 {
     margin: 0;
   }
   .seasons {
     display: flex;
     gap: 6px;
     overflow-x: auto;
+    max-width: 100%;
   }
   .eps {
     list-style: none;
+    margin: 0;
     padding: 0;
-    margin: 16px 0 0;
     display: grid;
-    gap: 8px;
+    gap: 10px;
   }
   .eps li {
     display: grid;
-    grid-template-columns: 200px 1fr;
+    grid-template-columns: 180px minmax(0, 1fr);
     gap: 16px;
-    padding: 10px;
-    border-radius: var(--radius);
+    padding: 8px;
+    border-radius: 14px;
     transition: background 0.15s;
   }
   .eps li:hover {
-    background: var(--surface);
+    background: #232325;
   }
   .still {
     position: relative;
     aspect-ratio: 16 / 9;
-    border-radius: 8px;
+    border-radius: 10px;
     overflow: hidden;
   }
   .still img {
@@ -604,45 +860,43 @@
     height: 100%;
     object-fit: cover;
   }
-  .p {
+  .still .p {
     position: absolute;
     inset: 0;
     margin: auto;
     width: 38px;
     height: 38px;
-    border-radius: 50%;
     display: grid;
     place-items: center;
-    padding-left: 2px;
-    background: rgba(0, 0, 0, 0.6);
-    border: 1.5px solid rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
     opacity: 0;
-    transition: opacity 0.2s;
+    transform: scale(0.8);
+    transition:
+      opacity 0.15s,
+      transform 0.2s;
   }
-  .eps li:hover .p,
-  .gallery button:hover .p,
-  .gallery .first .p {
+  .eps li:hover .p {
     opacity: 1;
+    transform: none;
   }
-  .pbar {
+  .still .pbar {
     position: absolute;
     inset: auto 0 0;
-    height: 3px;
-    background: rgba(255, 255, 255, 0.2);
+    border-radius: 0;
   }
-  .pbar i {
-    display: block;
-    height: 100%;
-    background: var(--accent);
+  .ep {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+    min-width: 0;
   }
-  .eptitle {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    font-size: 15px;
+  .ept {
+    font-weight: 600;
+    overflow-wrap: anywhere;
   }
   .ep p {
-    margin: 4px 0 0;
+    margin: 0;
     font-size: 13px;
     color: var(--muted);
     display: -webkit-box;
@@ -653,12 +907,12 @@
   }
   .epmeta {
     display: flex;
-    gap: 14px;
-    margin-top: 6px;
+    flex-wrap: wrap;
+    gap: 4px 12px;
     font-size: 12px;
   }
   .epmeta span,
-  .dl {
+  .epmeta a {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -666,133 +920,87 @@
   .ok {
     color: var(--ok);
   }
-  .new {
-    margin-left: 8px;
-    padding: 1px 7px;
-    border-radius: 4px;
-    background: var(--accent);
-    font-size: 11px;
-    font-weight: 700;
-    vertical-align: 2px;
+
+  .sk-hero {
+    height: 70vh;
   }
-  .dl:hover {
-    color: var(--text);
-  }
-  .files {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    gap: 6px;
-  }
-  .files li {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font-size: 14px;
-  }
-  .files li a:first-child {
-    flex: 1;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .sk-reviews {
+    height: 140px;
+    border-radius: 14px;
   }
 
-  .right h3 {
-    margin-top: 0;
-  }
-  .gallery {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-  }
-  .gallery button {
-    position: relative;
-    padding: 0;
-    border: 0;
-    border-radius: 8px;
-    overflow: hidden;
-    aspect-ratio: 16 / 10;
-    cursor: zoom-in;
-    background: var(--surface);
-  }
-  .gallery .first {
-    grid-column: 1 / -1;
-  }
-  .gallery img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    transition: transform 0.3s;
-  }
-  .gallery button:hover img {
-    transform: scale(1.06);
-  }
-  .imdblink {
-    margin-top: 14px;
-  }
-  .imdblink .imdb {
-    height: 18px;
-    font-size: 10px;
-  }
-  .similar {
-    padding: 48px var(--gutter) 0;
-  }
-  .sk {
-    height: 64vh;
-  }
-
-  @media (max-width: 1180px) {
-    .body {
-      grid-template-columns: 210px minmax(0, 1fr);
+  /* ---------- планшет и телефон ---------- */
+  @media (max-width: 980px) {
+    .wrap {
+      grid-template-columns: 180px minmax(0, 1fr);
     }
-    .right {
+    .panel {
       grid-column: 1 / -1;
+      grid-template-columns: auto auto 1fr 1fr;
+      align-items: center;
     }
-    .gallery {
-      grid-template-columns: repeat(4, 1fr);
-    }
-    .gallery .first {
-      grid-column: span 2;
-      grid-row: span 2;
-      aspect-ratio: auto;
+    .rate {
+      border: 0;
+      padding: 0 12px;
+      border-left: 1px solid var(--line);
+      border-right: 1px solid var(--line);
     }
   }
-  @media (max-width: 760px) {
-    .body {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 18px;
+  @media (max-width: 640px) {
+    .hero {
+      padding-top: calc(var(--header) + 90px);
+      padding-bottom: 20px;
     }
-    .left {
-      grid-template-columns: 120px 1fr;
-      align-items: end;
+    .wrap {
+      grid-template-columns: 110px minmax(0, 1fr);
+      gap: 16px 14px;
     }
-    .poster {
-      grid-row: span 4;
-      margin: 0;
+    .poster-col {
+      align-self: start;
     }
-    .cols {
-      grid-template-columns: minmax(0, 1fr);
-      gap: 0;
+    .info {
+      align-content: start;
+    }
+    h1 {
+      font-size: 26px;
+    }
+    .overview {
+      grid-column: 1 / -1;
+      -webkit-line-clamp: 4;
+      line-clamp: 4;
+    }
+    .panel {
+      grid-template-columns: 1fr;
+    }
+    .rate {
+      border: 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 8px 0 10px;
+    }
+    .sheet {
+      border-radius: 18px 18px 0 0;
+      padding-bottom: 32px;
     }
     .eps li {
-      grid-template-columns: 130px 1fr;
-      gap: 12px;
-      padding: 8px 0;
+      grid-template-columns: 120px minmax(0, 1fr);
+      gap: 10px;
     }
-    .bigplay {
-      width: 68px;
-      height: 68px;
+    .cast {
+      grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     }
-    .gallery {
-      grid-template-columns: repeat(3, 1fr);
+    .cast .ava {
+      width: 60px;
+      height: 60px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bg img,
+    .bg .ph,
+    .poster-col,
+    .info,
+    .panel {
+      animation: none;
     }
   }
 </style>

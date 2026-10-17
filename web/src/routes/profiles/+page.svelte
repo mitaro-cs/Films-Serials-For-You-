@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { del, errorText, patch, post } from '$lib/api';
+  import { api, del, errorText, patch, post } from '$lib/api';
   import { loadMe, session } from '$lib/session.svelte';
   import type { Profile } from '$lib/types';
   import Avatar from '$lib/ui/Avatar.svelte';
@@ -16,6 +16,8 @@
   let form = $state({ name: '', avatar: 0, kids: false, autoplay: true });
   let error = $state('');
   let leaving = $state<number | null>(null);
+  let photo = $state<string | null>(null);
+  let uploading = $state(false);
 
   const profiles = $derived(session.me?.profiles ?? []);
 
@@ -33,8 +35,37 @@
     form = p
       ? { name: p.name, avatar: p.avatar, kids: p.kids, autoplay: p.autoplay }
       : { name: '', avatar: (profiles.length * 5) % 12, kids: false, autoplay: true };
+    photo = p?.photo ?? null;
     error = '';
     open = true;
+  }
+
+  // Своё фото: сервер обрежет до квадрата 256 px.
+  async function pick(e: Event) {
+    const f = (e.currentTarget as HTMLInputElement).files?.[0];
+    if (!f || !editing) return;
+    if (f.size > 15 * 1024 * 1024) {
+      error = 'Картинка больше 15 МБ';
+      return;
+    }
+    uploading = true;
+    error = '';
+    try {
+      const r = await api<{ photo: string }>(`/api/profiles/${editing.id}/photo`, { method: 'PUT', body: f });
+      photo = r.photo;
+      await loadMe();
+    } catch (x) {
+      error = errorText(x);
+    } finally {
+      uploading = false;
+    }
+  }
+
+  async function dropPhoto() {
+    if (!editing) return;
+    await del(`/api/profiles/${editing.id}/photo`).catch(() => {});
+    photo = null;
+    await loadMe();
   }
 
   async function save(e: SubmitEvent) {
@@ -71,7 +102,7 @@
       <li style:--i={i}>
         <button class="p" class:leaving={leaving === p.id} onclick={() => choose(p)}>
           <span class="pic">
-            <Avatar avatar={p.avatar} size={132} kids={p.kids} />
+            <Avatar avatar={p.avatar} size={132} kids={p.kids} photo={p.photo} />
             {#if manage}<span class="pen"><Icon name="edit" size={30} /></span>{/if}
           </span>
           <span class="name">{p.name}</span>
@@ -94,9 +125,18 @@
 <Modal bind:open title={editing ? 'Изменить профиль' : 'Новый профиль'}>
   <form class="form" onsubmit={save}>
     <div class="head">
-      <Avatar avatar={form.avatar} size={84} kids={form.kids} />
+      <Avatar avatar={form.avatar} size={84} kids={form.kids} {photo} />
       <label class="field grow"><span>Имя</span><input class="input" bind:value={form.name} maxlength="24" required /></label>
     </div>
+    {#if editing}
+      <div class="photo-row">
+        <label class="btn sm" class:busy={uploading}>
+          <Icon name="image" size={15} /> {uploading ? 'Загружаем…' : photo ? 'Другое фото' : 'Своё фото'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" onchange={pick} hidden />
+        </label>
+        {#if photo}<button type="button" class="btn sm ghost" onclick={dropPhoto}>Убрать фото</button>{/if}
+      </div>
+    {/if}
     <div class="avatars" role="radiogroup" aria-label="Аватар">
       {#each Array(12) as _, i (i)}
         <button type="button" role="radio" aria-checked={form.avatar === i} class:on={form.avatar === i} onclick={() => (form.avatar = i)}>
@@ -122,6 +162,15 @@
 </Modal>
 
 <style>
+  .photo-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .photo-row .busy {
+    opacity: 0.6;
+    pointer-events: none;
+  }
   .who {
     min-height: 100dvh;
     display: grid;

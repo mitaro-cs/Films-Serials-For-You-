@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api } from '$lib/api';
-  import { counts, filter, left, percent, STATUSES, statusOf, tabOf, TITLES, type Status } from '$lib/library';
+  import { counts, filter, left, percent, STATUSES, statusOf, TABS, tabOf, TITLES, type Status } from '$lib/library';
   import { session } from '$lib/session.svelte';
   import type { Card, Library } from '$lib/types';
   import Icon from '$lib/ui/Icon.svelte';
@@ -74,11 +74,21 @@
 </script>
 
 <div class="page">
+  <!-- Ниже 1000 px капсулы в шапке нет — разделы здесь. -->
+  <nav class="kinds" aria-label="Разделы каталога">
+    {#each TABS as t (t.id)}
+      <a href={t.href} class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined}>{t.label}</a>
+    {/each}
+  </nav>
   <h1>{TITLES[tab]}</h1>
 
   <div class="filters">
     <div class="chips" role="tablist" aria-label="Статус" bind:this={chips}>
-      {#each STATUSES as s (s.id)}
+      <!-- Капсулы — когда известны числа: иначе они расширятся после загрузки и сдвинут соседей. -->
+      {#if !n}
+        {#each STATUSES as s (s.id)}<span class="chip ph-chip skeleton" aria-hidden="true">{s.label}</span>{/each}
+      {/if}
+      {#each n ? STATUSES : [] as s (s.id)}
         <button class="chip" class:on={status === s.id} role="tab" aria-selected={status === s.id} onclick={() => setStatus(s.id)}>
           {s.label}
           {#if n && n[s.id]}<small>{n[s.id]}</small>{/if}
@@ -123,7 +133,7 @@
     </div>
   {:else if shown.length}
     <div class="grid">
-      {#each shown as card, i (card.id)}<Ticket {card} eager={i < 8} />{/each}
+      {#each shown as card, i (card.id)}<Ticket {card} eager={i < 8} index={i} />{/each}
     </div>
   {:else}
     <div class="empty">
@@ -140,6 +150,33 @@
 </div>
 
 <style>
+  .kinds {
+    display: none;
+  }
+  @media (max-width: 1000px) {
+    .kinds {
+      display: inline-flex;
+      gap: 2px;
+      padding: 4px;
+      border-radius: 999px;
+      background: #1c1c1e;
+      border: 1px solid var(--line);
+    }
+    .kinds a {
+      padding: 6px 16px;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 600;
+      transition:
+        background 0.2s,
+        color 0.2s;
+    }
+    .kinds a.on {
+      background: #3a3a3c;
+      color: var(--text);
+    }
+  }
   h1 {
     font-size: clamp(34px, 6vw, 52px);
     font-weight: 800;
@@ -163,6 +200,11 @@
     /* Тень у края — видно, что фильтры листаются. */
     mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
     padding-right: 24px;
+  }
+  .ph-chip {
+    color: transparent;
+    border-color: transparent;
+    padding-right: 34px;
   }
   .find {
     display: flex;

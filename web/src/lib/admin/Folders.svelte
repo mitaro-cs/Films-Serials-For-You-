@@ -3,6 +3,7 @@
   import { ago, count, size } from '$lib/fmt';
   import { ask } from '$lib/ui/dialogs.svelte';
   import Icon from '$lib/ui/Icon.svelte';
+  import Inbox from './Inbox.svelte';
   import type { Status } from './types';
 
   let { status, window: inWindow, reload }: { status: Status; window: boolean; reload: () => void } = $props();
@@ -28,7 +29,7 @@
   }
   $effect(load);
   $effect(() => {
-    if (!status.scan.running) return;
+    if (!status.scan.running && !status.import?.running) return;
     const t = setInterval(() => {
       load();
       reload();
@@ -74,9 +75,11 @@
   }
 </script>
 
+<Inbox {status} window={inWindow} {reload} />
+
 <form class="card pane add" onsubmit={add}>
-  <h3><Icon name="folder" size={18} /> Добавить папку</h3>
-  <p class="muted">Папка с фильмами или сериалами на этом компьютере или внешнем диске. Подпапки тоже просматриваются.</p>
+  <h3><Icon name="folder" size={18} /> Подключить папку как есть</h3>
+  <p class="muted">Своя коллекция на этом компьютере или внешнем диске — без копирования. Подпапки тоже просматриваются, новое подхватывается само.</p>
   <div class="line">
     {#if status.canPick && inWindow}
       <button type="button" class="btn" onclick={pick}><Icon name="folder" size={16} /> Выбрать…</button>

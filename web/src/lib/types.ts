@@ -131,6 +131,61 @@ export interface Profile {
   avatar: number;
   kids: boolean;
   autoplay: boolean;
+  photo: string | null;
+}
+
+/** Автор отзыва, участник, собеседник. */
+export interface Person {
+  id: number;
+  name: string;
+  avatar: number;
+  photo: string | null;
+}
+
+export interface Review {
+  id: number;
+  author: Person;
+  /** 1..10 — половинки звезды. */
+  stars: number | null;
+  body: string;
+  createdAt: number;
+  editedAt: number | null;
+  likes: number;
+  liked: boolean;
+  mine: boolean;
+}
+
+export interface Reviews {
+  average: number | null;
+  votes: number;
+  total: number;
+  items: Review[];
+  canWrite: boolean;
+}
+
+export type Relation = 'none' | 'friend' | 'incoming' | 'outgoing';
+
+export interface Member extends Person {
+  relation: Relation;
+  watched: number;
+  reviews: number;
+}
+
+export interface MiniTitle {
+  id: number;
+  kind: Kind;
+  title: string;
+  year: number | null;
+  poster: string | null;
+}
+
+export interface Message {
+  id: number;
+  mine: boolean;
+  body: string;
+  createdAt: number;
+  read: boolean;
+  title: MiniTitle | null;
 }
 
 export interface User {

@@ -117,9 +117,38 @@ export default async function setup(_: FullConfig) {
   const dark = await send('GET', `/api/titles/${id('Тьма')}`);
   await send('PUT', `/api/progress/${dark.files[0].id}`, { position: 6, duration: 6 });
 
+  // Люди: Анна и Борис (аккаунты заводит хост — лимит самостоятельных регистраций с одного
+  // адреса оставляем тестам регистрации), отзывы, дружба, переписка.
+  const publicURL = `http://127.0.0.1:${port}`;
+  const signup = async (name: string, login: string) => {
+    await send('POST', '/api/admin/users', { name, login, password: 'пароль-12345' });
+    const c = await request.newContext({ baseURL: publicURL, extraHTTPHeaders: { 'x-fsfy': '1' } });
+    const r = await c.post('/api/auth/login', { data: { login, password: 'пароль-12345' } });
+    if (!r.ok()) throw new Error(`вход ${login}: ${r.status()} ${await r.text()}`);
+    const me = await (await c.get('/api/me')).json();
+    return { c, id: me.user.profile.id as number };
+  };
+  const anna = await signup('Анна Смирнова', 'anna');
+  const boris = await signup('Борис', 'boris');
+  const me = (await send('GET', '/api/me')).user.profile.id as number;
+  const lala = id('Ла-Ла Ленд');
+  await anna.c.post(`/api/titles/${lala}/reviews`, { data: { stars: 9, body: 'Музыка, цвета и финал, который разбивает сердце. Пересматривала трижды.' } });
+  await boris.c.post(`/api/titles/${lala}/reviews`, { data: { stars: 7, body: 'Красиво, но середина затянута.' } });
+  await send('POST', `/api/titles/${lala}/reviews`, { stars: 10, body: 'Лучший мюзикл десятилетия.' });
+  await anna.c.post(`/api/friends/${me}`);
+  await send('POST', `/api/friends/${anna.id}`);
+  await anna.c.post(`/api/chats/${me}`, { data: { body: 'Привет! Посмотрела «Дюну» — давай обсудим?', titleId: id('Дюна') } });
+  await send('POST', `/api/chats/${anna.id}`, { body: 'Давай! Мне больше понравилась музыка 🙂' });
+  await boris.c.post(`/api/friends/${me}`);
+  await anna.c.dispose();
+  await boris.c.dispose();
+
   await api.storageState({ path: join(import.meta.dirname, '.state.json') });
   await api.dispose();
-  writeFileSync(join(import.meta.dirname, '.env.json'), JSON.stringify({ baseURL, publicURL: `http://127.0.0.1:${port}`, ids: Object.fromEntries(titles.map((t) => [t.title, t.id])) }));
+  writeFileSync(
+    join(import.meta.dirname, '.env.json'),
+    JSON.stringify({ baseURL, publicURL, ids: Object.fromEntries(titles.map((t) => [t.title, t.id])), people: { me, anna: anna.id, boris: boris.id } }),
+  );
 
   return async () => {
     child.kill();

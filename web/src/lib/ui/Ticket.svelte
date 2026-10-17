@@ -6,7 +6,7 @@
 
   // Карточка-билет по макету: постер сверху, низ — в цвет постера, вырезы по краям на шве.
   // Просмотренное — белый билет: моноширинный шрифт, пунктир, штрихкод, дата и время.
-  let { card, eager = false }: { card: Card; eager?: boolean } = $props();
+  let { card, eager = false, index = 0 }: { card: Card; eager?: boolean; index?: number } = $props();
 
   const white = $derived(card.status === 'watched');
   const len = $derived(length(card));
@@ -15,10 +15,16 @@
   const r = $derived(card.status === 'watching' ? card.resume : null);
   const href = $derived(r ? `/watch/${r.fileId}` : `/title/${card.id}`);
   const STATUS_ICON = { want: 'bookmark', watching: 'play', watched: 'check' } as const;
+
+  // Переход на страницу фильма: этот постер «перелетает» на место большого (View Transitions).
+  let art = $state<HTMLDivElement>();
+  function fly() {
+    if (!r) art?.style.setProperty('view-transition-name', `poster-${card.id}`);
+  }
 </script>
 
-<article class="ticket" class:white style:--tint={card.accent ?? '#2c2c2e'}>
-  <div class="art">
+<article class="ticket" class:white style:--tint={card.accent ?? '#2c2c2e'} style:--i={Math.min(index, 12)}>
+  <div class="art" bind:this={art}>
     {#if card.poster}
       <img src={card.poster} alt="" loading={eager ? 'eager' : 'lazy'} decoding="async" width="342" height="513" />
     {:else}
@@ -29,7 +35,7 @@
     {/if}
   </div>
   <div class="body">
-    <h3><a {href} class="name">{card.title}</a></h3>
+    <h3><a {href} class="name" onclick={fly}>{card.title}</a></h3>
     {#if white}
       {#if who}<p class="line">{who}</p>{/if}
       {#if genres}<p class="line dim">{genres}</p>{/if}
@@ -85,6 +91,14 @@
     transition:
       transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
       box-shadow 0.2s;
+    /* Появление по очереди — только прозрачность и сдвиг (место занято сразу, ничего не прыгает). */
+    animation: enter 0.45s calc(var(--i) * 35ms) cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  }
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
   }
   .ticket:hover {
     transform: translateY(-3px);
@@ -312,6 +326,9 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    .ticket {
+      animation: none;
+    }
     .ticket:hover {
       transform: none;
     }

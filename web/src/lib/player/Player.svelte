@@ -36,7 +36,11 @@
   let muted = $state(false);
   let full = $state(false);
   let shown = $state(true);
-  let panel = $state<'' | 'audio' | 'subs' | 'quality' | 'marks'>('');
+  let panel = $state<'' | 'audio' | 'subs' | 'quality' | 'marks' | 'speed' | 'keys'>('');
+  let rate = $state(1);
+  let jump = $state<{ side: 'left' | 'right'; n: number; key: number } | null>(null);
+  const pipOk = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
+  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
   let hover = $state<number | null>(null);
   let barWidth = $state(0);
   let countdown = $state<number | null>(null);
@@ -179,6 +183,8 @@
     } catch {
       /* iOS не даёт менять громкость */
     }
+    // Новый источник (перемотка перепаковки, другое качество) — скорость та же.
+    video.playbackRate = rate;
     if (pendingSeek > 0) video.currentTime = pendingSeek;
     pendingSeek = 0;
     if (!hls) video.play().catch(() => (paused = true));
@@ -385,6 +391,48 @@
     else (video as HTMLVideoElement & { webkitEnterFullscreen?: () => void })?.webkitEnterFullscreen?.();
   }
 
+  function setRate(r: number) {
+    rate = Math.max(0.25, Math.min(3, Math.round(r * 100) / 100));
+    if (video) video.playbackRate = rate;
+    say(rate === 1 ? 'Обычная скорость' : `Скорость ×${String(rate).replace('.', ',')}`);
+  }
+
+  async function pip() {
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await video?.requestPictureInPicture();
+    } catch {
+      say('Картинка в картинке недоступна');
+    }
+  }
+
+  // Касания: двойное — ±10 с у левого/правого края (как в приложениях), одно — показать или
+  // спрятать управление. Мышь: щелчок — пауза, двойной — во весь экран.
+  let lastTap = { at: 0, x: 0 };
+  let tapTimer: ReturnType<typeof setTimeout> | undefined;
+  function tap(e: PointerEvent) {
+    if (e.pointerType === 'mouse') return toggle();
+    const w = (e.currentTarget as HTMLElement).clientWidth;
+    const side = e.clientX < w / 3 ? 'left' : e.clientX > (w * 2) / 3 ? 'right' : null;
+    const now = performance.now();
+    if (side && now - lastTap.at < 300 && Math.abs(e.clientX - lastTap.x) < 80) {
+      clearTimeout(tapTimer);
+      seek(time + (side === 'right' ? 10 : -10));
+      jump = { side, n: jump?.side === side ? jump.n + 10 : 10, key: now };
+      setTimeout(() => jump?.key === now && (jump = null), 650);
+      lastTap = { at: now, x: e.clientX };
+      return;
+    }
+    lastTap = { at: now, x: e.clientX };
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => {
+      if (shown && !paused) {
+        clearTimeout(hideTimer);
+        shown = false;
+      } else poke();
+    }, side ? 260 : 0);
+  }
+
   function setVolume(v: number) {
     volume = Math.max(0, Math.min(1, v));
     muted = volume === 0;
@@ -425,6 +473,11 @@
     else if (k === 'KeyN' && info?.next) goNext();
     else if (k === 'KeyC' && info?.play.subs.length) pickSubs(subId ? '' : info.play.subs[0].id);
     else if (k === 'Escape' && panel) panel = '';
+    else if (k === 'Period' && e.shiftKey) setRate(rate + 0.25);
+    else if (k === 'Comma' && e.shiftKey) setRate(rate - 0.25);
+    else if (k === 'KeyP' && pipOk) pip();
+    else if (e.key === '?') panel = panel === 'keys' ? '' : 'keys';
+    else if (/^Digit\d$/.test(k) && duration) seek((duration * Number(k.slice(5))) / 10);
     else return;
     e.preventDefault();
   }
@@ -485,9 +538,18 @@
     oncanplay={() => (waiting = false)}
     onended={onEnded}
     onerror={onError}
-    onclick={toggle}
-    ondblclick={fullscreen}
+    onpointerup={tap}
+    ondblclick={(e) => (e as MouseEvent).detail && matchMedia('(pointer: fine)').matches && fullscreen()}
   ></video>
+
+  {#if jump}
+    {#key jump.key}
+      <div class="jump {jump.side}" aria-hidden="true">
+        <Icon name={jump.side === 'right' ? 'forward' : 'rewind'} size={30} />
+        <b>{jump.side === 'right' ? '+' : '−'}{jump.n} с</b>
+      </div>
+    {/key}
+  {/if}
 
   {#if subtitle}
     <div class="subs" class:up={shown}>{subtitle}</div>
@@ -623,9 +685,16 @@
           {qualityLabel}
         </button>
       {/if}
+      <button class="cbtn q" class:on={panel === 'speed' || rate !== 1} aria-label="Скорость" title="Скорость" onclick={() => (panel = panel === 'speed' ? '' : 'speed')}>
+        ×{String(rate).replace('.', ',')}
+      </button>
       {#if info?.next}
         <button class="cbtn" aria-label="Следующая серия" title="Следующая серия" onclick={goNext}><Icon name="next" size={22} /></button>
       {/if}
+      {#if pipOk}
+        <button class="cbtn hide-sm" aria-label="Картинка в картинке" title="Картинка в картинке (P)" onclick={pip}><Icon name="copy" size={20} /></button>
+      {/if}
+      <button class="cbtn hide-sm" aria-label="Горячие клавиши" title="Горячие клавиши (?)" onclick={() => (panel = panel === 'keys' ? '' : 'keys')}><Icon name="info" size={20} /></button>
       <button class="cbtn" aria-label="Во весь экран" onclick={fullscreen}><Icon name={full ? 'exitfs' : 'fullscreen'} size={22} /></button>
     </div>
   </div>
@@ -647,6 +716,29 @@
             <Icon name="check" size={16} /> {s.label}
           </button>
         {/each}
+      {:else if panel === 'speed'}
+        <h4>Скорость</h4>
+        {#each SPEEDS as r (r)}
+          <button role="menuitemradio" aria-checked={rate === r} class:on={rate === r} onclick={() => setRate(r)}>
+            <Icon name="check" size={16} /> {r === 1 ? 'Обычная' : `×${String(r).replace('.', ',')}`}
+          </button>
+        {/each}
+      {:else if panel === 'keys'}
+        <h4>Горячие клавиши</h4>
+        <dl class="keys">
+          <dt>Пробел, K</dt><dd>пауза</dd>
+          <dt>← →, J L</dt><dd>±10 секунд</dd>
+          <dt>1…9</dt><dd>к 10…90 % фильма</dd>
+          <dt>↑ ↓</dt><dd>громкость</dd>
+          <dt>M</dt><dd>без звука</dd>
+          <dt>F</dt><dd>во весь экран</dd>
+          <dt>Shift + &lt; &gt;</dt><dd>скорость</dd>
+          <dt>C</dt><dd>субтитры</dd>
+          <dt>S</dt><dd>пропустить заставку</dd>
+          <dt>N</dt><dd>следующая серия</dd>
+          <dt>P</dt><dd>картинка в картинке</dd>
+        </dl>
+        <p class="hint">На телефоне: два касания у края — ±10 секунд, одно — показать управление.</p>
       {:else if panel === 'quality'}
         <h4>Качество</h4>
         {#if origOk}
@@ -911,7 +1003,7 @@
     overflow-y: auto;
     padding: 8px;
     border-radius: 14px;
-    background: rgba(20, 17, 43, 0.94);
+    background: rgba(20, 20, 22, 0.94);
     backdrop-filter: blur(14px);
     border: 1px solid var(--line);
   }
@@ -1033,7 +1125,7 @@
     width: min(440px, calc(100vw - 28px));
     padding: 12px;
     border-radius: 14px;
-    background: rgba(20, 17, 43, 0.94);
+    background: rgba(20, 20, 22, 0.94);
     border: 1px solid var(--line);
     box-shadow: 0 20px 50px -10px #000;
     animation: slidein 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -1066,6 +1158,58 @@
   .go {
     background: linear-gradient(90deg, #d8d4f0 var(--p), #fff var(--p));
   }
+  .jump {
+    position: absolute;
+    top: 50%;
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+    padding: 18px 22px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    animation: jump 0.65s ease-out both;
+  }
+  .jump.left {
+    left: 12%;
+  }
+  .jump.right {
+    right: 12%;
+  }
+  @keyframes jump {
+    from {
+      opacity: 0;
+      transform: translateY(-50%) scale(0.8);
+    }
+    20% {
+      opacity: 1;
+      transform: translateY(-50%) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-50%) scale(1.05);
+    }
+  }
+  .keys {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 14px;
+    margin: 0 4px 6px;
+    font-size: 13px;
+  }
+  .keys dt {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .keys dd {
+    margin: 0;
+    color: rgba(255, 255, 255, 0.7);
+  }
+  @media (max-width: 640px) {
+    .hide-sm {
+      display: none;
+    }
+  }
   .toast {
     position: absolute;
     top: calc(80px + env(safe-area-inset-top));
@@ -1073,7 +1217,7 @@
     transform: translateX(-50%);
     padding: 10px 18px;
     border-radius: 999px;
-    background: rgba(20, 17, 43, 0.94);
+    background: rgba(20, 20, 22, 0.94);
     border: 1px solid var(--line);
     font-size: 14px;
     animation: slidein 0.3s ease;

@@ -68,7 +68,8 @@ test('поиск на месте и вкладки', async ({ page }, info) => {
   await page.getByRole('searchbox', { name: 'Найти в разделе' }).fill('нет такого');
   await expect(page.getByText('Ничего не нашлось')).toBeVisible();
 
-  const nav = info.project.name === 'phone' ? page.locator('nav.tabs') : page.locator('nav.pill');
+  // Широкий экран — капсула в шапке; уже 1000 px — капсула разделов на самой странице.
+  const nav = info.project.name === 'desktop' ? page.locator('nav.pill') : page.getByRole('navigation', { name: 'Разделы каталога' });
   await nav.getByRole('link', { name: 'Сериалы' }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Сериалы');
   await expect(page.locator('article.ticket')).toHaveCount(1);

@@ -25,6 +25,8 @@
   --radius-sm: 10px;
   --gutter: clamp(16px, 4vw, 56px);
   --header: 64px;
+  /* Высота нижней панели разделов (телефон, планшет), чтобы ничего под ней не пряталось. */
+  --tabbar: 0px;
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   color-scheme: dark;
@@ -278,7 +280,12 @@ select.input option {
 }
 
 .page {
-  padding: calc(var(--header) + 24px) var(--gutter) 64px;
+  padding: calc(var(--header) + 24px) var(--gutter) calc(64px + var(--tabbar));
+}
+@media (max-width: 1000px) {
+  :root {
+    --tabbar: calc(64px + env(safe-area-inset-bottom));
+  }
 }
 
 .section-title {
@@ -332,4 +339,29 @@ select.input option {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ---------- переходы между страницами (View Transitions) ---------- */
+
+::view-transition-old(root) {
+  animation: vt-out 0.16s ease-in both;
+}
+::view-transition-new(root) {
+  animation: vt-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes vt-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+/* Постер «перелетает» из карточки на страницу фильма. */
+::view-transition-group(*) {
+  animation-duration: 0.36s;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
