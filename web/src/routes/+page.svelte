@@ -24,6 +24,9 @@
     const t = tab;
     items = null;
     failed = false;
+    // Поиск — по разделу: на другой вкладке начинаем с чистого листа.
+    query = '';
+    searching = false;
     api<Library>(`/api/library?tab=${t}`).then(
       (r) => {
         if (t !== tab) return;

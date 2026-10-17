@@ -7,9 +7,14 @@
   let el = $state<HTMLDivElement>();
   let pos = $state({ left: 0, top: 0 });
 
-  $effect(() => {
-    if (!c || !statusMenu.rect || !el) return;
-    const r = statusMenu.rect;
+  // Ставим меню у кнопки; при прокрутке оно едет за ней, ушла с экрана — закрываем.
+  function place() {
+    if (!statusMenu.anchor || !el) return;
+    const r = statusMenu.anchor.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > innerHeight) {
+      statusMenu.card = null;
+      return;
+    }
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     const pad = 12;
@@ -19,20 +24,28 @@
     left = Math.min(Math.max(pad, left), innerWidth - w - pad);
     top = Math.min(Math.max(pad, top), innerHeight - h - pad);
     pos = { left, top };
-    el.querySelector('button')?.focus();
+  }
+
+  $effect(() => {
+    if (!c || !el) return;
+    place();
+    el.querySelector<HTMLElement>('button:not(:disabled), a')?.focus({ preventScroll: true });
   });
 
   $effect(() => {
     if (!c) return;
-    const close = () => (statusMenu.card = null);
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && close();
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      statusMenu.card = null;
+      statusMenu.anchor?.focus({ preventScroll: true });
+    };
     addEventListener('keydown', key);
-    addEventListener('scroll', close, { passive: true });
-    addEventListener('resize', close);
+    addEventListener('scroll', place, { passive: true, capture: true });
+    addEventListener('resize', place);
     return () => {
       removeEventListener('keydown', key);
-      removeEventListener('scroll', close);
-      removeEventListener('resize', close);
+      removeEventListener('scroll', place, { capture: true });
+      removeEventListener('resize', place);
     };
   });
 

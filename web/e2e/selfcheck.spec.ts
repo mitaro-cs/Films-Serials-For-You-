@@ -1,6 +1,7 @@
 import { expect, test } from './util-test';
 import { expectClean, url } from './util';
 
+// Сама проверка вёрстки должна ловить ошибки, иначе её зелёный цвет ничего не значит.
 test('самопроверка: наложение ловится', async ({ page }) => {
   await page.goto(url('/'));
   await page.waitForSelector('.ticket');
@@ -17,13 +18,4 @@ test('самопроверка: наложение ловится', async ({ pag
     document.querySelector('.page')!.append(d);
   });
   await expect(expectClean(page, 'проба')).rejects.toThrow(/шире экрана/);
-});
-
-test('скриншоты', async ({ page }, info) => {
-  const ids = (await import('./util')).env().ids;
-  for (const [p, n] of [['/', 'home'], ['/?status=watched', 'watched'], ['/?tab=series', 'series'], [`/title/${ids['Ла-Ла Ленд']}`, 'title'], [`/title/${ids['Тьма']}`, 'series-title'], ['/profiles', 'profiles'], ['/admin?tab=access', 'access'], ['/search?q=на', 'search']]) {
-    await page.goto(url(p));
-    await page.waitForLoadState('networkidle');
-    await page.screenshot({ path: `/tmp/claude-0/-home-user/bb37a107-9e5f-5464-b141-88f6bc4848ef/scratchpad/${info.project.name}-${n}.png` });
-  }
 });

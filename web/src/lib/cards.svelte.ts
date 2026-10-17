@@ -1,7 +1,7 @@
 import { put } from './api';
 import type { Card } from './types';
 
-// Действия с карточкой отовсюду (ряд, всплывающая карточка, страница фильма): меняем сам
+// Действия с карточкой отовсюду (каталог, поиск, страница фильма): меняем сам
 // объект — все места, где он показан, обновятся сразу; сервер — следом.
 
 type Mark = Pick<Card, 'id' | 'inList' | 'status' | 'watchedAt' | 'resume'>;
@@ -31,12 +31,12 @@ export async function toggleWatched(card: Mark) {
   }
 }
 
-/** Меню статуса у карточки — одно на страницу (как и всплывающая карточка). */
-export const statusMenu = $state<{ card: Card | null; rect: DOMRect | null }>({ card: null, rect: null });
+/** Меню статуса у карточки — одно на страницу. */
+export const statusMenu = $state<{ card: Card | null; anchor: HTMLElement | null }>({ card: null, anchor: null });
 
 export function openStatus(card: Card, el: HTMLElement) {
   statusMenu.card = card;
-  statusMenu.rect = el.getBoundingClientRect();
+  statusMenu.anchor = el;
 }
 
 export async function rate(card: Pick<Card, 'id' | 'myRating'>, value: -1 | 1 | 2) {
@@ -48,34 +48,4 @@ export async function rate(card: Pick<Card, 'id' | 'myRating'>, value: -1 | 1 | 
   } catch {
     card.myRating = before;
   }
-}
-
-/** Всплывающая карточка при наведении (как у Netflix): над постером, крупнее. */
-export const hover = $state<{ card: Card | null; rect: DOMRect | null }>({ card: null, rect: null });
-
-let timer: ReturnType<typeof setTimeout> | undefined;
-let leaveTimer: ReturnType<typeof setTimeout> | undefined;
-
-/** Только мышь: на сенсорных экранах карточка мешала бы прокрутке. */
-export const canHover = () => typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
-
-export function hoverEnter(card: Card, el: HTMLElement) {
-  if (!canHover()) return;
-  clearTimeout(timer);
-  clearTimeout(leaveTimer);
-  timer = setTimeout(() => {
-    hover.card = card;
-    hover.rect = el.getBoundingClientRect();
-  }, 420);
-}
-
-export function hoverLeave() {
-  clearTimeout(timer);
-  leaveTimer = setTimeout(() => {
-    hover.card = null;
-  }, 120);
-}
-
-export function hoverKeep() {
-  clearTimeout(leaveTimer);
 }

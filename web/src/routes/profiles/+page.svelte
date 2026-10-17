@@ -219,9 +219,9 @@
   }
   .name {
     font-size: 16px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    line-height: 1.25;
+    text-align: center;
+    overflow-wrap: anywhere;
     max-width: 100%;
   }
   .kid {

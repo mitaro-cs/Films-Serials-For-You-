@@ -37,12 +37,12 @@
     opacity: 0.35;
   }
   .a {
-    background: #6d5cff;
+    background: #3a3a3c;
     top: -30vmax;
     right: -20vmax;
   }
   .b {
-    background: #ff3d6e;
+    background: #52525b;
     bottom: -35vmax;
     left: -25vmax;
     opacity: 0.22;
@@ -60,7 +60,8 @@
     width: 110px;
     aspect-ratio: 2 / 3;
     border-radius: 10px;
-    background: linear-gradient(160deg, hsl(var(--h) 55% 35%), hsl(calc(var(--h) + 50) 60% 12%));
+    /* Ряд билетов в цвет постеров — как карточки в каталоге. */
+    background: linear-gradient(180deg, hsl(var(--h) 30% 32%) 0 58%, hsl(var(--h) 25% 22%) 58%);
     animation: float 6s ease-in-out infinite;
     animation-delay: var(--d);
   }
@@ -73,7 +74,7 @@
     position: relative;
     width: min(420px, 100%);
     padding: 34px 30px 30px;
-    background: rgba(17, 15, 38, 0.82);
+    background: rgba(18, 18, 20, 0.86);
     backdrop-filter: blur(20px);
     box-shadow: 0 40px 80px -30px rgba(0, 0, 0, 0.8);
   }

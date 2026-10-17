@@ -379,6 +379,7 @@ pub async fn list(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<ListQu
     }
     let taste = Taste::load(&app, v.profile.id)?;
     taste.apply(&mut items);
+    with_resume(&app, v.profile.id, &mut items)?;
     Ok(Json(items))
 }
 

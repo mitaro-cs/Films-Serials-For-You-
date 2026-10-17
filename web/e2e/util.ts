@@ -120,3 +120,20 @@ export async function expectClean(page: Page, what: string) {
   });
   expect(problems, `${what}: вёрстка`).toEqual([]);
 }
+
+/** Статусы демо-данных как после setup: тесты не зависят друг от друга. */
+export async function resetStatuses() {
+  const { baseURL, ids } = env();
+  const { request } = await import('@playwright/test');
+  const api = await request.newContext({ baseURL, storageState: join(import.meta.dirname, '.state.json'), extraHTTPHeaders: { 'x-fsfy': '1' } });
+  const set = async (t: string, list: boolean, watched: boolean) => {
+    await api.put(`/api/titles/${ids[t]}/watched`, { data: { value: watched } });
+    await api.put(`/api/list/${ids[t]}`, { data: { value: list } });
+  };
+  await set('Амели', false, false);
+  await set('Дюна', true, false);
+  await set('Интерстеллар', true, false);
+  await set('Ла-Ла Ленд', false, true);
+  await set('Паразиты', false, true);
+  await api.dispose();
+}
