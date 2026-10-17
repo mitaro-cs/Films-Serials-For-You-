@@ -715,7 +715,7 @@ pub struct AccessBody {
 
 pub async fn set_access(State(app): State<Arc<App>>, _m: Manager, Json(b): Json<AccessBody>) -> Out {
     match b.mode.as_str() {
-        "lan" => {}
+        "lan" | "cloudpub" => {}
         "fxtunnel" => {
             if let Some(s) = b.subdomain {
                 let s = s.trim().to_lowercase();
@@ -746,6 +746,35 @@ pub async fn access_login(State(app): State<Arc<App>>, _m: Manager) -> Out {
         ApiError::new(StatusCode::BAD_GATEWAY, "fxtunnel", format!("Не удалось связаться с fxTunnel: {e}"))
     })?;
     Ok(Json(json!(l)))
+}
+
+#[derive(Deserialize)]
+pub struct CloudPubLogin {
+    #[serde(default)]
+    email: String,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    token: String,
+}
+
+pub async fn cloudpub_login(State(app): State<Arc<App>>, _m: Manager, Json(b): Json<CloudPubLogin>) -> Out {
+    let (email, token) = (b.email.trim(), b.token.trim());
+    if token.is_empty() && (email.is_empty() || b.password.is_empty()) {
+        return Err(ApiError::bad("login", "Введите почту и пароль от CloudPub или ключ API"));
+    }
+    if !token.is_empty() && (token.len() < 16 || token.chars().any(char::is_whitespace)) {
+        return Err(ApiError::bad("token", "Вставьте ключ API из личного кабинета CloudPub целиком"));
+    }
+    Access::cp_login(&app, email, &b.password, token)
+        .await
+        .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "cloudpub", e.to_string()))?;
+    Ok(Json(json!(app.access.view(&app))))
+}
+
+pub async fn cloudpub_logout(State(app): State<Arc<App>>, _m: Manager) -> Out {
+    Access::cp_logout(&app).await;
+    Ok(Json(json!(app.access.view(&app))))
 }
 
 pub async fn access_logout(State(app): State<Arc<App>>, _m: Manager) -> Out {

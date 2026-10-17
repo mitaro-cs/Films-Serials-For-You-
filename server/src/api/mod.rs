@@ -79,6 +79,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/admin/access", get(admin::access).put(admin::set_access))
         .route("/api/admin/access/login", post(admin::access_login))
         .route("/api/admin/access/logout", post(admin::access_logout))
+        .route("/api/admin/access/cloudpub/login", post(admin::cloudpub_login))
+        .route("/api/admin/access/cloudpub/logout", post(admin::cloudpub_logout))
         .fallback(crate::web::spa)
         .layer(axum::middleware::from_fn(crate::web::headers))
         .layer(

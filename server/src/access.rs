@@ -2,6 +2,8 @@
 //! - `lan` — только домашняя сеть (`http://192.168.…:порт`);
 //! - `fxtunnel` — бесплатный туннель fxTunnel (`https://имя.fxtun.ru`, работает из России,
 //!   белый IP не нужен). Клиент скачивается с GitHub и сверяется по SHA-256;
+//! - `cloudpub` — бесплатный российский туннель CloudPub (`https://имя.cloudpub.ru`): связь по
+//!   HTTPS на 443, поэтому работает и с VPN, и без; адрес постоянный, выдаёт сервис;
 //! - `custom` — свой адрес (проброс порта на роутере, свой домен).
 
 use crate::host::HostEvent;
@@ -59,6 +61,7 @@ pub struct AccessView {
     pub lan_url: Option<String>,
     pub subdomain: String,
     pub fx_logged_in: bool,
+    pub cp_logged_in: bool,
     pub login: Option<LoginView>,
     pub custom_url: String,
 }
@@ -86,7 +89,7 @@ pub fn lan_ip() -> Option<std::net::IpAddr> {
     (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
 }
 
-fn platform() -> Option<String> {
+pub fn platform() -> Option<String> {
     let os = match std::env::consts::OS {
         "macos" => "darwin",
         "linux" => "linux",
@@ -113,7 +116,7 @@ impl Access {
         AccessView {
             public_url: match mode.as_str() {
                 "custom" if !custom.is_empty() => Some(custom.clone()),
-                "fxtunnel" => i.url.clone(),
+                "fxtunnel" | "cloudpub" => i.url.clone(),
                 _ => None,
             },
             state: match mode.as_str() {
@@ -133,10 +136,11 @@ impl Access {
                     }
                 }
             },
-            message: if mode == "fxtunnel" { i.message.clone() } else { None },
+            message: if matches!(mode.as_str(), "fxtunnel" | "cloudpub") { i.message.clone() } else { None },
             lan_url: lan_ip().map(|ip| format!("http://{ip}:{}", app.ports.0)),
             subdomain: app.db.setting_or("access.fx.sub", ""),
             fx_logged_in: !app.db.setting_or("access.fx.token", "").is_empty(),
+            cp_logged_in: crate::cloudpub::CloudPub::new(&app.data).logged_in(),
             login: i.login.clone().filter(|l| l.expires_at > now_ms()),
             custom_url: custom,
             mode,
@@ -179,8 +183,14 @@ impl Access {
         let a = app.clone();
         let v = app.access.view(app);
         app.host.event(HostEvent::Access { url: v.public_url, lan: v.lan_url });
-        if Self::mode(app) == "fxtunnel" {
-            tokio::spawn(async move { Self::run(a, gen).await });
+        match Self::mode(app).as_str() {
+            "fxtunnel" => {
+                tokio::spawn(async move { Self::run(a, gen).await });
+            }
+            "cloudpub" => {
+                tokio::spawn(async move { Self::run_cp(a, gen).await });
+            }
+            _ => {}
         }
     }
 
@@ -345,6 +355,154 @@ impl Access {
         }
         std::fs::rename(&part, &target)?;
         Ok(target)
+    }
+
+    // ---------- CloudPub ----------
+
+    async fn run_cp(app: Arc<App>, gen: u64) {
+        let cp = crate::cloudpub::CloudPub::new(&app.data);
+        let mut failures = 0usize;
+        loop {
+            if !cp.logged_in() {
+                app.access.set(&app, gen, "needs_login", Some("Войдите в CloudPub — это бесплатно".into()), Some(None));
+                return;
+            }
+            let err = match Self::run_cp_once(&app, gen, &cp).await {
+                Ok(e) => e,
+                Err(e) => e.to_string(),
+            };
+            if !app.access.current(gen) {
+                return;
+            }
+            if crate::cloudpub::AUTH_ERROR.is_match(&err) {
+                app.access.set(&app, gen, "needs_login", Some("CloudPub просит войти заново".into()), Some(None));
+                return;
+            }
+            let msg = if err.is_empty() {
+                "Связь с CloudPub прервалась — переподключаемся".to_string()
+            } else {
+                format!("CloudPub: {err} — переподключаемся")
+            };
+            app.access.set(&app, gen, "retrying", Some(msg), Some(None));
+            let delay = BACKOFF[failures.min(BACKOFF.len() - 1)];
+            failures += 1;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(delay)) => {}
+                _ = app.access.stop.notified() => {}
+            }
+            if !app.access.current(gen) {
+                return;
+            }
+        }
+    }
+
+    /// Адрес — постоянный: регистрируем сервис один раз, потом только запускаем.
+    async fn run_cp_once(app: &Arc<App>, gen: u64, cp: &crate::cloudpub::CloudPub) -> anyhow::Result<String> {
+        if !cp.installed() {
+            app.access.set(app, gen, "starting", Some("Скачиваем клиент CloudPub…".into()), None);
+        }
+        cp.ensure(&app.http).await?;
+        if !app.access.current(gen) {
+            return Ok(String::new());
+        }
+        let port = app.ports.0;
+        let saved = app.db.setting_or("access.cp.url", "");
+        let url = match cp.registered(port).await? {
+            Some(u) => u,
+            None => {
+                app.access.set(app, gen, "starting", Some("Получаем постоянный адрес в CloudPub…".into()), None);
+                cp.register(port).await?
+            }
+        };
+        if url != saved {
+            let _ = app.db.set_setting("access.cp.url", &url);
+        }
+        app.access.set(app, gen, "starting", Some("Подключаемся к CloudPub…".into()), None);
+        kill_stale(&cp.pid_file(), "clo");
+        let mut child = cp.run_command().stdout(Stdio::piped()).stderr(Stdio::piped()).stdin(Stdio::null()).spawn()?;
+        if let Some(pid) = child.id() {
+            let _ = std::fs::write(cp.pid_file(), pid.to_string());
+        }
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        for out in [
+            child.stdout.take().map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
+            child.stderr.take().map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(out).lines();
+                while let Ok(Some(l)) = lines.next_line().await {
+                    let _ = tx.send(ANSI.replace_all(&l, "").trim().to_string());
+                }
+            });
+        }
+        drop(tx);
+        let mut last_err = String::new();
+        let mut online = false;
+        // Клиент может и не повторить адрес — после 8 с без ошибок считаем, что сервис поднят.
+        let assume = tokio::time::Instant::now() + Duration::from_secs(8);
+        loop {
+            tokio::select! {
+                line = rx.recv() => match line {
+                    Some(l) => {
+                        if let Some(u) = crate::cloudpub::find_url(&l) {
+                            online = true;
+                            app.access.set(app, gen, "online", None, Some(Some(u)));
+                        } else if l.to_lowercase().contains("error") || l.contains("Ошибка") {
+                            last_err = l.chars().take(200).collect();
+                        }
+                    }
+                    None => break,
+                },
+                _ = app.access.stop.notified() => {}
+                _ = tokio::time::sleep_until(assume), if !online => {
+                    online = true;
+                    app.access.set(app, gen, "online", None, Some(Some(url.clone())));
+                }
+            }
+            if !app.access.current(gen) {
+                let _ = child.kill().await;
+                let _ = std::fs::remove_file(cp.pid_file());
+                return Ok(String::new());
+            }
+        }
+        let _ = child.wait().await;
+        let _ = std::fs::remove_file(cp.pid_file());
+        Ok(last_err)
+    }
+
+    /// Вход в CloudPub почтой и паролем или ключом API. Пароль не сохраняется.
+    pub async fn cp_login(app: &Arc<App>, email: &str, password: &str, token: &str) -> anyhow::Result<()> {
+        let cp = crate::cloudpub::CloudPub::new(&app.data);
+        cp.ensure(&app.http).await?;
+        let out = if token.is_empty() { cp.login(email, password).await? } else { cp.set_token(token).await? };
+        if !out.ok || !cp.logged_in() {
+            let why = out.last_line();
+            anyhow::bail!(
+                "{}",
+                if why.is_empty() {
+                    "CloudPub не принял вход — проверьте почту и пароль".to_string()
+                } else {
+                    why
+                }
+            );
+        }
+        let _ = app.db.set_setting("access.mode", "cloudpub");
+        Access::restart(app);
+        Ok(())
+    }
+
+    pub async fn cp_logout(app: &Arc<App>) {
+        let cp = crate::cloudpub::CloudPub::new(&app.data);
+        if cp.installed() {
+            let _ = cp.logout().await;
+        }
+        let _ = std::fs::remove_file(cp.conf());
+        let _ = app.db.set_setting("access.cp.url", "");
+        Access::restart(app);
     }
 
     // ---------- вход в fxTunnel через браузер ----------
