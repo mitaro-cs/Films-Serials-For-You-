@@ -57,6 +57,7 @@ pub struct App {
     pub transcode: Arc<Semaphore>,
     pub remux: Arc<Semaphore>,
     pub hls: hls::Hls,
+    pub inbox: library::inbox::Inbox,
 }
 
 impl App {
@@ -192,12 +193,15 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         transcode: Arc::new(Semaphore::new(2)),
         remux: Arc::new(Semaphore::new(8)),
         hls: hls::Hls::default(),
+        inbox: library::inbox::Inbox::default(),
     });
     auth::ensure_host(&app)?;
     backfill(&app)?;
+    library::inbox::ensure_on_start(&app);
 
     tokio::spawn(library::jobs::scan_worker(app.clone()));
     tokio::spawn(library::jobs::probe_worker(app.clone()));
+    tokio::spawn(library::inbox::watch_worker(app.clone()));
     tokio::spawn(meta::worker(app.clone()));
     tokio::spawn(cleanup(app.clone()));
     tokio::spawn(hls::janitor(app.clone()));
