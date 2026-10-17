@@ -410,6 +410,9 @@ pub async fn unfriend(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64
 
 // ---------- переписка ----------
 
+/// id, от кого, текст, когда, прочитано, фильм.
+type MessageRow = (i64, i64, String, i64, Option<i64>, Option<i64>);
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Message {
@@ -478,7 +481,7 @@ pub async fn chat(
              WHERE ((m.from_id = ?1 AND m.to_id = ?2) OR (m.from_id = ?2 AND m.to_id = ?1)) AND m.id > ?3 AND m.id < ?4
              ORDER BY m.id DESC LIMIT {PAGE}"
         ))?;
-        let rows: Vec<(i64, i64, String, i64, Option<i64>, Option<i64>)> = st
+        let rows: Vec<MessageRow> = st
             .query_map(params![me, id, after, before], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
             })?
