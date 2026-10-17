@@ -2,7 +2,8 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { post } from '$lib/api';
-  import { session } from '$lib/session.svelte';
+  import { loadMe, session } from '$lib/session.svelte';
+  import Avatar from './Avatar.svelte';
   import Icon from './Icon.svelte';
   import Logo from './Logo.svelte';
 
@@ -46,7 +47,16 @@
     goto('/login');
   }
 
-  const initials = $derived((session.me?.user.name ?? '?').trim().slice(0, 1).toUpperCase());
+  const profile = $derived(session.me?.user.profile);
+  const others = $derived((session.me?.profiles ?? []).filter((p) => p.id !== profile?.id));
+
+  async function switchTo(id: number) {
+    menu = false;
+    await post(`/api/profiles/${id}/select`).catch(() => {});
+    await loadMe();
+    // Всё на странице — для другого профиля: проще и надёжнее перезагрузить данные.
+    location.assign('/');
+  }
 </script>
 
 <header class:scrolled class:home>
@@ -70,14 +80,22 @@
       <a class="btn ghost sm icon" href="/admin" aria-label="Управление" title="Управление"><Icon name="sliders" /></a>
     {/if}
     <div class="me">
-      <button class="avatar" aria-label="Профиль" aria-expanded={menu} onclick={() => (menu = !menu)}>{initials}</button>
+      <button class="avatar" aria-label="Профиль" aria-expanded={menu} onclick={() => (menu = !menu)}>
+        <Avatar avatar={profile?.avatar ?? 0} kids={profile?.kids} size={36} />
+      </button>
       {#if menu}
         <button class="scrim" aria-label="Закрыть меню" onclick={() => (menu = false)}></button>
         <div class="menu" role="menu">
           <div class="who">
-            <b>{session.me?.user.name}</b>
-            <span class="muted">@{session.me?.user.login}</span>
+            <b>{profile?.name}{profile?.kids ? ' · детский' : ''}</b>
+            <span class="muted">{session.me?.user.name} · @{session.me?.user.login}</span>
           </div>
+          {#each others as p (p.id)}
+            <button role="menuitem" class="prof" onclick={() => switchTo(p.id)}>
+              <Avatar avatar={p.avatar} kids={p.kids} size={26} /> {p.name}
+            </button>
+          {/each}
+          <a href="/profiles?manage=1" role="menuitem" onclick={() => (menu = false)}><Icon name="users" size={18} /> Управление профилями</a>
           <a href="/profile" role="menuitem" onclick={() => (menu = false)}><Icon name="user" size={18} /> Профиль</a>
           {#if session.me?.manage}
             <a href="/admin" role="menuitem" onclick={() => (menu = false)}><Icon name="sliders" size={18} /> Управление</a>
@@ -188,14 +206,22 @@
     position: relative;
   }
   .avatar {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
+    padding: 0;
     border: 0;
-    background: var(--accent-grad);
-    color: #fff;
-    font-weight: 800;
+    border-radius: 8px;
+    overflow: hidden;
+    background: none;
     cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .avatar:hover {
+    transform: scale(1.06);
+  }
+  .menu .prof {
+    font-weight: 600;
+  }
+  .menu .prof :global(svg) {
+    border-radius: 5px;
   }
   .scrim {
     position: fixed;

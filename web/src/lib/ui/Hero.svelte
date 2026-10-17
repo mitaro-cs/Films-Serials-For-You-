@@ -1,15 +1,41 @@
 <script lang="ts">
-  import type { Card } from '$lib/types';
+  import { canHover, toggleList } from '$lib/cards.svelte';
+  import type { HeroCard } from '$lib/types';
   import { kindLabel, runtime } from '$lib/fmt';
   import Icon from './Icon.svelte';
 
-  let { items }: { items: Card[] } = $props();
+  let { items }: { items: HeroCard[] } = $props();
   let i = $state(0);
   let paused = $state(false);
   const c = $derived(items[i]);
 
+  // Превью как у Netflix: через пару секунд фильм начинает играть без звука вместо кадра.
+  let showVideo = $state(false);
+  let playing = $state(false);
+  let muted = $state(true);
+  let video: HTMLVideoElement | undefined = $state();
+  const saveData = typeof navigator !== 'undefined' && (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
+  const reduced = typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   $effect(() => {
-    if (items.length < 2 || paused) return;
+    const cur = c;
+    showVideo = false;
+    playing = false;
+    if (!cur?.preview || saveData || reduced || !canHover()) return;
+    const start = setTimeout(() => (showVideo = true), 2500);
+    // Превью — 40 секунд, потом снова кадр.
+    const stop = setTimeout(() => {
+      playing = false;
+      setTimeout(() => (showVideo = false), 1200);
+    }, 42500);
+    return () => {
+      clearTimeout(start);
+      clearTimeout(stop);
+    };
+  });
+
+  $effect(() => {
+    if (items.length < 2 || paused || playing) return;
     const t = setInterval(() => (i = (i + 1) % items.length), 9000);
     return () => clearInterval(t);
   });
@@ -20,6 +46,22 @@
     {#each items as it, k (it.id)}
       <div class="bg" class:on={k === i} style:background-image={it.backdrop ? `url(${it.backdrop})` : undefined}></div>
     {/each}
+    {#if showVideo && c.preview}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        class="preview"
+        class:on={playing}
+        bind:this={video}
+        src="/api/files/{c.preview.fileId}/raw#t={c.preview.start}"
+        {muted}
+        autoplay
+        playsinline
+        preload="auto"
+        onplaying={() => (playing = true)}
+        onended={() => (playing = false)}
+        onerror={() => (showVideo = false)}
+      ></video>
+    {/if}
     <div class="shade"></div>
     {#key c.id}
       <div class="content">
@@ -40,9 +82,20 @@
         <div class="actions">
           <a class="btn white" href="/title/{c.id}?play=1"><Icon name="play" size={18} /> Смотреть</a>
           <a class="btn" href="/title/{c.id}"><Icon name="info" size={18} /> Подробнее</a>
+          <button class="btn icon" aria-label={c.inList ? 'Убрать из списка' : 'В мой список'} title={c.inList ? 'В моём списке' : 'В мой список'} onclick={() => toggleList(c)}>
+            <Icon name={c.inList ? 'check' : 'plus'} size={20} />
+          </button>
         </div>
       </div>
     {/key}
+    <div class="side">
+      {#if playing}
+        <button class="sound" aria-label={muted ? 'Включить звук' : 'Выключить звук'} onclick={() => (muted = !muted)}>
+          <Icon name={muted ? 'mute' : 'volume'} size={20} />
+        </button>
+      {/if}
+      {#if c.age}<span class="agebar">{c.age}</span>{/if}
+    </div>
     {#if items.length > 1}
       <div class="dots">
         {#each items as it, k (it.id)}
@@ -76,6 +129,43 @@
   .bg.on {
     opacity: 1;
     transform: scale(1);
+  }
+  .preview {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 1.2s ease;
+  }
+  .preview.on {
+    opacity: 1;
+  }
+  .side {
+    position: absolute;
+    right: 0;
+    bottom: clamp(120px, 18vh, 180px);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .sound {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.7);
+    background: rgba(11, 10, 26, 0.35);
+    color: #fff;
+    cursor: pointer;
+  }
+  .agebar {
+    padding: 6px 36px 6px 12px;
+    border-left: 3px solid #dcdcdc;
+    background: rgba(51, 51, 51, 0.6);
+    font-size: 15px;
   }
   .shade {
     position: absolute;
@@ -147,7 +237,7 @@
   .dots {
     position: absolute;
     right: var(--gutter);
-    bottom: clamp(64px, 12vh, 120px);
+    bottom: 74px;
     display: flex;
     gap: 8px;
   }

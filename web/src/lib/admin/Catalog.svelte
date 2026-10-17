@@ -35,7 +35,7 @@
 
   let editing = $state<Row | null>(null);
   let editOpen = $state(false);
-  let form = $state({ title: '', year: '', kind: 'movie', overview: '', hidden: false });
+  let form = $state({ title: '', year: '', kind: 'movie', overview: '', hidden: false, age: '' });
 
   let matching = $state<Row | null>(null);
   let matchOpen = $state(false);
@@ -62,8 +62,15 @@
 
   async function openEdit(r: Row) {
     editing = r;
-    const d = await api<{ card: { overview: string | null } }>(`/api/titles/${r.id}`).catch(() => null);
-    form = { title: r.title, year: r.year ? String(r.year) : '', kind: r.kind, overview: d?.card.overview ?? '', hidden: r.hidden };
+    const d = await api<{ card: { overview: string | null; age: string | null } }>(`/api/titles/${r.id}`).catch(() => null);
+    form = {
+      title: r.title,
+      year: r.year ? String(r.year) : '',
+      kind: r.kind,
+      overview: d?.card.overview ?? '',
+      hidden: r.hidden,
+      age: d?.card.age ?? '',
+    };
     editOpen = true;
   }
 
@@ -78,6 +85,7 @@
         kind: form.kind,
         overview: form.overview,
         hidden: form.hidden,
+        age: form.age,
       });
       editOpen = false;
       load();
@@ -199,6 +207,10 @@
         <select class="input" bind:value={form.kind}><option value="movie">Фильм</option><option value="series">Сериал</option></select>
       </label>
     </div>
+    <label class="field">
+      <span>Возраст — для детских профилей (0+, 6+, 12+, 16+, 18+, PG-13…)</span>
+      <input class="input" bind:value={form.age} maxlength="8" placeholder="Не указан" />
+    </label>
     <label class="field"><span>Описание</span><textarea class="input" bind:value={form.overview}></textarea></label>
     <div class="two">
       <label class="btn sm file"><Icon name="image" size={15} /> Свой постер<input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => upload('poster', e)} /></label>

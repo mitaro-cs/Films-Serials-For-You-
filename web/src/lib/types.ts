@@ -7,6 +7,7 @@ export interface Card {
   originalTitle: string | null;
   year: number | null;
   poster: string | null;
+  posterLarge: string | null;
   backdrop: string | null;
   logo: string | null;
   rating: number | null;
@@ -17,6 +18,14 @@ export interface Card {
   addedAt: number;
   files: number;
   seasons: number;
+  inList: boolean;
+  /** -1 — «не для меня», 1 — «нравится», 2 — «обожаю». */
+  myRating: -1 | 1 | 2 | null;
+  matchPct: number | null;
+}
+
+export interface HeroCard extends Card {
+  preview: { fileId: number; start: number } | null;
 }
 
 export interface Next {
@@ -35,10 +44,11 @@ export interface Row {
   key: string;
   title: string;
   items: Card[];
+  style: 'poster' | 'top';
 }
 
 export interface Home {
-  hero: Card[];
+  hero: HeroCard[];
   continue: ContinueItem[];
   rows: Row[];
 }
@@ -68,6 +78,7 @@ export interface FileItem {
   duration: number | null;
   size: number;
   fileName: string;
+  addedAt: number;
   progress: Progress | null;
 }
 
@@ -98,16 +109,27 @@ export interface Site {
   version: string;
 }
 
+export interface Profile {
+  id: number;
+  name: string;
+  avatar: number;
+  kids: boolean;
+  autoplay: boolean;
+}
+
 export interface User {
   id: number;
   login: string;
   name: string;
   role: 'host' | 'admin' | 'viewer';
   canDownload: boolean;
+  profile: Profile;
+  profileChosen: boolean;
 }
 
 export interface Me {
   user: User;
+  profiles: Profile[];
   hasPassword: boolean;
   manage: boolean;
   window: boolean;
@@ -146,5 +168,20 @@ export interface PlayInfo {
   episode: string;
   prev: number | null;
   next: number | null;
+  nextInfo: { label: string; still: string | null } | null;
+  season: number | null;
   position: number;
+  markers: { intro: [number, number] | null; credits: number | null; manual: boolean };
+  trickplay: Trickplay | null;
+  hls: boolean;
+}
+
+export interface Trickplay {
+  interval: number;
+  width: number;
+  height: number;
+  cols: number;
+  rows: number;
+  count: number;
+  sheets: number;
 }

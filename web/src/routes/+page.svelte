@@ -5,6 +5,7 @@
   import Icon from '$lib/ui/Icon.svelte';
   import Poster from '$lib/ui/Poster.svelte';
   import Row from '$lib/ui/Row.svelte';
+  import TopTen from '$lib/ui/TopTen.svelte';
   import Wide from '$lib/ui/Wide.svelte';
   import { session } from '$lib/session.svelte';
 
@@ -56,14 +57,24 @@
         </div>
       {/if}
       {#each home.rows as row (row.key)}
-        <Row
-          title={row.title}
-          href={HREF[row.key] ?? (row.key.startsWith('genre:') ? `/movies?genre=${encodeURIComponent(row.title)}&all=1` : undefined)}
-        >
-          {#each row.items as card (card.id)}
-            <Poster {card} />
-          {/each}
-        </Row>
+        {#if row.style === 'top'}
+          <div style="--col: 250px; --col-sm: 180px">
+            <Row title={row.title}>
+              {#each row.items as card, n (card.id)}
+                <TopTen {card} n={n + 1} />
+              {/each}
+            </Row>
+          </div>
+        {:else}
+          <Row
+            title={row.title}
+            href={HREF[row.key] ?? (row.key.startsWith('genre:') ? `/movies?genre=${encodeURIComponent(row.title)}&all=1` : undefined)}
+          >
+            {#each row.items as card (card.id)}
+              <Poster {card} />
+            {/each}
+          </Row>
+        {/if}
       {/each}
     </div>
   {/if}

@@ -1,13 +1,15 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, errorText, put } from '$lib/api';
+  import { api, errorText } from '$lib/api';
   import { count, date, kindLabel, runtime, size, votes } from '$lib/fmt';
   import type { FileItem, Person, TitleDetail } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
   import Poster from '$lib/ui/Poster.svelte';
+  import Rate from '$lib/ui/Rate.svelte';
+  import { toggleList } from '$lib/cards.svelte';
   import Stars from '$lib/ui/Stars.svelte';
 
   let t = $state<TitleDetail | null>(null);
@@ -45,10 +47,8 @@
     t?.next && t.next.position > 5 ? 'Продолжить' : isSeries && t?.next?.label ? 'Смотреть' : 'Смотреть',
   );
 
-  async function toggleList() {
-    if (!t) return;
-    t.inList = !t.inList;
-    await put(`/api/list/${t.card.id}`, { value: t.inList }).catch(() => t && (t.inList = !t.inList));
+  function toggle() {
+    if (t) toggleList(t.card);
   }
 
   async function share() {
@@ -90,10 +90,11 @@
       <h1>{c.title} {#if c.year}<span class="y">({c.year})</span>{/if}</h1>
       <div class="chips">
         {#if c.rating}<span class="chip imdbchip"><span class="imdb">IMDb</span> {c.rating.toFixed(1)}</span>{/if}
-        <button class="chip" onclick={toggleList}>
-          <Icon name={t.inList ? 'check' : 'plus'} size={15} />
-          {t.inList ? 'В моём списке' : 'Смотреть позже'}
+        <button class="chip" onclick={toggle}>
+          <Icon name={t.card.inList ? 'check' : 'plus'} size={15} />
+          {t.card.inList ? 'В моём списке' : 'Смотреть позже'}
         </button>
+        <Rate card={t.card} size="md" />
         <button class="chip" onclick={share}><Icon name={copied ? 'check' : 'share'} size={15} /> {copied ? 'Ссылка скопирована' : 'Поделиться'}</button>
       </div>
     </div>
@@ -102,15 +103,15 @@
   <div class="body">
     <aside class="left">
       <div class="poster" style:background={c.poster ? undefined : placeholder(c.title)}>
-        {#if c.poster}<img src={c.poster} alt={c.title} />{:else}<span>{c.title}</span>{/if}
+        {#if c.posterLarge}<img src={c.posterLarge} alt={c.title} />{:else}<span>{c.title}</span>{/if}
       </div>
       {#if t.next}
         <a class="btn primary block" href="/watch/{t.next.fileId}"><Icon name="play" size={16} /> {watchLabel}</a>
         {#if t.next.label}<div class="nextlabel muted">{t.next.label}</div>{/if}
       {/if}
-      <button class="btn block" onclick={toggleList}>
-        <Icon name={t.inList ? 'check' : 'plus'} size={16} />
-        {t.inList ? 'В моём списке' : 'В мой список'}
+      <button class="btn block" onclick={toggle}>
+        <Icon name={t.card.inList ? 'check' : 'plus'} size={16} />
+        {t.card.inList ? 'В моём списке' : 'В мой список'}
       </button>
       {#if t.canDownload && !isSeries && t.files[0]}
         <a class="btn block" href="/api/files/{t.files[0].id}/download" download><Icon name="download" size={16} /> Скачать · {size(t.files[0].size)}</a>
@@ -124,6 +125,7 @@
       </div>
       {#if t.tagline}<p class="tagline">{t.tagline}</p>{/if}
       <div class="meta">
+        {#if c.matchPct}<span class="match">{c.matchPct}% совпадение</span>{/if}
         {#if t.votes}<span><Icon name="eye" size={15} /> {votes(t.votes)}</span>{/if}
         {#if c.rating}<span><Stars rating={c.rating} size={13} /></span>{/if}
         {#if c.age}<span class="age">{c.age}</span>{/if}
@@ -195,7 +197,7 @@
               </a>
               <div class="ep">
                 <div class="eptitle">
-                  <a href="/watch/{f.id}"><b>{epLabel(f)}.</b> {f.name ?? `${f.episode ?? ''} серия`}</a>
+                  <a href="/watch/{f.id}"><b>{epLabel(f)}.</b> {f.name ?? `${f.episode ?? ''} серия`}{#if Date.now() - f.addedAt < 14 * 864e5 && Date.now() - c.addedAt > 864e5}<span class="new">Новая</span>{/if}</a>
                   {#if f.duration && f.duration >= 60}<span class="faint">{Math.round(f.duration / 60)} мин</span>{/if}
                 </div>
                 {#if f.overview}<p>{f.overview}</p>{/if}
@@ -409,6 +411,10 @@
     padding: 0 12px;
     border-left: 1px solid var(--line);
   }
+  .match {
+    color: var(--ok);
+    font-weight: 700;
+  }
   .meta > span:first-child {
     padding-left: 0;
     border-left: 0;
@@ -607,6 +613,15 @@
   }
   .ok {
     color: var(--ok);
+  }
+  .new {
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: var(--accent);
+    font-size: 11px;
+    font-weight: 700;
+    vertical-align: 2px;
   }
   .dl:hover {
     color: var(--text);
