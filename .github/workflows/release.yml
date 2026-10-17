@@ -72,3 +72,12 @@ jobs:
           releaseBody: "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md."
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+      # Mac: подпись бандла цела — иначе «приложение повреждено» (0.3.0). Шаг после выгрузки:
+      # не прячет выпуск, но красный выпуск сразу видно.
+      - name: Проверка подписи (Mac)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app=$(find target -maxdepth 6 -path "*/bundle/macos/*.app" | head -1)
+          echo "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"

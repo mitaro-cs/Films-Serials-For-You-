@@ -69,6 +69,8 @@
 - Выпуск: тег `vX.Y.Z` = `version` в `tauri.conf.json` (иначе `release.yml` останавливается
   сразу). В `tauri-action` нет `tauriScript`: с `npm run tauri --` он сам добавлял ещё один `--`,
   `--target` уходил в cargo, а упаковщик искал программу в `target/release` (0.1.1 так упал).
+- Mac: бандл подписывается ad-hoc (`bundle.macOS.signingIdentity: "-"`), ffmpeg — `codesign -s -`
+  в `fetch-ffmpeg.sh`; без подписи Apple Silicon пишет «приложение повреждено» (0.3.0).
 - hls.js — только `hls.js/light` и только лениво из плеера (это ~120 КБ gzip).
 - Внешних запросов из фронта нет (шрифты системные, иконки свои); картинки IMDb/TMDB сервер
   скачивает к себе (`images/<sha256>.ext`).
