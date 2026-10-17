@@ -1,8 +1,11 @@
-//! Каталог: главная (большой кадр, «Продолжить», ряды), списки, страница фильма или сериала.
+//! Каталог: главная (большой кадр с превью, «Продолжить», Топ-10, подборки), списки, поиск,
+//! страница фильма или сериала, «Мой список» и оценки.
 
-use super::{card, cards, img, json_list, Card, CARD_COLS, VISIBLE};
+use super::{card, cards, cards_by_ids, img, json_list, visible, Card, CARD_COLS};
 use crate::auth::Viewer;
 use crate::error::{ApiError, ApiResult};
+use crate::library::probe::Probe;
+use crate::taste::Taste;
 use crate::util::{norm, now_ms};
 use crate::App;
 use axum::extract::{Path, Query, State};
@@ -13,6 +16,8 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+
+const DAY: i64 = 86_400_000;
 
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -36,6 +41,7 @@ pub struct FileItem {
     pub duration: Option<f64>,
     pub size: i64,
     pub file_name: String,
+    pub added_at: i64,
     pub progress: Option<Progress>,
 }
 
@@ -59,18 +65,18 @@ pub fn episode_label(season: Option<i32>, episode: Option<i32>, name: Option<&st
     }
 }
 
-fn files_of(app: &App, user: i64, title: i64) -> rusqlite::Result<Vec<FileItem>> {
+fn files_of(app: &App, profile: i64, title: i64) -> rusqlite::Result<Vec<FileItem>> {
     app.db.with(|c| {
         let mut st = c.prepare(
             "SELECT f.id, f.season, f.episode, f.episode_end, f.name, f.overview, f.still, f.air_date, f.duration, f.size, f.path,
-                    p.position, p.duration, p.done
-             FROM files f LEFT JOIN progress p ON p.file_id = f.id AND p.user_id = ?
+                    f.added_at, p.position, p.duration, p.done
+             FROM files f LEFT JOIN progress p ON p.file_id = f.id AND p.profile_id = ?
              WHERE f.title_id = ? AND f.missing = 0
              ORDER BY f.season, f.episode, f.path",
         )?;
-        let rows = st.query_map(params![user, title], |r| {
+        let rows = st.query_map(params![profile, title], |r| {
             let path: String = r.get(10)?;
-            let pos: Option<f64> = r.get(11)?;
+            let pos: Option<f64> = r.get(12)?;
             Ok(FileItem {
                 id: r.get(0)?,
                 season: r.get(1)?,
@@ -83,8 +89,9 @@ fn files_of(app: &App, user: i64, title: i64) -> rusqlite::Result<Vec<FileItem>>
                 duration: r.get(8)?,
                 size: r.get(9)?,
                 file_name: std::path::Path::new(&path).file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string(),
+                added_at: r.get(11)?,
                 progress: match pos {
-                    Some(position) => Some(Progress { position, duration: r.get(12)?, done: r.get(13)? }),
+                    Some(position) => Some(Progress { position, duration: r.get(13)?, done: r.get(14)? }),
                     None => None,
                 },
             })
@@ -94,12 +101,12 @@ fn files_of(app: &App, user: i64, title: i64) -> rusqlite::Result<Vec<FileItem>>
 }
 
 /// Последний начатый файл — продолжить; досмотрен — следующий; ничего — первый.
-fn next_of(app: &App, user: i64, title: i64, files: &[FileItem]) -> rusqlite::Result<Option<Next>> {
+fn next_of(app: &App, profile: i64, title: i64, files: &[FileItem]) -> rusqlite::Result<Option<Next>> {
     let last: Option<i64> = app.db.with(|c| {
         c.query_row(
             "SELECT p.file_id FROM progress p JOIN files f ON f.id = p.file_id
-             WHERE p.user_id = ? AND f.title_id = ? AND f.missing = 0 ORDER BY p.updated_at DESC LIMIT 1",
-            params![user, title],
+             WHERE p.profile_id = ? AND f.title_id = ? AND f.missing = 0 ORDER BY p.updated_at DESC LIMIT 1",
+            params![profile, title],
             |r| r.get(0),
         )
         .optional()
@@ -130,30 +137,19 @@ pub struct ContinueItem {
     pub still: Option<String>,
 }
 
-fn continue_watching(app: &App, user: i64) -> rusqlite::Result<Vec<ContinueItem>> {
-    let recent: Vec<i64> = app.db.with(|c| {
-        let mut st = c.prepare(
-            "SELECT f.title_id, MAX(p.updated_at) AS at FROM progress p JOIN files f ON f.id = p.file_id
-             WHERE p.user_id = ? GROUP BY f.title_id ORDER BY at DESC LIMIT 30",
-        )?;
-        let r = st.query_map([user], |r| r.get(0))?;
-        r.collect()
-    })?;
+fn continue_watching(app: &App, v: &Viewer, taste: &Taste) -> rusqlite::Result<Vec<ContinueItem>> {
     let mut out = Vec::new();
-    for t in recent {
-        let Some(c) = cards(app, "t.id = ?", "t.id", 1, &[&t])?.pop() else {
-            continue;
-        };
-        let files = files_of(app, user, t)?;
-        let Some(next) = next_of(app, user, t, &files)? else {
-            continue;
-        };
+    for t in taste.recent.iter().take(30) {
+        let Some(mut c) = cards(app, v.profile.kids, "t.id = ?", "t.id", 1, &[t])?.pop() else { continue };
+        let files = files_of(app, v.profile.id, *t)?;
+        let Some(next) = next_of(app, v.profile.id, *t, &files)? else { continue };
         let f = files.iter().find(|f| f.id == next.file_id);
         let whole_done = f.and_then(|f| f.progress.as_ref()).is_some_and(|p| p.done);
         // Досмотренный фильм и последняя серия не висят в «Продолжить».
         if whole_done || (next.position < 1.0 && c.kind == "movie") {
             continue;
         }
+        taste.apply(std::slice::from_mut(&mut c));
         out.push(ContinueItem { still: f.and_then(|f| f.still.clone()), card: c, next });
         if out.len() >= 12 {
             break;
@@ -162,38 +158,171 @@ fn continue_watching(app: &App, user: i64) -> rusqlite::Result<Vec<ContinueItem>
     Ok(out)
 }
 
-pub async fn home(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
-    let mut hero = cards(&app, "t.backdrop IS NOT NULL", "t.added_at DESC", 40, &[])?;
-    // Каждый день — свой порядок, но в течение дня стабильный.
-    let day = now_ms() / 86_400_000;
-    hero.sort_by_key(|c| (c.id.wrapping_mul(2654435761) ^ day).rem_euclid(1000));
-    hero.truncate(6);
-
-    let mut rows: Vec<Value> = Vec::new();
-    let mut row = |key: &str, title: &str, items: Vec<Card>| {
-        if !items.is_empty() {
-            rows.push(json!({"key": key, "title": title, "items": items}));
-        }
-    };
-    row("new", "Новинки на сайте", cards(&app, "1", "t.added_at DESC", 20, &[])?);
-    let list = cards(&app, "t.id IN (SELECT title_id FROM my_list WHERE user_id = ?)", "t.title", 30, &[&v.id])?;
-    row("list", "Мой список", list);
-    row("top", "Высокий рейтинг", cards(&app, "t.rating >= 7", "t.rating DESC", 20, &[])?);
-    row("movies", "Фильмы", cards(&app, "t.kind = 'movie'", "t.added_at DESC", 20, &[])?);
-    row("series", "Сериалы", cards(&app, "t.kind = 'series'", "t.added_at DESC", 20, &[])?);
-    for (g, _) in top_genres(&app)?.into_iter().take(5) {
-        let items =
-            cards(&app, "EXISTS (SELECT 1 FROM json_each(t.genres) WHERE value = ?)", "t.rating DESC", 20, &[&g])?;
-        if items.len() >= 4 {
-            row(&format!("genre:{g}"), &g, items);
-        }
-    }
-    Ok(Json(json!({ "hero": hero, "continue": continue_watching(&app, v.id)?, "rows": rows })))
+/// Превью в большом кадре: только то, что браузер сыграет сам (без нагрузки на компьютер хоста).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Preview {
+    file_id: i64,
+    start: f64,
 }
 
-fn top_genres(app: &App) -> rusqlite::Result<Vec<(String, i64)>> {
+fn preview_of(app: &App, title: i64) -> Option<Preview> {
+    let (id, path, probe): (i64, String, Option<String>) = app
+        .db
+        .with(|c| {
+            c.query_row(
+                "SELECT id, path, probe FROM files WHERE title_id = ? AND missing = 0 ORDER BY season, episode, path LIMIT 1",
+                [title],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+        })
+        .ok()?;
+    let p: Probe = serde_json::from_str(&probe?).ok()?;
+    if !crate::stream::direct_ok(std::path::Path::new(&path), &p) {
+        return None;
+    }
+    let d = p.duration.filter(|d| *d > 30.0)?;
+    Some(Preview { file_id: id, start: (d * 0.2).min(900.0).floor() })
+}
+
+fn row(rows: &mut Vec<Value>, key: &str, title: &str, items: Vec<Card>, style: &str) {
+    if !items.is_empty() {
+        rows.push(json!({"key": key, "title": title, "items": items, "style": style}));
+    }
+}
+
+/// Топ-10 за неделю: сколько профилей смотрели (по прогрессу за 7 дней).
+fn top10(app: &App, kids: bool) -> rusqlite::Result<Vec<Card>> {
+    let ids: Vec<i64> = app.db.with(|c| {
+        let mut st = c.prepare(
+            "SELECT f.title_id, COUNT(DISTINCT p.profile_id) AS n, MAX(p.updated_at) AS last
+             FROM progress p JOIN files f ON f.id = p.file_id WHERE p.updated_at > ?
+             GROUP BY f.title_id ORDER BY n DESC, last DESC LIMIT 15",
+        )?;
+        let r = st.query_map([now_ms() - 7 * DAY], |r| r.get(0))?;
+        r.collect()
+    })?;
+    let mut out = cards_by_ids(app, kids, &ids)?;
+    out.truncate(10);
+    Ok(out)
+}
+
+pub async fn home(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
+    let kids = v.profile.kids;
+    let taste = Taste::load(&app, v.profile.id)?;
+    let fresh = |mut items: Vec<Card>| -> Vec<Card> {
+        items.retain(|c| !taste.disliked(c.id));
+        taste.apply(&mut items);
+        items
+    };
+
+    // Большой кадр: что ещё не смотрел, ближе по вкусу; каждый день свой порядок.
+    let mut hero = fresh(cards(&app, kids, "t.backdrop IS NOT NULL", "t.added_at DESC", 60, &[])?);
+    let day = now_ms() / DAY;
+    hero.sort_by_key(|c| {
+        (
+            taste.watched.contains_key(&c.id),
+            -(c.match_pct.unwrap_or(0) / 10),
+            (c.id.wrapping_mul(2654435761) ^ day).rem_euclid(1000),
+        )
+    });
+    hero.truncate(6);
+    let autoplay = v.profile.autoplay;
+    let hero: Vec<Value> = hero
+        .into_iter()
+        .map(|c| {
+            let preview = if autoplay { preview_of(&app, c.id) } else { None };
+            let mut j = json!(c);
+            j["preview"] = json!(preview);
+            j
+        })
+        .collect();
+
+    let mut rows: Vec<Value> = Vec::new();
+    let top = fresh(top10(&app, kids)?);
+    if top.len() >= 3 {
+        row(&mut rows, "top10", "Топ-10 на сайте за неделю", top, "top");
+    }
+    let list = cards(
+        &app,
+        kids,
+        "t.id IN (SELECT title_id FROM my_list WHERE profile_id = ?)",
+        "t.title",
+        40,
+        &[&v.profile.id],
+    )?;
+    let mut list = list;
+    taste.apply(&mut list);
+    row(&mut rows, "list", "Мой список", list, "poster");
+
+    // Новые серии сериалов, которые уже начинали (или просто недавно пополненных).
+    let new_eps = fresh(cards(
+        &app,
+        kids,
+        "t.kind = 'series' AND EXISTS (SELECT 1 FROM files f WHERE f.title_id = t.id AND f.missing = 0
+           AND f.added_at > ? AND f.added_at > t.added_at + 3600000)",
+        "(SELECT MAX(f.added_at) FROM files f WHERE f.title_id = t.id) DESC",
+        20,
+        &[&(now_ms() - 14 * DAY)],
+    )?);
+    row(&mut rows, "new-episodes", "Новые серии", new_eps, "poster");
+
+    if let Some(last) = taste.recent.first() {
+        if let Some(c) = cards(&app, kids, "t.id = ?", "t.id", 1, &[last])?.pop() {
+            let mut sim = fresh(similar(&app, kids, &c)?);
+            sim.retain(|s| !taste.watched.contains_key(&s.id));
+            row(&mut rows, "because", &format!("Потому что вы смотрели «{}»", c.title), sim, "poster");
+        }
+    }
+    if taste.known() {
+        let mut picks = fresh(cards(&app, kids, "1", "t.rating DESC", 400, &[])?);
+        picks.retain(|c| c.match_pct.is_some() && !taste.watched.contains_key(&c.id));
+        picks.sort_by_key(|c| -c.match_pct.unwrap_or(0));
+        picks.truncate(20);
+        row(&mut rows, "picks", "Подобрано для вас", picks, "poster");
+    }
+    row(&mut rows, "new", "Новинки на сайте", fresh(cards(&app, kids, "1", "t.added_at DESC", 20, &[])?), "poster");
+    row(
+        &mut rows,
+        "top",
+        "Высокий рейтинг",
+        fresh(cards(&app, kids, "t.rating >= 7", "t.rating DESC", 20, &[])?),
+        "poster",
+    );
+    row(
+        &mut rows,
+        "movies",
+        "Фильмы",
+        fresh(cards(&app, kids, "t.kind = 'movie'", "t.added_at DESC", 20, &[])?),
+        "poster",
+    );
+    row(
+        &mut rows,
+        "series",
+        "Сериалы",
+        fresh(cards(&app, kids, "t.kind = 'series'", "t.added_at DESC", 20, &[])?),
+        "poster",
+    );
+    for (g, _) in top_genres(&app, kids)?.into_iter().take(6) {
+        let items = fresh(cards(
+            &app,
+            kids,
+            "EXISTS (SELECT 1 FROM json_each(t.genres) WHERE value = ?)",
+            "t.rating DESC",
+            20,
+            &[&g],
+        )?);
+        if items.len() >= 4 {
+            row(&mut rows, &format!("genre:{g}"), &g, items, "poster");
+        }
+    }
+    Ok(Json(json!({ "hero": hero, "continue": continue_watching(&app, &v, &taste)?, "rows": rows })))
+}
+
+fn top_genres(app: &App, kids: bool) -> rusqlite::Result<Vec<(String, i64)>> {
     let sql = format!(
-        "SELECT g.value, COUNT(*) AS n FROM titles t, json_each(t.genres) g WHERE {VISIBLE} GROUP BY g.value ORDER BY n DESC, g.value"
+        "SELECT g.value, COUNT(*) AS n FROM titles t, json_each(t.genres) g WHERE {} GROUP BY g.value ORDER BY n DESC, g.value",
+        visible(kids)
     );
     app.db.with(|c| {
         let mut st = c.prepare(&sql)?;
@@ -202,9 +331,11 @@ fn top_genres(app: &App) -> rusqlite::Result<Vec<(String, i64)>> {
     })
 }
 
-pub async fn genres(State(app): State<Arc<App>>, _v: Viewer) -> ApiResult<Json<Value>> {
-    let g: Vec<Value> =
-        top_genres(&app)?.into_iter().map(|(name, count)| json!({"name": name, "count": count})).collect();
+pub async fn genres(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
+    let g: Vec<Value> = top_genres(&app, v.profile.kids)?
+        .into_iter()
+        .map(|(name, count)| json!({"name": name, "count": count}))
+        .collect();
     Ok(Json(json!(g)))
 }
 
@@ -216,7 +347,7 @@ pub struct ListQuery {
     q: Option<String>,
 }
 
-pub async fn list(State(app): State<Arc<App>>, _v: Viewer, Query(q): Query<ListQuery>) -> ApiResult<Json<Vec<Card>>> {
+pub async fn list(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<ListQuery>) -> ApiResult<Json<Vec<Card>>> {
     let kind = q.kind.filter(|k| k == "movie" || k == "series");
     let genre = q.genre.filter(|g| !g.is_empty());
     let order = match q.sort.as_deref() {
@@ -227,6 +358,7 @@ pub async fn list(State(app): State<Arc<App>>, _v: Viewer, Query(q): Query<ListQ
     };
     let mut items = cards(
         &app,
+        v.profile.kids,
         "(?1 IS NULL OR t.kind = ?1) AND (?2 IS NULL OR EXISTS (SELECT 1 FROM json_each(t.genres) WHERE value = ?2))",
         order,
         5000,
@@ -245,60 +377,82 @@ pub async fn list(State(app): State<Arc<App>>, _v: Viewer, Query(q): Query<ListQ
             words.iter().all(|w| hay.contains(w))
         });
     }
+    let taste = Taste::load(&app, v.profile.id)?;
+    taste.apply(&mut items);
     Ok(Json(items))
 }
 
 pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
-    let c = cards(&app, "t.id = ?", "t.id", 1, &[&id])?.pop().ok_or_else(ApiError::not_found)?;
+    let kids = v.profile.kids;
+    let mut c = cards(&app, kids, "t.id = ?", "t.id", 1, &[&id])?.pop().ok_or_else(ApiError::not_found)?;
     #[allow(clippy::type_complexity)]
     let (tagline, countries, languages, aka, people, votes, release_date, gallery, imdb_id, provider): (
-        Option<String>, Option<String>, Option<String>, Option<String>, String, Option<i64>, Option<String>, Option<String>, Option<String>, Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
     ) = app.db.with(|db| {
         db.query_row(
             "SELECT tagline, countries, languages, aka, people, votes, release_date, gallery, imdb_id, provider FROM titles WHERE id = ?",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                ))
+            },
         )
     })?;
     let mut people: Vec<crate::meta::Person> = serde_json::from_str(&people).unwrap_or_default();
     for p in &mut people {
         p.photo = img(p.photo.take());
     }
-    let files = files_of(&app, v.id, id)?;
-    let next = next_of(&app, v.id, id, &files)?;
+    let files = files_of(&app, v.profile.id, id)?;
+    let next = next_of(&app, v.profile.id, id, &files)?;
     let mut seasons: Vec<i32> = files.iter().filter_map(|f| f.season).collect();
     seasons.dedup();
-    let in_list: bool = app.db.with(|db| {
-        db.query_row(
-            "SELECT EXISTS (SELECT 1 FROM my_list WHERE user_id = ? AND title_id = ?)",
-            params![v.id, id],
-            |r| r.get(0),
-        )
-    })?;
+    let taste = Taste::load(&app, v.profile.id)?;
+    taste.apply(std::slice::from_mut(&mut c));
     let mut gallery: Vec<String> = json_list(gallery).into_iter().map(|g| format!("/img/{g}")).collect();
     if gallery.is_empty() {
         gallery = files.iter().filter_map(|f| f.still.clone()).take(6).collect();
     }
-    let similar = similar(&app, &c)?;
+    let mut similar = similar(&app, kids, &c)?;
+    similar.retain(|s| !taste.disliked(s.id));
+    taste.apply(&mut similar);
     let downloads = app.db.setting_or("site.downloads", "1") == "1" && v.can_download;
     Ok(Json(json!({
         "card": c, "tagline": tagline, "countries": json_list(countries), "languages": json_list(languages),
         "aka": json_list(aka), "people": people, "votes": votes, "releaseDate": release_date, "gallery": gallery,
         "imdbId": imdb_id, "provider": provider, "files": files, "seasons": seasons, "next": next,
-        "inList": in_list, "similar": similar, "canDownload": downloads,
+        "inList": c.in_list, "similar": similar, "canDownload": downloads,
     })))
 }
 
 /// Похожие из своей библиотеки: больше общих жанров, выше рейтинг.
-fn similar(app: &App, c: &Card) -> rusqlite::Result<Vec<Card>> {
+fn similar(app: &App, kids: bool, c: &Card) -> rusqlite::Result<Vec<Card>> {
     if c.genres.is_empty() {
         return Ok(vec![]);
     }
-    let all = cards(app, "t.id != ?", "t.rating DESC", 2000, &[&c.id])?;
+    let all = cards(app, kids, "t.id != ?", "t.rating DESC", 2000, &[&c.id])?;
     let mut scored: Vec<(usize, Card)> = all
         .into_iter()
-        .map(|o| (o.genres.iter().filter(|g| c.genres.contains(g)).count() + usize::from(o.kind == c.kind), o))
-        .filter(|(s, o)| *s > usize::from(o.kind == c.kind))
+        .map(|o| (o.genres.iter().filter(|g| c.genres.contains(g)).count() * 2 + usize::from(o.kind == c.kind), o))
+        .filter(|(s, _)| *s >= 2)
         .collect();
     scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.rating.partial_cmp(&a.1.rating).unwrap_or(std::cmp::Ordering::Equal)));
     Ok(scored.into_iter().take(12).map(|(_, c)| c).collect())
@@ -306,13 +460,15 @@ fn similar(app: &App, c: &Card) -> rusqlite::Result<Vec<Card>> {
 
 pub async fn my_list(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Vec<Card>>> {
     let sql = format!(
-        "SELECT {CARD_COLS} FROM my_list l JOIN titles t ON t.id = l.title_id WHERE l.user_id = ? AND {VISIBLE} ORDER BY l.added_at DESC"
+        "SELECT {CARD_COLS} FROM my_list l JOIN titles t ON t.id = l.title_id WHERE l.profile_id = ? AND {} ORDER BY l.added_at DESC",
+        visible(v.profile.kids)
     );
-    let items = app.db.with(|c| {
+    let mut items = app.db.with(|c| {
         let mut st = c.prepare(&sql)?;
-        let r = st.query_map([v.id], card)?;
+        let r = st.query_map([v.profile.id], card)?;
         r.collect::<rusqlite::Result<Vec<_>>>()
     })?;
+    Taste::load(&app, v.profile.id)?.apply(&mut items);
     Ok(Json(items))
 }
 
@@ -330,11 +486,40 @@ pub async fn set_list(
     app.db.with(|c| {
         if b.value {
             c.execute(
-                "INSERT OR IGNORE INTO my_list (user_id, title_id, added_at) SELECT ?, id, ? FROM titles WHERE id = ?",
-                params![v.id, now_ms(), id],
+                "INSERT OR IGNORE INTO my_list (profile_id, title_id, added_at) SELECT ?, id, ? FROM titles WHERE id = ?",
+                params![v.profile.id, now_ms(), id],
             )
         } else {
-            c.execute("DELETE FROM my_list WHERE user_id = ? AND title_id = ?", params![v.id, id])
+            c.execute("DELETE FROM my_list WHERE profile_id = ? AND title_id = ?", params![v.profile.id, id])
+        }
+    })?;
+    Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub struct RatingBody {
+    /// -1 — «не для меня», 1 — «нравится», 2 — «обожаю», 0 — снять оценку.
+    value: i32,
+}
+
+pub async fn set_rating(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Path(id): Path<i64>,
+    Json(b): Json<RatingBody>,
+) -> ApiResult<Json<Value>> {
+    if !matches!(b.value, -1..=2) {
+        return Err(ApiError::bad("bad_value", "Оценка: -1, 0, 1 или 2"));
+    }
+    app.db.with(|c| {
+        if b.value == 0 {
+            c.execute("DELETE FROM ratings WHERE profile_id = ? AND title_id = ?", params![v.profile.id, id])
+        } else {
+            c.execute(
+                "INSERT INTO ratings (profile_id, title_id, value, updated_at) SELECT ?, id, ?, ? FROM titles WHERE id = ?
+                 ON CONFLICT(profile_id, title_id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                params![v.profile.id, b.value, now_ms(), id],
+            )
         }
     })?;
     Ok(Json(json!({"ok": true})))

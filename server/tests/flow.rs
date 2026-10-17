@@ -1,74 +1,12 @@
 //! Сквозной сценарий: хост входит из окна, добавляет папку, зритель регистрируется по
 //! приглашению, смотрит (Range и перепаковка ffmpeg), прогресс попадает в «Продолжить».
 
+mod common;
+
+use common::{ffmpeg, make_video, Client};
 use serde_json::{json, Value};
-use std::path::Path;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
-
-fn ffmpeg() -> bool {
-    Command::new("ffmpeg").arg("-version").output().is_ok_and(|o| o.status.success())
-}
-
-fn make_video(path: &Path, audio: &str) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let ok = Command::new("ffmpeg")
-        .args(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=duration=4:size=320x240:rate=25"])
-        .args(["-f", "lavfi", "-i", "sine=duration=4", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", audio])
-        .arg(path)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "ffmpeg не сделал тестовое видео");
-}
-
-struct Client {
-    base: String,
-    http: reqwest::Client,
-    cookie: String,
-}
-
-impl Client {
-    fn new(base: String) -> Self {
-        Self {
-            base,
-            http: reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap(),
-            cookie: String::new(),
-        }
-    }
-
-    fn take_cookie(&mut self, res: &reqwest::Response) {
-        if let Some(c) = res.headers().get("set-cookie").and_then(|v| v.to_str().ok()) {
-            self.cookie = c.split(';').next().unwrap().to_string();
-        }
-    }
-
-    async fn get(&self, path: &str) -> reqwest::Response {
-        self.http.get(format!("{}{path}", self.base)).header("cookie", &self.cookie).send().await.unwrap()
-    }
-
-    async fn json(&self, path: &str) -> Value {
-        let r = self.get(path).await;
-        assert!(r.status().is_success(), "{path}: {}", r.status());
-        r.json().await.unwrap()
-    }
-
-    async fn send(&mut self, method: &str, path: &str, body: Value) -> reqwest::Response {
-        let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap();
-        let r = self
-            .http
-            .request(m, format!("{}{path}", self.base))
-            .header("cookie", &self.cookie)
-            .header("x-fsfy", "1")
-            .json(&body)
-            .send()
-            .await
-            .unwrap();
-        self.take_cookie(&r);
-        r
-    }
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn host_adds_folder_and_viewer_watches() {

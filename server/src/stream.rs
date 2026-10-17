@@ -189,6 +189,16 @@ pub fn sidecar_subs(video: &Path) -> Vec<(PathBuf, Option<String>, bool)> {
     out
 }
 
+/// Браузер любой системы сыграет файл сам: MP4/WebM с H.264 (8 бит), VP9 или AV1 и обычным звуком.
+pub fn direct_ok(video: &Path, p: &Probe) -> bool {
+    let ext = video.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+    let Some(v) = &p.video else { return false };
+    matches!(ext.as_str(), "mp4" | "m4v" | "webm" | "mov")
+        && DIRECT_VIDEO.contains(&v.codec.as_str())
+        && !v.pix_fmt.contains("10")
+        && p.audio.first().is_none_or(|a| DIRECT_AUDIO.contains(&a.codec.as_str()))
+}
+
 pub fn play_info(video: &Path, p: Option<&Probe>, has_ffmpeg: bool) -> PlayInfo {
     let ext = video.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
     let container_ok = matches!(ext.as_str(), "mp4" | "m4v" | "webm" | "mov");

@@ -224,8 +224,10 @@ pub async fn enter(
 pub async fn me(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
     let has_pass: bool =
         app.db.with(|c| c.query_row("SELECT pass IS NOT NULL FROM users WHERE id = ?", [v.id], |r| r.get(0)))?;
+    let profiles = super::profiles::list_of(&app, v.id)?;
     Ok(Json(json!({
         "user": v,
+        "profiles": profiles,
         "hasPassword": has_pass,
         "manage": v.manages(),
         "window": v.local,

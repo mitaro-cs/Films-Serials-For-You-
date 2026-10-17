@@ -46,6 +46,7 @@ static LEADING_NUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(\d{1,3}
 static SEASON_DIR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(?:season|сезон|s)[ ._-]*(\d{1,2})\b|^\s*(\d{1,2})[ ._-]*(?:season|сезон)\b").unwrap()
 });
+static PLEX_DIR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(.+?)\s*[(\[]((?:19|20)\d{2})[)\]]\s*$").unwrap());
 static DIGITS4: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d{4,}").unwrap());
 static JUNK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -167,6 +168,13 @@ pub fn parse(rel: &Path, force: Option<bool>) -> Parsed {
     // Фильм: имя файла, а если папка выглядит как «Название (год)» — она точнее.
     let (mut title, mut year) = title_year(&stem);
     if let Some(d) = dirs.last() {
+        // «Название (год)» — так папки называют вручную (и Plex): ей верим больше, чем имени файла.
+        if let Some(c) = PLEX_DIR.captures(d) {
+            let y: i32 = c[2].parse().unwrap_or(0);
+            if year.is_none_or(|fy| fy == y) {
+                return Parsed { title: tidy(&c[1]), year: Some(y), season: None, episode: None, episode_end: None };
+            }
+        }
         let (dt, dy) = title_year(d);
         let (a, b) = (crate::util::norm(&dt), crate::util::norm(&title));
         let same = !a.is_empty() && (a.contains(&b) || b.contains(&a));
@@ -206,6 +214,10 @@ mod tests {
         assert_eq!((m.title.as_str(), m.year), ("Матрица", None));
         let m = p("Interstellar.WEB-DL.mkv");
         assert_eq!(m.title, "Interstellar");
+        let m = p("Начало (2010)/Inception.2010.1080p.mkv");
+        assert_eq!((m.title.as_str(), m.year), ("Начало", Some(2010)));
+        let m = p("Матрица [1999]/The.Matrix.mkv");
+        assert_eq!((m.title.as_str(), m.year), ("Матрица", Some(1999)));
         let m = p("Фильмы 2023/Матрица.mp4");
         assert_eq!((m.title.as_str(), m.year), ("Матрица", None));
         let m = p("Movies/movie.mkv");

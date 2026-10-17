@@ -10,3 +10,4 @@
 /desktop/src-tauri/gen
 /desktop/src-tauri/resources/ffmpeg*
 /desktop/src-tauri/resources/ffprobe*
+/target-win
