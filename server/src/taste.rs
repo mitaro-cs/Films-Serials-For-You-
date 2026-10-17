@@ -15,6 +15,8 @@ pub struct Taste {
     pub watched: HashMap<i64, bool>,
     /// Последнее просмотренное — для ряда «Потому что вы смотрели».
     pub recent: Vec<i64>,
+    /// Отмечено «Просмотрено» (title_id → когда).
+    pub seen: HashMap<i64, i64>,
 }
 
 impl Taste {
@@ -35,6 +37,11 @@ impl Taste {
                 let (id, v) = r?;
                 t.ratings.insert(id, v);
             }
+            let mut st = c.prepare("SELECT title_id, at FROM watched WHERE profile_id = ?")?;
+            for r in st.query_map([profile], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))? {
+                let (id, at) = r?;
+                t.seen.insert(id, at);
+            }
             let mut st = c.prepare("SELECT title_id FROM my_list WHERE profile_id = ?")?;
             for r in st.query_map([profile], |r| r.get::<_, i64>(0))? {
                 t.list.insert(r?);
@@ -43,6 +50,9 @@ impl Taste {
             let mut weight: HashMap<i64, f64> = HashMap::new();
             for (id, done) in &t.watched {
                 weight.insert(*id, if *done { 2.0 } else { 1.0 });
+            }
+            for id in t.seen.keys() {
+                weight.insert(*id, 2.0);
             }
             for id in &t.list {
                 *weight.entry(*id).or_insert(0.0) += 1.0;
@@ -93,6 +103,21 @@ impl Taste {
             c.in_list = self.list.contains(&c.id);
             c.my_rating = self.ratings.get(&c.id).copied();
             c.match_pct = self.match_pct(&c.genres);
+            c.watched_at = self.seen.get(&c.id).copied();
+            c.status = self.status(c.id);
+        }
+    }
+
+    /// Просмотрено → смотрю (есть прогресс) → хочу посмотреть («Мой список»).
+    pub fn status(&self, id: i64) -> Option<&'static str> {
+        if self.seen.contains_key(&id) {
+            Some("watched")
+        } else if self.watched.contains_key(&id) {
+            Some("watching")
+        } else if self.list.contains(&id) {
+            Some("want")
+        } else {
+            None
         }
     }
 }
@@ -126,6 +151,19 @@ mod tests {
         assert_eq!(age_min("tv-ma"), Some(17));
         assert_eq!(age_min("6"), Some(6));
         assert_eq!(age_min("Unrated"), None);
+    }
+
+    #[test]
+    fn status_priority() {
+        let mut t = Taste::default();
+        t.list.extend([1, 2, 3]);
+        t.watched.insert(2, false);
+        t.watched.insert(3, true);
+        t.seen.insert(3, 5);
+        assert_eq!(t.status(1), Some("want"));
+        assert_eq!(t.status(2), Some("watching"));
+        assert_eq!(t.status(3), Some("watched"));
+        assert_eq!(t.status(4), None);
     }
 
     #[test]

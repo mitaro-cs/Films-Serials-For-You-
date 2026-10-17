@@ -95,7 +95,7 @@ pub async fn probe_worker(app: Arc<App>) {
     }
 }
 
-/// Уменьшенные постеры (342 px) — ряды на главной грузятся в разы быстрее. true — что-то сделано.
+/// Уменьшенные постеры (342 px) и цвет карточки по постеру. true — что-то сделано.
 async fn thumbs(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
     let todo: Vec<(i64, String)> = app
         .db
@@ -113,7 +113,13 @@ async fn thumbs(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
         };
         // Не вышло — берём исходный, чтобы не пробовать по кругу.
         let small = small.unwrap_or_else(|| poster.clone());
-        let _ = app.db.with(|c| c.execute("UPDATE titles SET poster_sm = ? WHERE id = ?", params![small, id]));
+        let accent = match app.images.path(poster) {
+            Some(src) => probe::tiny_rgb(ffmpeg, &src).await.ok().map(|px| crate::images::accent(&px)),
+            None => None,
+        };
+        let _ = app.db.with(|c| {
+            c.execute("UPDATE titles SET poster_sm = ?, accent = ? WHERE id = ?", params![small, accent, id])
+        });
     }
     !todo.is_empty()
 }

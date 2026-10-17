@@ -46,7 +46,7 @@ pub struct FileItem {
 }
 
 /// Что запускает «Смотреть»: начатое, следующее после досмотренного или первое.
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Next {
     pub file_id: i64,
@@ -427,6 +427,9 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) 
     seasons.dedup();
     let taste = Taste::load(&app, v.profile.id)?;
     taste.apply(std::slice::from_mut(&mut c));
+    if c.status == Some("watching") {
+        c.resume = next.clone();
+    }
     let mut gallery: Vec<String> = json_list(gallery).into_iter().map(|g| format!("/img/{g}")).collect();
     if gallery.is_empty() {
         gallery = files.iter().filter_map(|f| f.still.clone()).take(6).collect();
@@ -470,6 +473,109 @@ pub async fn my_list(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<V
     })?;
     Taste::load(&app, v.profile.id)?.apply(&mut items);
     Ok(Json(items))
+}
+
+#[derive(Deserialize)]
+pub struct LibraryQuery {
+    /// movies, series, new; иначе — всё.
+    tab: Option<String>,
+    /// want, watching, watched; иначе — всё.
+    status: Option<String>,
+}
+
+/// Новое — последние добавленные (сколько бы давно ни было).
+const NEW_LIMIT: usize = 60;
+
+/// Каталог с билетами: вкладка, фильтр по статусу, числа у фильтров и «где остановился».
+pub async fn library(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<LibraryQuery>) -> ApiResult<Json<Value>> {
+    let kind = match q.tab.as_deref() {
+        Some("movies") => Some("movie"),
+        Some("series") => Some("series"),
+        _ => None,
+    };
+    let mut items =
+        cards(&app, v.profile.kids, "(?1 IS NULL OR t.kind = ?1)", "t.added_at DESC, t.id DESC", 5000, &[&kind])?;
+    if q.tab.as_deref() == Some("new") {
+        items.truncate(NEW_LIMIT);
+    }
+    let taste = Taste::load(&app, v.profile.id)?;
+    taste.apply(&mut items);
+    let count = |s: &str| items.iter().filter(|c| c.status == Some(s)).count();
+    let counts = json!({
+        "all": items.len(), "want": count("want"), "watching": count("watching"), "watched": count("watched"),
+    });
+    if let Some(s) = q.status.as_deref().filter(|s| matches!(*s, "want" | "watching" | "watched")) {
+        items.retain(|c| c.status == Some(s));
+        match s {
+            "watched" => items.sort_by_key(|c| std::cmp::Reverse(c.watched_at)),
+            "watching" => items.sort_by_key(|c| taste.recent.iter().position(|id| *id == c.id)),
+            _ => {}
+        }
+    }
+    with_resume(&app, v.profile.id, &mut items)?;
+    Ok(Json(json!({"items": items, "counts": counts})))
+}
+
+/// «Где остановился» у начатого: серия и место, с которого продолжит «Смотреть».
+pub fn with_resume(app: &App, profile: i64, items: &mut [Card]) -> rusqlite::Result<()> {
+    for c in items.iter_mut().filter(|c| c.status == Some("watching")) {
+        let files = files_of(app, profile, c.id)?;
+        c.resume = next_of(app, profile, c.id, &files)?;
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct WatchedBody {
+    value: bool,
+}
+
+/// «Просмотрено» вручную (билет с датой) или снять отметку — тогда и прогресс с начала.
+pub async fn set_watched(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Path(id): Path<i64>,
+    Json(b): Json<WatchedBody>,
+) -> ApiResult<Json<Value>> {
+    cards(&app, v.profile.kids, "t.id = ?", "t.id", 1, &[&id])?.pop().ok_or_else(ApiError::not_found)?;
+    app.db.tx(|c| {
+        if b.value {
+            c.execute(
+                "INSERT INTO watched (profile_id, title_id, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                params![v.profile.id, id, now_ms()],
+            )?;
+            c.execute("DELETE FROM my_list WHERE profile_id = ? AND title_id = ?", params![v.profile.id, id])?;
+        } else {
+            c.execute("DELETE FROM watched WHERE profile_id = ? AND title_id = ?", params![v.profile.id, id])?;
+            c.execute(
+                "DELETE FROM progress WHERE profile_id = ? AND file_id IN (SELECT id FROM files WHERE title_id = ?)",
+                params![v.profile.id, id],
+            )?;
+        }
+        Ok(())
+    })?;
+    Ok(Json(json!({"ok": true})))
+}
+
+/// После сохранения прогресса: фильм досмотрен или все серии сериала досмотрены — «Просмотрено».
+pub fn mark_if_finished(app: &App, profile: i64, title: i64) -> rusqlite::Result<bool> {
+    app.db.with(|c| {
+        let left: i64 = c.query_row(
+            "SELECT COUNT(*) FROM files f LEFT JOIN progress p ON p.file_id = f.id AND p.profile_id = ?
+             WHERE f.title_id = ? AND f.missing = 0 AND COALESCE(p.done, 0) = 0",
+            params![profile, title],
+            |r| r.get(0),
+        )?;
+        if left > 0 {
+            return Ok(false);
+        }
+        c.execute(
+            "INSERT INTO watched (profile_id, title_id, at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+            params![profile, title, now_ms()],
+        )?;
+        c.execute("DELETE FROM my_list WHERE profile_id = ? AND title_id = ?", params![profile, title])?;
+        Ok(true)
+    })
 }
 
 #[derive(Deserialize)]

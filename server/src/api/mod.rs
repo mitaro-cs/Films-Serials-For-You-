@@ -38,6 +38,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/profiles/{id}", patch(profiles::edit).delete(profiles::delete))
         .route("/api/profiles/{id}/select", post(profiles::select))
         .route("/api/list/{id}", put(catalog::set_list))
+        .route("/api/library", get(catalog::library))
+        .route("/api/titles/{id}/watched", put(catalog::set_watched))
         .route("/img/{name}", get(catalog::image))
         // просмотр
         .route("/api/files/{id}/info", get(play::info))
@@ -116,6 +118,16 @@ pub struct Card {
     pub in_list: bool,
     pub my_rating: Option<i32>,
     pub match_pct: Option<i32>,
+    /// Для билета: первая страна, режиссёр, цвет низа карточки по постеру.
+    pub country: Option<String>,
+    pub director: Option<String>,
+    pub accent: Option<String>,
+    /// Статус профиля: want («Хочу посмотреть»), watching, watched; None — ничего.
+    pub status: Option<&'static str>,
+    /// Когда отмечено «Просмотрено» (для белого билета).
+    pub watched_at: Option<i64>,
+    /// Где остановился: что запустит «Продолжить» и с какого места.
+    pub resume: Option<catalog::Next>,
 }
 
 pub fn img(name: Option<String>) -> Option<String> {
@@ -145,7 +157,10 @@ pub const CARD_COLS: &str = "t.id, t.kind, t.title, t.original_title, t.year, CO
     COALESCE(t.backdrop, (SELECT f.still FROM files f WHERE f.title_id = t.id AND f.still IS NOT NULL ORDER BY f.season, f.episode LIMIT 1)),
     t.logo, t.rating, t.genres, t.overview, t.runtime, t.age, t.added_at,
     (SELECT COUNT(*) FROM files f WHERE f.title_id = t.id AND f.missing = 0),
-    (SELECT COUNT(DISTINCT f.season) FROM files f WHERE f.title_id = t.id AND f.missing = 0)";
+    (SELECT COUNT(DISTINCT f.season) FROM files f WHERE f.title_id = t.id AND f.missing = 0),
+    json_extract(t.countries, '$[0]'),
+    (SELECT json_extract(value, '$.name') FROM json_each(t.people) WHERE json_extract(value, '$.job') = 'director' LIMIT 1),
+    t.accent";
 
 pub fn card(r: &Row) -> rusqlite::Result<Card> {
     Ok(Card {
@@ -169,6 +184,12 @@ pub fn card(r: &Row) -> rusqlite::Result<Card> {
         in_list: false,
         my_rating: None,
         match_pct: None,
+        country: r.get(17)?,
+        director: r.get(18)?,
+        accent: r.get(19)?,
+        status: None,
+        watched_at: None,
+        resume: None,
     })
 }
 

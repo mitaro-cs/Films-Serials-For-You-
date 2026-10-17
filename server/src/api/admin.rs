@@ -453,6 +453,10 @@ pub async fn merge_title(
             "INSERT OR IGNORE INTO ratings (profile_id, title_id, value, updated_at) SELECT profile_id, ?, value, updated_at FROM ratings WHERE title_id = ?",
             params![b.into, id],
         )?;
+        tx.execute(
+            "INSERT OR IGNORE INTO watched (profile_id, title_id, at) SELECT profile_id, ?, at FROM watched WHERE title_id = ?",
+            params![b.into, id],
+        )?;
         tx.execute("DELETE FROM titles WHERE id = ?", [id])
     })?;
     ok()

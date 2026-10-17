@@ -360,7 +360,8 @@ pub async fn save_progress(
             params![v.profile.id, id, pos, b.duration, done, tick_ms()],
         )
     })?;
-    Ok(Json(json!({"ok": true, "done": done})))
+    let watched = done && super::catalog::mark_if_finished(&app, v.profile.id, f.title_id)?;
+    Ok(Json(json!({"ok": true, "done": done, "watched": watched})))
 }
 
 pub async fn clear_progress(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
