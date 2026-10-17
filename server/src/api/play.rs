@@ -6,7 +6,7 @@ use crate::auth::{Manager, Viewer};
 use crate::error::{ApiError, ApiResult};
 use crate::library::probe::{chapter_markers, Probe};
 use crate::stream::{self, RemuxOpts};
-use crate::util::now_ms;
+use crate::util::tick_ms;
 use crate::App;
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
@@ -357,7 +357,7 @@ pub async fn save_progress(
             "INSERT INTO progress (profile_id, file_id, position, duration, done, updated_at) VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(profile_id, file_id) DO UPDATE SET position = excluded.position, duration = excluded.duration,
                done = excluded.done, updated_at = excluded.updated_at",
-            params![v.profile.id, id, pos, b.duration, done, now_ms()],
+            params![v.profile.id, id, pos, b.duration, done, tick_ms()],
         )
     })?;
     Ok(Json(json!({"ok": true, "done": done})))

@@ -9,6 +9,22 @@ pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+/// Время для записей, порядок которых важен (прогресс): строго растёт даже внутри одной
+/// миллисекунды — иначе «последнее просмотренное» при одинаковом времени выбиралось наугад.
+pub fn tick_ms() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static LAST: AtomicI64 = AtomicI64::new(0);
+    let now = now_ms();
+    let mut prev = LAST.load(Ordering::Relaxed);
+    loop {
+        let next = now.max(prev + 1);
+        match LAST.compare_exchange_weak(prev, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(p) => prev = p,
+        }
+    }
+}
+
 /// Случайная строка base64url из `bytes` байт.
 pub fn token(bytes: usize) -> String {
     use base64::Engine;
@@ -71,6 +87,16 @@ mod tests {
     fn norm_folds_case_and_yo() {
         assert_eq!(norm("Ёлки-Палки: 2!"), "елки палки 2");
         assert_eq!(norm("  The.Office  "), "the office");
+    }
+
+    #[test]
+    fn tick_always_grows() {
+        let mut last = 0;
+        for _ in 0..10_000 {
+            let t = tick_ms();
+            assert!(t > last);
+            last = t;
+        }
     }
 
     #[test]
