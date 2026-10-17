@@ -64,7 +64,63 @@ pub async fn status(State(app): State<Arc<App>>, _m: Manager) -> Out {
         "watching": watching,
         "canPick": app.host.can_pick(),
         "publicUrl": app.access.public_url(&app),
+        "inbox": app.db.setting("media.inbox"),
+        "import": *app.inbox.state.lock(),
     })))
+}
+
+/// Своя папка для фильмов: создать (если нет) и подключить.
+pub async fn inbox(State(app): State<Arc<App>>, _m: Manager) -> Out {
+    let dir = crate::library::inbox::folder(&app).map_err(|e| ApiError::bad("inbox", e.to_string()))?;
+    Ok(Json(json!({"path": dir.display().to_string()})))
+}
+
+/// Открыть свою папку в Finder/Проводнике — только в окне на компьютере хоста.
+pub async fn reveal_inbox(State(app): State<Arc<App>>, m: Manager) -> Out {
+    if !m.0.local {
+        return Err(ApiError::bad("not_local", "Открыть папку можно только на компьютере хоста"));
+    }
+    let dir = crate::library::inbox::folder(&app).map_err(|e| ApiError::bad("inbox", e.to_string()))?;
+    Ok(Json(json!({"ok": app.host.reveal(&dir), "path": dir.display().to_string()})))
+}
+
+#[derive(Deserialize)]
+pub struct UploadQuery {
+    name: String,
+    folder: Option<String>,
+}
+
+/// Загрузка файла из браузера в свою папку: потоком на диск (`*.part`), в конце — переименование.
+pub async fn upload(
+    State(app): State<Arc<App>>,
+    _m: Manager,
+    Query(q): Query<UploadQuery>,
+    body: axum::body::Body,
+) -> Out {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
+    let (part, dst) = crate::library::inbox::upload_target(&app, &q.name, q.folder.as_deref())
+        .map_err(|e| ApiError::bad("bad_upload", e))?;
+    let mut file = tokio::fs::File::create(&part).await?;
+    let mut stream = body.into_data_stream();
+    let mut size: u64 = 0;
+    let res: Result<(), String> = async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("связь прервалась: {e}"))?;
+            size += chunk.len() as u64;
+            file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+        }
+        file.sync_all().await.map_err(|e| e.to_string())
+    }
+    .await;
+    drop(file);
+    if let Err(e) = res.and_then(|_| if size == 0 { Err("пустой файл".into()) } else { Ok(()) }) {
+        let _ = tokio::fs::remove_file(&part).await;
+        return Err(ApiError::bad("upload_failed", format!("Не загрузилось: {e}")));
+    }
+    tokio::fs::rename(&part, &dst).await?;
+    app.scan_kick.notify_one();
+    Ok(Json(json!({"ok": true, "size": size, "path": dst.display().to_string()})))
 }
 
 pub async fn settings(State(app): State<Arc<App>>, _m: Manager) -> Out {
@@ -72,7 +128,7 @@ pub async fn settings(State(app): State<Arc<App>>, _m: Manager) -> Out {
     let tools = app.tools.read().clone();
     Ok(Json(json!({
         "siteName": app.site_name(),
-        "registration": db.setting_or("site.registration", "invite"),
+        "registration": db.setting_or("site.registration", crate::api::account::REGISTRATION_DEFAULT),
         "downloads": db.setting_or("site.downloads", "1") == "1",
         "provider": db.setting_or("meta.provider", "imdb"),
         "tmdbKeySet": !db.setting_or("meta.tmdb.key", "").is_empty(),

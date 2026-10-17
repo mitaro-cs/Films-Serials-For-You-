@@ -35,6 +35,20 @@ test('вёрстка: страница фильма и сериала', async ({
   }
 });
 
+test('вёрстка: люди, страница человека, чаты', async ({ page }) => {
+  const { people } = env();
+  for (const [path, what] of [
+    ['/people', 'люди'],
+    [`/people/${people.anna}`, 'страница Анны'],
+    [`/people/${people.me}`, 'своя страница'],
+    ['/chats', 'чаты'],
+    [`/chats/${people.anna}`, 'переписка'],
+  ]) {
+    await page.goto(url(path));
+    await expectClean(page, what);
+  }
+});
+
 test('вёрстка: вход (без сессии)', async ({ browser }) => {
   const ctx = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   const page = await ctx.newPage();

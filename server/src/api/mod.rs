@@ -1,10 +1,11 @@
 //! HTTP API. Права: `Viewer` — любой вошедший, `Manager` — хост или администратор.
 
-mod account;
+pub(crate) mod account;
 mod admin;
 mod catalog;
 mod play;
 mod profiles;
+mod social;
 
 pub use play::busy;
 
@@ -41,6 +42,22 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/library", get(catalog::library))
         .route("/api/titles/{id}/watched", put(catalog::set_watched))
         .route("/img/{name}", get(catalog::image))
+        // люди
+        .route("/api/titles/{id}/reviews", get(social::reviews).post(social::add_review))
+        .route("/api/reviews/{id}", patch(social::edit_review).delete(social::delete_review))
+        .route("/api/reviews/{id}/like", put(social::like_review))
+        .route("/api/members", get(social::members))
+        .route("/api/members/{id}", get(social::member))
+        .route("/api/friends/{id}", post(social::befriend).delete(social::unfriend))
+        .route("/api/chats", get(social::chats))
+        .route("/api/chats/{id}", get(social::chat).post(social::send))
+        .route("/api/badges", get(social::badges))
+        .route(
+            "/api/profiles/{id}/photo",
+            put(social::set_photo)
+                .delete(social::delete_photo)
+                .layer(axum::extract::DefaultBodyLimit::max(crate::images::MAX_IMAGE + 1024)),
+        )
         // просмотр
         .route("/api/files/{id}/info", get(play::info))
         .route("/api/files/{id}/raw", get(play::raw))
@@ -60,6 +77,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/admin/libraries/pick", post(admin::pick_folder))
         .route("/api/admin/libraries/{id}", delete(admin::remove_library))
         .route("/api/admin/scan", post(admin::rescan))
+        .route("/api/admin/inbox", post(admin::inbox))
+        .route("/api/admin/inbox/reveal", post(admin::reveal_inbox))
+        .route("/api/admin/upload", put(admin::upload).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/api/admin/meta/refresh", post(admin::refresh_all))
         .route("/api/admin/titles", get(admin::titles))
         .route("/api/admin/titles/{id}", patch(admin::edit_title))

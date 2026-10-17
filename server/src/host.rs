@@ -17,6 +17,14 @@ pub trait Host: Send + Sync + 'static {
     fn can_pick(&self) -> bool {
         false
     }
+    /// Где создать свою папку для фильмов («Фильмы»/«Видео» пользователя). None — не создавать.
+    fn media_dir(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Показать папку в Finder/Проводнике.
+    fn reveal(&self, _path: &std::path::Path) -> bool {
+        false
+    }
     fn event(&self, e: HostEvent) {
         tracing::info!(?e, "событие");
     }

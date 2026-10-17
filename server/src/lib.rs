@@ -49,11 +49,15 @@ pub struct App {
     pub probe_kick: Notify,
     pub access: access::Access,
     pub login_limit: auth::Limiter,
+    pub signup_limit: auth::Limiter,
+    /// Сообщений от профиля — не больше 30 в минуту.
+    pub message_limit: auth::Limiter,
     pub entries: Mutex<HashMap<String, i64>>,
     /// Перекодирование нагружает процессор — одновременно немного.
     pub transcode: Arc<Semaphore>,
     pub remux: Arc<Semaphore>,
     pub hls: hls::Hls,
+    pub inbox: library::inbox::Inbox,
 }
 
 impl App {
@@ -183,16 +187,21 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         probe_kick: Notify::new(),
         access: access::Access::default(),
         login_limit: auth::Limiter::new(10, 10 * 60 * 1000),
+        signup_limit: auth::Limiter::new(5, 10 * 60 * 1000),
+        message_limit: auth::Limiter::new(30, 60 * 1000),
         entries: Mutex::default(),
         transcode: Arc::new(Semaphore::new(2)),
         remux: Arc::new(Semaphore::new(8)),
         hls: hls::Hls::default(),
+        inbox: library::inbox::Inbox::default(),
     });
     auth::ensure_host(&app)?;
     backfill(&app)?;
+    library::inbox::ensure_on_start(&app);
 
     tokio::spawn(library::jobs::scan_worker(app.clone()));
     tokio::spawn(library::jobs::probe_worker(app.clone()));
+    tokio::spawn(library::inbox::watch_worker(app.clone()));
     tokio::spawn(meta::worker(app.clone()));
     tokio::spawn(cleanup(app.clone()));
     tokio::spawn(hls::janitor(app.clone()));

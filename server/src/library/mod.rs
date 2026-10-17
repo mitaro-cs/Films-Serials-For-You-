@@ -1,3 +1,4 @@
+pub mod inbox;
 pub mod jobs;
 pub mod parse;
 pub mod probe;

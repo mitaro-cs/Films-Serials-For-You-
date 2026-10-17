@@ -1,6 +1,11 @@
 <script lang="ts">
-  // Аватар профиля: цветной квадрат с улыбкой (12 вариантов), без картинок с сервера.
-  let { avatar = 0, size = 40, kids = false }: { avatar?: number; size?: number; kids?: boolean } = $props();
+  // Аватар: своё фото (круг) или рисованное лицо (12 цветов и выражений).
+  let {
+    avatar = 0,
+    size = 40,
+    kids = false,
+    photo = null,
+  }: { avatar?: number; size?: number; kids?: boolean; photo?: string | null } = $props();
 
   const PALETTE: [string, string][] = [
     ['#ff4f7b', '#b8205a'],
@@ -23,6 +28,9 @@
   const smile = $derived(avatar % 4);
 </script>
 
+{#if photo}
+  <img src={photo} alt="" width={size} height={size} class="ava photo" loading="lazy" decoding="async" />
+{:else}
 <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" class="ava">
   <defs>
     <linearGradient id="g{id}" x1="0" y1="0" x2="1" y2="1">
@@ -30,7 +38,7 @@
       <stop offset="1" stop-color={b} />
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="12" fill="url(#g{id})" />
+  <circle cx="32" cy="32" r="32" fill="url(#g{id})" />
   {#if eyes === 0}
     <rect x="18" y="20" width="7" height="12" rx="3.5" fill="#fff" />
     <rect x="39" y="20" width="7" height="12" rx="3.5" fill="#fff" />
@@ -50,15 +58,20 @@
     <path d="M18 38q14 16 28 0" stroke="#fff" stroke-width="4.5" fill="none" stroke-linecap="round" />
   {/if}
   {#if kids}
-    <circle cx="52" cy="12" r="8" fill="#fff" />
-    <path d="M52 7l1.5 3.2 3.5.4-2.6 2.4.7 3.4-3.1-1.8-3.1 1.8.7-3.4-2.6-2.4 3.5-.4z" fill={b} />
+    <circle cx="50" cy="14" r="8" fill="#fff" />
+    <path d="M50 9l1.5 3.2 3.5.4-2.6 2.4.7 3.4-3.1-1.8-3.1 1.8.7-3.4-2.6-2.4 3.5-.4z" fill={b} />
   {/if}
 </svg>
+{/if}
 
 <style>
   .ava {
     display: block;
     flex: none;
-    border-radius: calc(var(--r, 6px));
+    border-radius: 50%;
+  }
+  .photo {
+    object-fit: cover;
+    background: var(--surface-2);
   }
 </style>

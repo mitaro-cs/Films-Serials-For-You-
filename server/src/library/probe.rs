@@ -247,6 +247,34 @@ pub async fn tiny_rgb(ffmpeg: &Path, src: &Path) -> anyhow::Result<Vec<u8>> {
     Ok(out.stdout)
 }
 
+/// Квадратная картинка `size`×`size` (середина кадра) — для фото профиля.
+pub async fn square_image(ffmpeg: &Path, src: &Path, size: u32) -> anyhow::Result<Vec<u8>> {
+    let out = tokio::time::timeout(
+        Duration::from_secs(30),
+        command(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(src)
+            .args([
+                "-vf",
+                &format!("crop='min(iw,ih)':'min(iw,ih)',scale={size}:{size}"),
+                "-q:v",
+                "4",
+                "-frames:v",
+                "1",
+                "-f",
+                "image2",
+                "-c:v",
+                "mjpeg",
+                "pipe:1",
+            ])
+            .stderr(Stdio::null())
+            .output(),
+    )
+    .await??;
+    anyhow::ensure!(out.status.success() && !out.stdout.is_empty(), "ffmpeg не обрезал картинку");
+    Ok(out.stdout)
+}
+
 /// Картинка меньшего размера (JPEG) — для лёгких постеров.
 pub async fn scale_image(ffmpeg: &Path, src: &Path, width: u32) -> anyhow::Result<Vec<u8>> {
     let out = tokio::time::timeout(

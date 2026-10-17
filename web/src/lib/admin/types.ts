@@ -12,4 +12,8 @@ export interface Status {
   watching: { user: string; title: string; episode: string; position: number; duration: number }[];
   canPick: boolean;
   publicUrl: string | null;
+  /** Своя папка для фильмов (null — ещё нет). */
+  inbox: string | null;
+  /** Копирование перетащенных в окно файлов. */
+  import: { running: boolean; filesTotal: number; filesDone: number; bytesTotal: number; bytesDone: number; current: string | null; error: string | null };
 }

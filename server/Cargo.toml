@@ -37,6 +37,7 @@ tower-http = { version = "0.6", features = ["compression-gzip", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2"
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tar = "0.4"

@@ -36,6 +36,16 @@ impl Host for DesktopHost {
         app.dialog().file().set_title("Папка с фильмами и сериалами").blocking_pick_folder()?.into_path().ok()
     }
 
+    fn media_dir(&self) -> Option<PathBuf> {
+        // «Фильмы» на Mac, «Видео» на Windows; нет — домашняя папка.
+        let app = self.app.get()?;
+        app.path().video_dir().or_else(|_| app.path().home_dir()).ok()
+    }
+
+    fn reveal(&self, path: &std::path::Path) -> bool {
+        self.app.get().is_some_and(|a| a.opener().open_path(path.to_string_lossy(), None::<&str>).is_ok())
+    }
+
     fn event(&self, e: HostEvent) {
         match e {
             HostEvent::Access { url, lan } => {
@@ -73,6 +83,32 @@ pub async fn stop_server(app: &AppHandle) {
     let running = app.try_state::<State>().and_then(|s| s.running.lock().take());
     if let Some(r) = running {
         r.shutdown().await;
+    }
+}
+
+fn drag_drop(window: &tauri::Window, e: &tauri::DragDropEvent) {
+    let Some(w) = window.app_handle().get_webview_window("main") else { return };
+    let js = |code: String| {
+        let _ = w.eval(code);
+    };
+    match e {
+        tauri::DragDropEvent::Enter { .. } | tauri::DragDropEvent::Over { .. } => {
+            js("window.dispatchEvent(new CustomEvent('fsfy-drag', { detail: true }))".into())
+        }
+        tauri::DragDropEvent::Leave => {
+            js("window.dispatchEvent(new CustomEvent('fsfy-drag', { detail: false }))".into())
+        }
+        tauri::DragDropEvent::Drop { paths, .. } => {
+            js("window.dispatchEvent(new CustomEvent('fsfy-drag', { detail: false }))".into());
+            let app =
+                window.app_handle().try_state::<State>().and_then(|s| s.running.lock().as_ref().map(|r| r.app.clone()));
+            if let Some(app) = app {
+                let done = fsfy::library::inbox::import(&app, paths.clone());
+                let detail = serde_json::to_string(&done).unwrap_or_else(|_| "{}".into());
+                js(format!("window.dispatchEvent(new CustomEvent('fsfy-drop', {{ detail: {detail} }}))"));
+            }
+        }
+        _ => {}
     }
 }
 
@@ -191,12 +227,16 @@ fn main() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(|window, event| match event {
             // Закрыли окно — сайт продолжает работать в трее.
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // Перетащили фильмы в окно: папки подключаются, файлы копируются в свою папку.
+            // Странице — событие `fsfy-drag` (подсветка) и `fsfy-drop` (что сделано).
+            WindowEvent::DragDrop(e) => drag_drop(window, e),
+            _ => {}
         })
         .build(tauri::generate_context!())
         .expect("приложение не собралось");

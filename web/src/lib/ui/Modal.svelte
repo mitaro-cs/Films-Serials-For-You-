@@ -30,16 +30,34 @@
     padding: 0;
     border: 1px solid var(--line);
     border-radius: 18px;
-    background: #15123a;
+    background: #1c1c1e;
     color: var(--text);
     box-shadow: 0 40px 100px -20px #000;
     overflow: auto;
+  }
+  /* Появление: масштаб и прозрачность — без сдвига вёрстки под окном. */
+  dialog[open] {
+    animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  }
+  dialog[open]::backdrop {
+    animation: fade 0.2s ease-out;
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
   }
   dialog.wide {
     width: min(860px, calc(100vw - 24px));
   }
   dialog::backdrop {
-    background: rgba(5, 4, 14, 0.7);
+    background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(4px);
   }
   header {
@@ -50,7 +68,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 16px 16px 12px 22px;
-    background: #15123a;
+    background: #1c1c1e;
   }
   h2 {
     font-size: 18px;
