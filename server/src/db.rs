@@ -189,6 +189,23 @@ ALTER TABLE files ADD COLUMN trickplay TEXT;
 -- Главы (заставка, титры) — заново через ffprobe.
 UPDATE files SET probe = NULL;
 "#,
+    // 3 — «Просмотрено» (билет с датой) и цвет карточки по постеру
+    r#"
+CREATE TABLE watched (
+  profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (profile_id, title_id)
+);
+-- Досмотренные фильмы — сразу «Просмотрено».
+INSERT OR IGNORE INTO watched (profile_id, title_id, at)
+  SELECT p.profile_id, f.title_id, MAX(p.updated_at) FROM progress p
+  JOIN files f ON f.id = p.file_id JOIN titles t ON t.id = f.title_id
+  WHERE p.done = 1 AND t.kind = 'movie' GROUP BY p.profile_id, f.title_id;
+ALTER TABLE titles ADD COLUMN accent TEXT;
+-- Лёгкие постеры — заново, заодно посчитается цвет.
+UPDATE titles SET poster_sm = NULL;
+"#,
 ];
 
 impl Db {
@@ -267,5 +284,33 @@ mod tests {
         let db = Db::open(&p).unwrap();
         assert_eq!(db.setting("a").as_deref(), Some("2"));
         assert_eq!(db.setting_or("missing", "x"), "x");
+    }
+
+    #[test]
+    fn watched_movies_become_tickets() {
+        let db = Db::memory().unwrap();
+        db.with(|c| {
+            c.execute_batch(
+                "INSERT INTO users (id, login, name, role, created_at) VALUES (1, 'a', 'A', 'host', 0);
+                 INSERT INTO profiles (id, user_id, name, created_at) VALUES (1, 1, 'A', 0);
+                 INSERT INTO titles (id, kind, key, title, added_at, updated_at) VALUES (1, 'movie', 'm', 'M', 0, 0);
+                 INSERT INTO files (id, title_id, path, size, mtime, added_at) VALUES (1, 1, '/m.mkv', 1, 0, 0);",
+            )
+        })
+        .unwrap();
+        // Миграция 3 на уже открытой базе не повторяется — проверяем её запрос напрямую.
+        let sql = MIGRATIONS[2]
+            .split("ALTER TABLE")
+            .next()
+            .unwrap()
+            .replace("CREATE TABLE watched", "CREATE TABLE IF NOT EXISTS watched");
+        db.with(|c| {
+            c.execute("INSERT INTO progress VALUES (1, 1, 100, 100, 1, 42)", [])?;
+            c.execute("DELETE FROM watched", [])?;
+            c.execute_batch(&sql)?;
+            c.query_row("SELECT at FROM watched WHERE profile_id = 1 AND title_id = 1", [], |r| r.get::<_, i64>(0))
+        })
+        .map(|at| assert_eq!(at, 42))
+        .unwrap();
     }
 }

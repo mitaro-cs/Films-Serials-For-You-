@@ -108,7 +108,7 @@
   }
   nav a.on .ic {
     background: var(--accent-grad);
-    color: #fff;
+    color: var(--on-accent);
   }
   .ver {
     font-size: 12px;
@@ -116,7 +116,8 @@
   }
   @media (max-width: 860px) {
     .admin {
-      grid-template-columns: 1fr;
+      /* minmax(0, …): лента разделов прокручивается, а не распирает страницу. */
+      grid-template-columns: minmax(0, 1fr);
       gap: 18px;
     }
     aside {

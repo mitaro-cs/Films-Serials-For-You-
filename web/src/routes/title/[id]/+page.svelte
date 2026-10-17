@@ -7,9 +7,10 @@
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
-  import Poster from '$lib/ui/Poster.svelte';
+  import Ticket from '$lib/ui/Ticket.svelte';
+  import { day, left, percent } from '$lib/library';
   import Rate from '$lib/ui/Rate.svelte';
-  import { toggleList } from '$lib/cards.svelte';
+  import { toggleList, toggleWatched } from '$lib/cards.svelte';
   import Stars from '$lib/ui/Stars.svelte';
 
   let t = $state<TitleDetail | null>(null);
@@ -51,6 +52,16 @@
     if (t) toggleList(t.card);
   }
 
+  function watched() {
+    if (!t) return;
+    const was = t.card.status === 'watched';
+    toggleWatched(t.card);
+    // Сняли отметку — прогресс с начала: обновим серии и «Смотреть».
+    if (was) setTimeout(() => api<TitleDetail>(`/api/titles/${id}`).then((d) => (t = d), () => {}), 300);
+  }
+
+  const started = $derived(!!t?.next && t.next.position > 5);
+
   async function share() {
     try {
       await navigator.clipboard.writeText(location.href);
@@ -80,7 +91,7 @@
 {#if error}
   <div class="page empty"><Icon name="info" size={40} /> {error}</div>
 {:else if t && c}
-  <section class="hero">
+  <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
     <div class="bg" style:background-image={c.backdrop ? `url(${c.backdrop})` : placeholder(c.title)}></div>
     <div class="shade"></div>
     {#if t.next}
@@ -90,9 +101,11 @@
       <h1>{c.title} {#if c.year}<span class="y">({c.year})</span>{/if}</h1>
       <div class="chips">
         {#if c.rating}<span class="chip imdbchip"><span class="imdb">IMDb</span> {c.rating.toFixed(1)}</span>{/if}
-        <button class="chip" onclick={toggle}>
-          <Icon name={t.card.inList ? 'check' : 'plus'} size={15} />
-          {t.card.inList ? 'В моём списке' : 'Смотреть позже'}
+        <button class="chip" class:on={c.status === 'want'} onclick={toggle} disabled={c.status === 'watching' || c.status === 'watched'}>
+          <Icon name="bookmark" size={15} /> Хочу посмотреть
+        </button>
+        <button class="chip" class:on={c.status === 'watched'} onclick={watched}>
+          <Icon name="check" size={15} /> Просмотрено
         </button>
         <Rate card={t.card} size="md" />
         <button class="chip" onclick={share}><Icon name={copied ? 'check' : 'share'} size={15} /> {copied ? 'Ссылка скопирована' : 'Поделиться'}</button>
@@ -107,12 +120,19 @@
       </div>
       {#if t.next}
         <a class="btn primary block" href="/watch/{t.next.fileId}"><Icon name="play" size={16} /> {watchLabel}</a>
-        {#if t.next.label}<div class="nextlabel muted">{t.next.label}</div>{/if}
+        {#if started || t.next.label}
+          <div class="where" style:--tint={c.accent ?? '#2c2c2e'}>
+            {#if t.next.label}<b>{t.next.label}</b>{/if}
+            {#if started}
+              <span>Остановились на {Math.floor(t.next.position / 60)} мин — {left(t.next.position, t.next.duration)}</span>
+              <span class="pbar"><i style:width="{percent(t.next.position, t.next.duration)}%"></i></span>
+            {/if}
+          </div>
+        {/if}
       {/if}
-      <button class="btn block" onclick={toggle}>
-        <Icon name={t.card.inList ? 'check' : 'plus'} size={16} />
-        {t.card.inList ? 'В моём списке' : 'В мой список'}
-      </button>
+      {#if c.status === 'watched' && c.watchedAt}
+        <div class="stub">Просмотрено {day(c.watchedAt)}</div>
+      {/if}
       {#if t.canDownload && !isSeries && t.files[0]}
         <a class="btn block" href="/api/files/{t.files[0].id}/download" download><Icon name="download" size={16} /> Скачать · {size(t.files[0].size)}</a>
       {/if}
@@ -228,7 +248,7 @@
       {#if t.gallery.length}
         <h3>Галерея</h3>
         <div class="gallery">
-          {#each t.gallery.slice(0, 7) as g, k (g)}
+          {#each t.gallery.slice(0, 7) as g, k (k)}
             <button class:first={k === 0} onclick={() => (shot = k)} aria-label="Кадр {k + 1}">
               <img src={g} alt="" loading="lazy" />
               {#if k === 0 && t.next}<span class="p"><Icon name="play" size={18} /></span>{/if}
@@ -249,7 +269,7 @@
       <h2 class="section-title"><Icon name="film" /> Похожие</h2>
       <div class="grid">
         {#each t.similar.slice(0, 12) as s (s.id)}
-          <Poster card={s} />
+          <Ticket card={s} />
         {/each}
       </div>
     </section>
@@ -286,8 +306,8 @@
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(0deg, var(--bg) 0%, rgba(11, 10, 26, 0.35) 45%, rgba(40, 24, 110, 0.25) 100%),
-      radial-gradient(ellipse at center, transparent 40%, rgba(11, 10, 26, 0.5) 100%);
+      linear-gradient(0deg, var(--bg) 0%, color-mix(in srgb, var(--tint) 45%, transparent) 55%, rgba(0, 0, 0, 0.25) 100%),
+      radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.5) 100%);
   }
   .bigplay {
     position: absolute;
@@ -301,7 +321,7 @@
     place-items: center;
     padding-left: 5px;
     background: #fff;
-    color: var(--accent);
+    color: #0a0a0a;
     box-shadow:
       0 0 0 10px rgba(255, 255, 255, 0.14),
       0 20px 50px -10px rgba(0, 0, 0, 0.6);
@@ -328,16 +348,20 @@
   }
   .y {
     font-weight: 400;
-    color: #d6d3ea;
+    color: rgba(255, 255, 255, 0.7);
   }
   .chips {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
   }
-  .chips .chip {
-    background: rgba(11, 10, 26, 0.5);
+  .chips .chip:not(.on) {
+    background: rgba(0, 0, 0, 0.5);
     backdrop-filter: blur(10px);
+  }
+  .chips .chip:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   .imdbchip .imdb {
     height: 18px;
@@ -376,10 +400,38 @@
     font-weight: 800;
     font-size: 20px;
   }
-  .nextlabel {
+  .where {
+    display: grid;
+    gap: 4px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--tint);
+    font-size: 13px;
+  }
+  .where span:not(.pbar) {
+    color: rgba(255, 255, 255, 0.75);
     font-size: 12px;
+  }
+  .where .pbar {
+    height: 4px;
+    margin-top: 4px;
+    border-radius: 2px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .where .pbar i {
+    display: block;
+    height: 100%;
+    background: #fff;
+  }
+  .stub {
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: var(--ticket);
+    color: var(--ticket-ink);
+    font-family: var(--mono);
+    font-size: 12.5px;
     text-align: center;
-    margin-top: -4px;
   }
   .titleline {
     display: flex;
@@ -562,7 +614,7 @@
     display: grid;
     place-items: center;
     padding-left: 2px;
-    background: rgba(11, 10, 26, 0.6);
+    background: rgba(0, 0, 0, 0.6);
     border: 1.5px solid rgba(255, 255, 255, 0.8);
     opacity: 0;
     transition: opacity 0.2s;
@@ -715,7 +767,7 @@
   }
   @media (max-width: 760px) {
     .body {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
       gap: 18px;
     }
     .left {
@@ -727,7 +779,7 @@
       margin: 0;
     }
     .cols {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
       gap: 0;
     }
     .eps li {

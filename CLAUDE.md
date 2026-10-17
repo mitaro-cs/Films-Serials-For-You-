@@ -25,13 +25,30 @@
   - `hls` — адаптивный поток: плейлист заранее (кусочки по 6 с), ffmpeg с `-ss`,
     `-force_key_frames` на границах и `-output_ts_offset`; задача на (файл, высота, дорожка),
     `janitor` останавливает убежавшие вперёд и брошенные.
-  - `access` — режимы `lan` / `fxtunnel` (клиент с GitHub по SHA-256) / `custom`.
+  - `access` — режимы доступа из интернета (ниже, у CloudPub).
   - `api/` — маршруты (`mod.rs`), `account`, `catalog`, `play`, `admin`.
   - `web.rs` — встроенный интерфейс (rust-embed из `web/build`) и заголовки.
 - `web/` — SvelteKit 2 + Svelte 5 (руны), adapter-static, SPA. `lib/api.ts`, `session.svelte.ts`,
   `ui/` (компоненты), `player/`, `admin/`. Иконки — свои пути в `ui/icons.ts`, без библиотек.
+  - Главная `/` — каталог-билеты по макету (0.3): `?tab=movies|series|new`, `?status=want|watching|watched`,
+    данные — `GET /api/library` (все карточки вкладки, фильтр и поиск — на клиенте, `lib/library.ts`).
+    Карточка — `ui/Ticket.svelte` (низ — `titles.accent`, вырезы — кружки цвета страницы, белый билет —
+    `status = watched`), меню статуса — одно на страницу (`ui/StatusMenu.svelte`, `cards.svelte.ts`).
+  - Статусы: «Хочу» = `my_list`; «Смотрю» — есть прогресс; «Просмотрено» — таблица `watched`
+    (вручную `PUT /api/titles/{id}/watched` или само: `catalog::mark_if_finished` после досмотра
+    всех файлов). Снять «Просмотрено» — стирает прогресс. `Card.resume` — где остановился (только у «Смотрю»).
+  - `titles.accent` — цвет по постеру (`images::accent`, тёмный и приглушённый — белый текст
+    читается, проверено тестом), считается вместе с `poster_sm`.
 - `desktop/src-tauri` — Tauri 2: сервер работает в процессе приложения, окно открывает
   `http://127.0.0.1:<порт окна>/api/host/enter?t=…`, трей, `DesktopHost` (выбор папки).
+  `update.rs` — автообновление (tauri-plugin-updater, `latest.json` выпуска, подпись — секрет
+  `TAURI_SIGNING_PRIVATE_KEY`, открытый ключ — в tauri.conf.json; без секрета `release.yml`
+  собирает с `no-updater.conf.json`). Перед установкой — `stop_server`.
+- `access` — `cloudpub` (рекомендуемый, `cloudpub.rs`: клиент `clo` по SHA-256, `register` один
+  раз → постоянный адрес, `run`; вход почтой/паролем или ключом API, пароль не хранится),
+  `fxtunnel`, `custom`, `lan`.
+- Значок — пиксельная хлопушка: `python3 scripts/icon.py png` (SVG/PNG для сайта и `icon-src`),
+  затем `npm run icons` в `desktop/`.
 
 ## Соглашения
 
@@ -56,9 +73,19 @@
 - Внешних запросов из фронта нет (шрифты системные, иконки свои); картинки IMDb/TMDB сервер
   скачивает к себе (`images/<sha256>.ext`).
 - Коммиты — Conventional Commits (`feat:`, `fix:`, …).
+- Ветка `miaro` — основная; владелец поручил Claude вести её самому: работа — в своей ветке →
+  PR в `miaro` → зелёная CI (server, web, e2e, desktop) → Claude сливает PR сам (merge commit).
+  Прямо в `miaro` не пушить. Теги выпусков — только по слову владельца.
 
 ## Проверки перед пушем
 
 `cargo fmt --all --check`, `cargo clippy -p fsfy-server --all-targets -- -D warnings`,
-`cargo test -p fsfy-server` (сквозной тест `server/tests/flow.rs` нужен ffmpeg),
-в `web/`: `npm run check`, `npm test`, `npm run build`.
+`cargo test -p fsfy-server` (сквозные тесты `server/tests/*.rs` нужен ffmpeg),
+в `web/`: `npm run check`, `npm test`, `npm run build`, затем `cargo build --release -p fsfy-server`
+и `npx playwright test` (e2e: демо-данные из `e2e/setup.ts`, телефон/планшет/компьютер).
+
+- `e2e/util.ts expectClean` — вёрстка: страница не шире экрана (называет виновника), строки
+  текста и кнопки не пересекаются. Новую страницу — в `e2e/layout.spec.ts`. Ошибка JS — провал
+  (`util-test.ts`). Бюджет JS главной — `e2e/speed.spec.ts` (80 КБ сжатого).
+- Сетки с прокручиваемыми лентами — `minmax(0, 1fr)`, не `1fr` (иначе лента распирает страницу).
+- Ключи в `{#each}` — уникальные (одинаковые кадры серий уронили страницу сериала).

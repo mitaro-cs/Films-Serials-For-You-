@@ -44,15 +44,29 @@ jobs:
       - name: Зависимости оболочки
         working-directory: desktop
         run: npm ci
+      # Подпись обновлений: секрет TAURI_SIGNING_PRIVATE_KEY (см. docs/host.md). Без него выпуск
+      # всё равно собирается, только без файлов автообновления.
+      - name: Подпись обновлений
+        id: sign
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then echo "extra=" >> "$GITHUB_OUTPUT"; else
+            echo "::warning::Нет секрета TAURI_SIGNING_PRIVATE_KEY — выпуск без автообновления"
+            echo "extra=--config src-tauri/no-updater.conf.json" >> "$GITHUB_OUTPUT"
+          fi
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
           # Без tauriScript: tauri-action сам берёт `npm run tauri` и ставит `--` перед args.
           # С `npm run tauri --` получалось `tauri build -- --target …`: цель уходила в cargo,
           # а упаковщик искал программу в target/release (выпуск 0.1.1 упал так).
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} ${{ steps.sign.outputs.extra }}
           tagName: ${{ github.ref_name }}
           releaseName: "Films & Serials For You ${{ github.ref_name }}"
           releaseBody: "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md."

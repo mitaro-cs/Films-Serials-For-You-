@@ -4,6 +4,7 @@ export const ICONS = {
   pause: 'M7 4h3.5v16H7zM13.5 4H17v16h-3.5z',
   plus: 'M12 5v14M5 12h14',
   check: 'M20 6 9 17l-5-5',
+  sparkle: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z',
   search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-4.3-4.3',
   back: 'M15 18l-6-6 6-6',
   right: 'M9 18l6-6-6-6',

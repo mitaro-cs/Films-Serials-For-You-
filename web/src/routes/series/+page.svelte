@@ -1,5 +1,8 @@
 <script lang="ts">
-  import Browse from '$lib/ui/Browse.svelte';
-</script>
+  import { goto } from '$app/navigation';
 
-<Browse kind="series" title="Сериалы" />
+  // Старые ссылки (0.2) ведут в каталог-билеты.
+  $effect(() => {
+    goto('/?tab=series', { replaceState: true });
+  });
+</script>

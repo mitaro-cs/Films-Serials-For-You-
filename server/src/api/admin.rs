@@ -295,6 +295,10 @@ pub struct TitleEdit {
     genres: Option<Vec<String>>,
     /// Возрастной рейтинг («12+», «PG-13»); пусто — неизвестен.
     age: Option<String>,
+    /// Страны (на билете — первая).
+    countries: Option<Vec<String>>,
+    /// Режиссёр; пусто — убрать.
+    director: Option<String>,
 }
 
 pub async fn edit_title(
@@ -315,7 +319,9 @@ pub async fn edit_title(
         || b.overview.is_some()
         || b.genres.is_some()
         || b.year.is_some()
-        || b.original_title.is_some();
+        || b.original_title.is_some()
+        || b.countries.is_some()
+        || b.director.is_some();
     let n = app.db.tx(|tx| {
         let mut n = 0;
         let mut set = |sql: &str, v: &dyn rusqlite::ToSql| -> rusqlite::Result<()> {
@@ -353,6 +359,24 @@ pub async fn edit_title(
         }
         if let Some(v) = &b.genres {
             set("genres", &serde_json::to_string(v).unwrap_or_else(|_| "[]".into()))?;
+        }
+        if let Some(v) = &b.countries {
+            let v: Vec<&str> = v.iter().map(|c| c.trim()).filter(|c| !c.is_empty()).collect();
+            set("countries", &serde_json::to_string(&v).unwrap_or_else(|_| "[]".into()))?;
+        }
+        if let Some(d) = &b.director {
+            let people: String = tx
+                .query_row("SELECT people FROM titles WHERE id = ?", [id], |r| r.get(0))
+                .unwrap_or_else(|_| "[]".into());
+            let mut people: Vec<crate::meta::Person> = serde_json::from_str(&people).unwrap_or_default();
+            people.retain(|p| p.job != "director");
+            if !d.trim().is_empty() {
+                people.insert(
+                    0,
+                    crate::meta::Person { name: d.trim().into(), role: None, job: "director".into(), photo: None },
+                );
+            }
+            set("people", &serde_json::to_string(&people).unwrap_or_else(|_| "[]".into()))?;
         }
         if manual {
             // Хост поправил сам — автоматическое обновление это не перезапишет.
@@ -451,6 +475,10 @@ pub async fn merge_title(
         tx.execute("INSERT OR IGNORE INTO my_list (profile_id, title_id, added_at) SELECT profile_id, ?, added_at FROM my_list WHERE title_id = ?", params![b.into, id])?;
         tx.execute(
             "INSERT OR IGNORE INTO ratings (profile_id, title_id, value, updated_at) SELECT profile_id, ?, value, updated_at FROM ratings WHERE title_id = ?",
+            params![b.into, id],
+        )?;
+        tx.execute(
+            "INSERT OR IGNORE INTO watched (profile_id, title_id, at) SELECT profile_id, ?, at FROM watched WHERE title_id = ?",
             params![b.into, id],
         )?;
         tx.execute("DELETE FROM titles WHERE id = ?", [id])
@@ -711,7 +739,7 @@ pub struct AccessBody {
 
 pub async fn set_access(State(app): State<Arc<App>>, _m: Manager, Json(b): Json<AccessBody>) -> Out {
     match b.mode.as_str() {
-        "lan" => {}
+        "lan" | "cloudpub" => {}
         "fxtunnel" => {
             if let Some(s) = b.subdomain {
                 let s = s.trim().to_lowercase();
@@ -742,6 +770,35 @@ pub async fn access_login(State(app): State<Arc<App>>, _m: Manager) -> Out {
         ApiError::new(StatusCode::BAD_GATEWAY, "fxtunnel", format!("Не удалось связаться с fxTunnel: {e}"))
     })?;
     Ok(Json(json!(l)))
+}
+
+#[derive(Deserialize)]
+pub struct CloudPubLogin {
+    #[serde(default)]
+    email: String,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    token: String,
+}
+
+pub async fn cloudpub_login(State(app): State<Arc<App>>, _m: Manager, Json(b): Json<CloudPubLogin>) -> Out {
+    let (email, token) = (b.email.trim(), b.token.trim());
+    if token.is_empty() && (email.is_empty() || b.password.is_empty()) {
+        return Err(ApiError::bad("login", "Введите почту и пароль от CloudPub или ключ API"));
+    }
+    if !token.is_empty() && (token.len() < 16 || token.chars().any(char::is_whitespace)) {
+        return Err(ApiError::bad("token", "Вставьте ключ API из личного кабинета CloudPub целиком"));
+    }
+    Access::cp_login(&app, email, &b.password, token)
+        .await
+        .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "cloudpub", e.to_string()))?;
+    Ok(Json(json!(app.access.view(&app))))
+}
+
+pub async fn cloudpub_logout(State(app): State<Arc<App>>, _m: Manager) -> Out {
+    Access::cp_logout(&app).await;
+    Ok(Json(json!(app.access.view(&app))))
 }
 
 pub async fn access_logout(State(app): State<Arc<App>>, _m: Manager) -> Out {

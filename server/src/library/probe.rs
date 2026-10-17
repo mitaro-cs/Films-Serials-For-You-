@@ -231,6 +231,22 @@ pub async fn frame(ffmpeg: &Path, file: &Path, at: f64, width: u32) -> anyhow::R
     Ok(out.stdout)
 }
 
+/// Картинка, сжатая до 24×36 точек, пикселями RGB — для цвета карточки.
+pub async fn tiny_rgb(ffmpeg: &Path, src: &Path) -> anyhow::Result<Vec<u8>> {
+    let out = tokio::time::timeout(
+        Duration::from_secs(30),
+        command(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-i"])
+            .arg(src)
+            .args(["-vf", "scale=24:36", "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"])
+            .stderr(Stdio::null())
+            .output(),
+    )
+    .await??;
+    anyhow::ensure!(out.status.success() && out.stdout.len() == 24 * 36 * 3, "ffmpeg не дал пиксели");
+    Ok(out.stdout)
+}
+
 /// Картинка меньшего размера (JPEG) — для лёгких постеров.
 pub async fn scale_image(ffmpeg: &Path, src: &Path, width: u32) -> anyhow::Result<Vec<u8>> {
     let out = tokio::time::timeout(

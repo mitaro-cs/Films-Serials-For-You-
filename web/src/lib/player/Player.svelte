@@ -1019,7 +1019,7 @@
   }
   .skip:hover {
     background: #fff;
-    color: #14112b;
+    color: #0a0a0a;
   }
   @keyframes slidein {
     from {

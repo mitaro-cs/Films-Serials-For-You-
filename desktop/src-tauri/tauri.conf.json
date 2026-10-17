@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Films and Serials For You",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "app.fsfy",
   "build": {
     "frontendDist": "../ui"
@@ -15,20 +15,47 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app", "nsis"],
+    "targets": [
+      "dmg",
+      "app",
+      "nsis"
+    ],
     "category": "Entertainment",
     "shortDescription": "Домашний кинотеатр: фильмы с вашего компьютера — друзьям онлайн",
     "copyright": "© Films & Serials For You",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "resources": { "resources/": "resources/" },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "resources/": "resources/"
+    },
     "macOS": {
       "minimumSystemVersion": "11.0"
     },
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["Russian", "English"],
+        "languages": [
+          "Russian",
+          "English"
+        ],
         "displayLanguageSelector": false
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg1RUE4QkFERjgwRTdEQTQKUldTa2ZRNzRyWXZxaGRYb3VkU0YvWklnWHRML1dVL0tqd2RDWkc5WXZQL1J3RnZnaG15SzZ6QngK",
+      "endpoints": [
+        "https://github.com/mitaro-cs/Films-Serials-For-You-/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

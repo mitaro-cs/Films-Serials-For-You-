@@ -299,10 +299,11 @@
     background: var(--surface-2);
   }
   .role.host {
-    background: var(--accent-grad);
+    background: #fff;
+    color: var(--on-accent);
   }
   .role.admin {
-    background: rgba(138, 99, 255, 0.35);
+    background: rgba(255, 255, 255, 0.35);
   }
   .sw {
     display: inline-flex;

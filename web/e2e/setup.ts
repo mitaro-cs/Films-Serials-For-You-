@@ -1,0 +1,128 @@
+import { request, type FullConfig } from '@playwright/test';
+import { execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+
+// Демо-библиотека: короткие видео и постеры разных цветов — как на макете, плюс крайние случаи
+// (очень длинное название, без страны и режиссёра, сериал). Хост входит одноразовой ссылкой
+// окна; статусы «Хочу», «Смотрю» и «Просмотрено» расставлены заранее.
+
+const ROOT = resolve(import.meta.dirname, '../..');
+
+export const MOVIES = [
+  { dir: 'Ла-Ла Ленд (2016)', c: ['0x6b3fa0', '0x1f3a8a'], country: 'США', director: 'Дэмьен Шазелл', genres: ['Мюзикл', 'Драма', 'Мелодрама'] },
+  { dir: 'Начало (2010)', c: ['0x1f6f78', '0x0b2530'], country: 'США', director: 'Кристофер Нолан', genres: ['Фантастика', 'Боевик'] },
+  { dir: 'Интерстеллар (2014)', c: ['0x24314f', '0x8a6a3c'], country: 'Великобритания', director: 'Кристофер Нолан', genres: ['Фантастика', 'Драма'] },
+  { dir: 'Амели (2001)', c: ['0x2f6b2f', '0xa8322d'], country: 'Франция', director: 'Жан-Пьер Жёне', genres: ['Комедия', 'Мелодрама'] },
+  { dir: 'Паразиты (2019)', c: ['0x5a5a5a', '0x202020'], country: 'Южная Корея', director: 'Пон Джун-хо', genres: ['Триллер', 'Драма'] },
+  { dir: 'Дюна (2021)', c: ['0xc8752a', '0x3a1f0c'], country: 'США', director: 'Дени Вильнёв', genres: ['Фантастика', 'Приключения'] },
+  { dir: 'Очень длинное название фильма, чтобы проверить переносы строк на узком телефоне (2020)', c: ['0x8a2be2', '0xff7f50'], country: 'Соединённые Штаты Америки', director: 'Режиссёр С Очень Длинным Именем И Фамилией', genres: ['Драма', 'Комедия', 'Фэнтези', 'Мультфильм'] },
+  { dir: 'Без описания (2022)', c: ['0xdedede', '0xf5f5f5'], country: '', director: '', genres: [] },
+];
+
+function ff(args: string[]) {
+  execFileSync('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', ...args]);
+}
+
+function video(path: string) {
+  mkdirSync(dirname(path), { recursive: true });
+  ff(['-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24:duration=6', '-f', 'lavfi', '-i', 'sine=f=440:duration=6',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', path]);
+}
+
+function poster(path: string, [c0, c1]: string[]) {
+  ff(['-f', 'lavfi', '-i', `gradients=s=400x600:c0=${c0}:c1=${c1}:x0=0:y0=0:x1=400:y1=600:d=1`, '-frames:v', '1', path]);
+}
+
+function binary(): string {
+  const env = process.env.FSFY_BIN;
+  for (const p of [env, join(ROOT, 'target/release/fsfy'), join(ROOT, 'target/debug/fsfy')]) {
+    if (p && existsSync(p)) return p;
+  }
+  throw new Error('Нет сервера: соберите `cargo build --release -p fsfy-server` (или задайте FSFY_BIN)');
+}
+
+export default async function setup(_: FullConfig) {
+  const base = mkdtempSync(join(tmpdir(), 'fsfy-e2e-'));
+  const media = join(base, 'media');
+  for (const m of MOVIES) {
+    const name = m.dir.replace(/ \(\d+\)$/, '');
+    video(join(media, m.dir, `${name}.mp4`));
+    poster(join(media, m.dir, 'poster.jpg'), m.c);
+  }
+  for (const e of [1, 2]) video(join(media, 'Тьма', 'Season 1', `Тьма.s01e0${e}.mp4`));
+  poster(join(media, 'Тьма', 'poster.jpg'), ['0x0e3b2e', '0x050505']);
+
+  const port = 18000 + Math.floor(Math.random() * 1000);
+  const win = port + 1000;
+  const child = spawn(binary(), ['serve', '--data', join(base, 'data'), '--port', String(port), '--window-port', String(win)], {
+    env: { ...process.env, RUST_LOG: 'warn' },
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  const entry = await new Promise<string>((ok, fail) => {
+    let out = '';
+    const t = setTimeout(() => fail(new Error(`сервер не запустился: ${out}`)), 30_000);
+    child.stdout!.on('data', (d) => {
+      out += d;
+      const m = out.match(/Вход хоста:\s+(\S+)/);
+      if (m) {
+        clearTimeout(t);
+        ok(m[1]);
+      }
+    });
+    child.on('exit', (c) => fail(new Error(`сервер завершился (${c}): ${out}`)));
+  });
+
+  const baseURL = `http://127.0.0.1:${win}`;
+  const api = await request.newContext({ baseURL, extraHTTPHeaders: { 'x-fsfy': '1' } });
+  await api.get(entry);
+  const send = async (method: string, path: string, data?: unknown) => {
+    const r = await api.fetch(path, { method, data });
+    if (!r.ok()) throw new Error(`${method} ${path}: ${r.status()} ${await r.text()}`);
+    return r.json().catch(() => null);
+  };
+  const until = async (f: () => Promise<boolean>, what: string) => {
+    for (let i = 0; i < 300; i++) {
+      if (await f()) return;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    throw new Error(`не дождались: ${what}`);
+  };
+
+  await send('PUT', '/api/admin/settings', { provider: 'off' });
+  await send('POST', '/api/admin/libraries', { path: media });
+  await until(async () => (await send('GET', '/api/titles')).length === MOVIES.length + 1, 'скан');
+  await until(async () => (await send('GET', '/api/admin/status')).unprobed === 0, 'ffprobe');
+  const titles: { id: number; title: string }[] = await send('GET', '/api/admin/titles');
+  const id = (t: string) => titles.find((x) => x.title === t)!.id;
+  for (const m of MOVIES) {
+    const t = m.dir.replace(/ \(\d+\)$/, '');
+    await send('PATCH', `/api/admin/titles/${id(t)}`, { genres: m.genres, countries: [m.country], director: m.director });
+  }
+  await send('PATCH', `/api/admin/titles/${id('Тьма')}`, { genres: ['Триллер', 'Фантастика'], countries: ['Германия'], director: 'Баран бо Одар' });
+  // Цвет карточек считается фоном после постеров.
+  await until(async () => {
+    const l = await send('GET', '/api/library?tab=movies');
+    return l.items.every((c: { accent: string | null }) => c.accent);
+  }, 'цвет карточек');
+
+  // Статусы: хочу, смотрю (фильм и сериал), просмотрено.
+  await send('PUT', `/api/list/${id('Интерстеллар')}`, { value: true });
+  await send('PUT', `/api/list/${id('Дюна')}`, { value: true });
+  await send('PUT', `/api/titles/${id('Ла-Ла Ленд')}/watched`, { value: true });
+  await send('PUT', `/api/titles/${id('Паразиты')}/watched`, { value: true });
+  const nach = await send('GET', `/api/titles/${id('Начало')}`);
+  await send('PUT', `/api/progress/${nach.files[0].id}`, { position: 2.5, duration: 6 });
+  const dark = await send('GET', `/api/titles/${id('Тьма')}`);
+  await send('PUT', `/api/progress/${dark.files[0].id}`, { position: 6, duration: 6 });
+
+  await api.storageState({ path: join(import.meta.dirname, '.state.json') });
+  await api.dispose();
+  writeFileSync(join(import.meta.dirname, '.env.json'), JSON.stringify({ baseURL, publicURL: `http://127.0.0.1:${port}`, ids: Object.fromEntries(titles.map((t) => [t.title, t.id])) }));
+
+  return async () => {
+    child.kill();
+    rmSync(base, { recursive: true, force: true });
+  };
+}

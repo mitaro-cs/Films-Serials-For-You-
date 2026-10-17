@@ -15,7 +15,9 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
-const TITLE: &str = "Films & Serials For You";
+mod update;
+
+pub const TITLE: &str = "Films & Serials For You";
 
 #[derive(Default)]
 struct DesktopHost {
@@ -66,6 +68,14 @@ fn show(app: &AppHandle) {
     }
 }
 
+/// Выключить сайт (перед обновлением и выходом): закрыть базу, остановить туннель и видео.
+pub async fn stop_server(app: &AppHandle) {
+    let running = app.try_state::<State>().and_then(|s| s.running.lock().take());
+    if let Some(r) = running {
+        r.shutdown().await;
+    }
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
@@ -77,6 +87,8 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::Updates::default())
         .setup(|app| {
             let handle = app.handle().clone();
             let host = Arc::new(DesktopHost::default());
@@ -104,7 +116,7 @@ fn main() {
                 .title(TITLE)
                 .inner_size(1360.0, 860.0)
                 .min_inner_size(960.0, 620.0)
-                .background_color(tauri::window::Color(11, 10, 26, 255))
+                .background_color(tauri::window::Color(0, 0, 0, 255))
                 .visible(!hidden)
                 .build()?;
 
@@ -120,10 +132,12 @@ fn main() {
                 app.autolaunch().is_enabled().unwrap_or(false),
                 None::<&str>,
             )?;
+            let upd = MenuItem::with_id(app, "update", "Проверить обновления", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Выключить сайт и выйти", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&open, &link, &browser, &sep, &autostart, &sep2, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &link, &browser, &sep, &autostart, &upd, &sep2, &quit])?;
+            app.state::<update::Updates>().set_item(upd);
             *host.link_item.lock() = Some(link);
             // Адрес мог прийти раньше, чем появилось меню.
             let v = running.app.access.view(&running.app);
@@ -154,6 +168,7 @@ fn main() {
                         let _ = if on { al.disable() } else { al.enable() };
                         let _ = auto.set_checked(al.is_enabled().unwrap_or(false));
                     }
+                    "update" => update::menu(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })
@@ -170,6 +185,10 @@ fn main() {
                 .ok();
 
             app.manage(State { running: Mutex::new(Some(running)), _host: host, _awake: Mutex::new(awake) });
+            // В сборке для разработки обновлений нет: версия там не из выпуска.
+            if !cfg!(debug_assertions) {
+                update::start(handle.clone());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {

@@ -3,43 +3,30 @@
   import { page } from '$app/state';
   import { post } from '$lib/api';
   import { loadMe, session } from '$lib/session.svelte';
+  import { TABS, tabOf } from '$lib/library';
   import Avatar from './Avatar.svelte';
   import Icon from './Icon.svelte';
   import Logo from './Logo.svelte';
 
   let scrolled = $state(false);
   let menu = $state(false);
-  let q = $state('');
-
-  const NAV = [
-    { href: '/', label: 'Главная', icon: 'home' },
-    { href: '/movies', label: 'Фильмы', icon: 'film' },
-    { href: '/series', label: 'Сериалы', icon: 'tv' },
-    { href: '/list', label: 'Мой список', icon: 'bookmark' },
-  ] as const;
 
   const path = $derived(page.url.pathname);
-  const home = $derived(path === '/');
+  const tab = $derived(path === '/' ? tabOf(page.url.searchParams) : null);
 
   $effect(() => {
-    const on = () => (scrolled = window.scrollY > 24);
+    const on = () => (scrolled = window.scrollY > 8);
     on();
     window.addEventListener('scroll', on, { passive: true });
     return () => window.removeEventListener('scroll', on);
   });
 
   $effect(() => {
-    if (path === '/search') q = page.url.searchParams.get('q') ?? '';
+    if (!menu) return;
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && (menu = false);
+    addEventListener('keydown', esc);
+    return () => removeEventListener('keydown', esc);
   });
-
-  function search(e: SubmitEvent) {
-    e.preventDefault();
-    goto(`/search?q=${encodeURIComponent(q.trim())}`, { keepFocus: true });
-  }
-
-  function typed() {
-    if (path === '/search') goto(`/search?q=${encodeURIComponent(q)}`, { replaceState: true, keepFocus: true, noScroll: true });
-  }
 
   async function logout() {
     await post('/api/auth/logout').catch(() => {});
@@ -59,29 +46,23 @@
   }
 </script>
 
-<header class:scrolled class:home>
-  <div class="left">
-    {#if !home}
-      <button class="btn ghost sm icon back" aria-label="Назад" onclick={() => history.back()}><Icon name="back" /></button>
-    {/if}
-    <a href="/" class="brand" aria-label="На главную"><Logo /></a>
-    <nav>
-      {#each NAV as n (n.href)}
-        <a href={n.href} class:active={path === n.href}>{n.label}</a>
-      {/each}
-    </nav>
-  </div>
-  <form class="search" role="search" onsubmit={search}>
-    <Icon name="search" size={18} />
-    <input type="search" placeholder="Поиск фильмов и сериалов" bind:value={q} oninput={typed} aria-label="Поиск" />
-  </form>
+<header class:scrolled>
+  <a href="/" class="brand" aria-label="На главную"><Logo /></a>
+
+  <nav class="pill" aria-label="Разделы">
+    {#each TABS as t (t.id)}
+      <a href={t.href} class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined}>{t.label}</a>
+    {/each}
+  </nav>
+
   <div class="right">
+    <a class="round" href="/search" aria-label="Поиск" title="Поиск"><Icon name="search" size={21} /></a>
     {#if session.me?.manage}
-      <a class="btn ghost sm icon" href="/admin" aria-label="Управление" title="Управление"><Icon name="sliders" /></a>
+      <a class="round" href="/admin?tab=folders" aria-label="Добавить фильмы" title="Добавить фильмы"><Icon name="plus" size={22} /></a>
     {/if}
     <div class="me">
       <button class="avatar" aria-label="Профиль" aria-expanded={menu} onclick={() => (menu = !menu)}>
-        <Avatar avatar={profile?.avatar ?? 0} kids={profile?.kids} size={36} />
+        <Avatar avatar={profile?.avatar ?? 0} kids={profile?.kids} size={34} />
       </button>
       {#if menu}
         <button class="scrim" aria-label="Закрыть меню" onclick={() => (menu = false)}></button>
@@ -95,8 +76,8 @@
               <Avatar avatar={p.avatar} kids={p.kids} size={26} /> {p.name}
             </button>
           {/each}
-          <a href="/profiles?manage=1" role="menuitem" onclick={() => (menu = false)}><Icon name="users" size={18} /> Управление профилями</a>
-          <a href="/profile" role="menuitem" onclick={() => (menu = false)}><Icon name="user" size={18} /> Профиль</a>
+          <a href="/profiles?manage=1" role="menuitem" onclick={() => (menu = false)}><Icon name="users" size={18} /> Профили</a>
+          <a href="/profile" role="menuitem" onclick={() => (menu = false)}><Icon name="user" size={18} /> Мой аккаунт</a>
           {#if session.me?.manage}
             <a href="/admin" role="menuitem" onclick={() => (menu = false)}><Icon name="sliders" size={18} /> Управление</a>
           {/if}
@@ -109,11 +90,12 @@
   </div>
 </header>
 
+<!-- Телефон: те же разделы внизу, под большим пальцем. -->
 <nav class="tabs" aria-label="Разделы">
-  {#each NAV as n (n.href)}
-    <a href={n.href} class:active={path === n.href}><Icon name={n.icon} size={22} /><span>{n.label}</span></a>
+  {#each TABS as t (t.id)}
+    <a href={t.href} class:on={tab === t.id}><Icon name={t.icon} size={22} /><span>{t.label}</span></a>
   {/each}
-  <a href="/search" class:active={path === '/search'}><Icon name="search" size={22} /><span>Поиск</span></a>
+  <a href="/search" class:on={path === '/search'}><Icon name="search" size={22} /><span>Поиск</span></a>
 </nav>
 
 <style>
@@ -122,93 +104,81 @@
     inset: 0 0 auto;
     z-index: 50;
     height: var(--header);
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 0 var(--gutter);
-    padding-top: env(safe-area-inset-top);
+    gap: 12px;
+    padding: env(safe-area-inset-top) var(--gutter) 0;
     box-sizing: content-box;
-    transition:
-      background 0.25s,
-      border-color 0.25s;
-    border-bottom: 1px solid transparent;
-    background: linear-gradient(180deg, rgba(11, 10, 26, 0.85), rgba(11, 10, 26, 0));
-  }
-  header.scrolled,
-  header:not(.home) {
-    background: rgba(11, 10, 26, 0.78);
+    background: rgba(0, 0, 0, 0.6);
     backdrop-filter: saturate(160%) blur(18px);
     -webkit-backdrop-filter: saturate(160%) blur(18px);
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.2s;
+  }
+  header.scrolled {
     border-bottom-color: var(--line);
   }
-  .left,
-  .right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+  .brand {
+    justify-self: start;
     min-width: 0;
   }
-  .left,
-  .right {
-    flex: none;
-  }
-  .left nav {
+
+  /* Капсула разделов, как на макете: тёмная, выбранный — светлее. */
+  .pill {
     display: flex;
-    gap: 4px;
-    margin-left: 18px;
-  }
-  .left nav a {
-    padding: 6px 12px;
+    gap: 2px;
+    padding: 4px;
     border-radius: 999px;
-    color: var(--muted);
-    font-weight: 600;
-    font-size: 14px;
-    white-space: nowrap;
-  }
-  .left nav a:hover {
-    color: var(--text);
-  }
-  .left nav a.active {
-    color: var(--text);
-    background: var(--surface-2);
-  }
-  .search {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex: 0 1 360px;
-    min-width: 150px;
-    margin: 0 auto;
-    height: 40px;
-    padding: 0 14px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.07);
+    background: #1c1c1e;
     border: 1px solid var(--line);
+  }
+  .pill a {
+    padding: 6px 16px;
+    border-radius: 999px;
     color: var(--muted);
-    transition: border-color 0.15s;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition:
+      background 0.15s,
+      color 0.15s;
   }
-  .search:focus-within {
-    border-color: var(--accent-2);
-  }
-  .search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    outline: none;
-    background: transparent;
+  .pill a:hover {
     color: var(--text);
   }
-  .search input::-webkit-search-cancel-button {
-    display: none;
+  .pill a.on {
+    background: #3a3a3c;
+    color: var(--text);
+  }
+
+  .right {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .round {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: var(--text);
+    transition: background 0.15s;
+  }
+  .round:hover {
+    background: var(--surface-2);
   }
   .me {
     position: relative;
+    margin-left: 4px;
   }
   .avatar {
+    display: block;
     padding: 0;
     border: 0;
-    border-radius: 8px;
+    border-radius: 50%;
     overflow: hidden;
     background: none;
     cursor: pointer;
@@ -216,12 +186,6 @@
   }
   .avatar:hover {
     transform: scale(1.06);
-  }
-  .menu .prof {
-    font-weight: 600;
-  }
-  .menu .prof :global(svg) {
-    border-radius: 5px;
   }
   .scrim {
     position: fixed;
@@ -233,14 +197,16 @@
   .menu {
     position: absolute;
     right: 0;
-    top: 48px;
+    top: 46px;
+    width: max-content;
     min-width: 220px;
+    max-width: calc(100vw - 32px);
     padding: 6px;
     border-radius: var(--radius);
-    background: rgba(24, 21, 54, 0.96);
+    background: rgba(28, 28, 30, 0.97);
     backdrop-filter: blur(16px);
     border: 1px solid var(--line);
-    box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.7);
+    box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8);
     display: grid;
   }
   .who {
@@ -249,6 +215,7 @@
     border-bottom: 1px solid var(--line);
     margin-bottom: 4px;
     font-size: 14px;
+    overflow-wrap: anywhere;
   }
   .who span {
     font-size: 12px;
@@ -270,19 +237,27 @@
   .menu button:hover {
     background: var(--surface-2);
   }
+  .menu .prof {
+    font-weight: 600;
+  }
 
   .tabs {
     display: none;
   }
 
-  @media (max-width: 1080px) {
-    .left nav {
+  @media (max-width: 760px) {
+    header {
+      grid-template-columns: 1fr auto;
+    }
+    .pill {
       display: none;
     }
   }
   @media (max-width: 640px) {
-    .search,
     .brand :global(.word) {
+      display: none;
+    }
+    .right .round[href='/search'] {
       display: none;
     }
     .tabs {
@@ -290,10 +265,9 @@
       inset: auto 0 0;
       z-index: 50;
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      margin: 0;
+      grid-template-columns: repeat(4, 1fr);
       padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
-      background: rgba(11, 10, 26, 0.88);
+      background: rgba(0, 0, 0, 0.88);
       backdrop-filter: saturate(160%) blur(18px);
       -webkit-backdrop-filter: saturate(160%) blur(18px);
       border-top: 1px solid var(--line);
@@ -303,11 +277,11 @@
       justify-items: center;
       gap: 2px;
       padding: 4px 0;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 600;
       color: var(--faint);
     }
-    .tabs a.active {
+    .tabs a.on {
       color: var(--text);
     }
   }
