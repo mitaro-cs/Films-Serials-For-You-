@@ -38,7 +38,7 @@
     padding: 3px;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.35);
-    background: rgba(11, 10, 26, 0.55);
+    background: rgba(0, 0, 0, 0.55);
   }
   button {
     display: grid;
@@ -64,7 +64,7 @@
   }
   button.on {
     background: #fff;
-    color: #14112b;
+    color: #0a0a0a;
   }
   button.on.love {
     background: var(--accent);

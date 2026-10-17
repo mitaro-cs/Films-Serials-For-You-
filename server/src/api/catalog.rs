@@ -434,6 +434,9 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) 
     if gallery.is_empty() {
         gallery = files.iter().filter_map(|f| f.still.clone()).take(6).collect();
     }
+    // Одинаковые кадры (чёрный экран, одна заставка) — один раз.
+    let mut seen = std::collections::HashSet::new();
+    gallery.retain(|g| seen.insert(g.clone()));
     let mut similar = similar(&app, kids, &c)?;
     similar.retain(|s| !taste.disliked(s.id));
     taste.apply(&mut similar);
@@ -504,6 +507,13 @@ pub async fn library(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<Lib
     let counts = json!({
         "all": items.len(), "want": count("want"), "watching": count("watching"), "watched": count("watched"),
     });
+    // Порядок «Продолжить»: что смотрели последним — первым.
+    let recent: Vec<i64> = taste
+        .recent
+        .iter()
+        .copied()
+        .filter(|id| items.iter().any(|c| c.id == *id && c.status == Some("watching")))
+        .collect();
     if let Some(s) = q.status.as_deref().filter(|s| matches!(*s, "want" | "watching" | "watched")) {
         items.retain(|c| c.status == Some(s));
         match s {
@@ -513,7 +523,7 @@ pub async fn library(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<Lib
         }
     }
     with_resume(&app, v.profile.id, &mut items)?;
-    Ok(Json(json!({"items": items, "counts": counts})))
+    Ok(Json(json!({"items": items, "counts": counts, "recent": recent})))
 }
 
 /// «Где остановился» у начатого: серия и место, с которого продолжит «Смотреть».

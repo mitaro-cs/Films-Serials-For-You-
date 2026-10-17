@@ -157,7 +157,7 @@
     place-items: center;
     border-radius: 50%;
     border: 1.5px solid rgba(255, 255, 255, 0.7);
-    background: rgba(11, 10, 26, 0.35);
+    background: rgba(0, 0, 0, 0.35);
     color: #fff;
     cursor: pointer;
   }
@@ -171,8 +171,8 @@
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(90deg, rgba(11, 10, 26, 0.92) 0%, rgba(11, 10, 26, 0.55) 40%, rgba(11, 10, 26, 0) 70%),
-      linear-gradient(0deg, var(--bg) 0%, rgba(11, 10, 26, 0) 45%),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.55) 40%, rgba(0, 0, 0, 0) 70%),
+      linear-gradient(0deg, var(--bg) 0%, rgba(0, 0, 0, 0) 45%),
       linear-gradient(180deg, rgba(40, 20, 90, 0.35), transparent 30%);
   }
   .content {

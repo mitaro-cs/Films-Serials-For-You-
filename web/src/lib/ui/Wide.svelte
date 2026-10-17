@@ -50,7 +50,7 @@
     display: grid;
     place-items: center;
     border-radius: 50%;
-    background: rgba(11, 10, 26, 0.55);
+    background: rgba(0, 0, 0, 0.55);
     border: 1.5px solid rgba(255, 255, 255, 0.85);
     backdrop-filter: blur(4px);
     padding-left: 3px;

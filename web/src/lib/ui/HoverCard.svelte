@@ -152,7 +152,7 @@
     place-items: center;
     border-radius: 50%;
     border: 1.5px solid rgba(255, 255, 255, 0.5);
-    background: rgba(11, 10, 26, 0.5);
+    background: rgba(0, 0, 0, 0.5);
     color: #fff;
     cursor: pointer;
     transition:
@@ -166,7 +166,7 @@
   .round.white {
     background: #fff;
     border-color: #fff;
-    color: #14112b;
+    color: #0a0a0a;
     padding-left: 2px;
   }
   .meta {

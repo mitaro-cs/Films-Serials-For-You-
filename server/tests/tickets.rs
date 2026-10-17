@@ -61,6 +61,20 @@ async fn library_statuses_resume_and_accent() {
     };
     let (red, second, show) = (id(&all, "Красный"), id(&all, "Второй"), id(&all, "Шоу"));
 
+    // Страна и режиссёр — строка «[страна] режиссёр» на билете; хост может поправить сам.
+    host.send(
+        "PATCH",
+        &format!("/api/admin/titles/{red}"),
+        json!({"countries": ["США", " "], "director": "Дэмьен Шазелл"}),
+    )
+    .await;
+    let t = host.json(&format!("/api/titles/{red}")).await;
+    assert_eq!(t["card"]["country"], "США");
+    assert_eq!(t["card"]["director"], "Дэмьен Шазелл");
+    assert_eq!(t["people"][0]["job"], "director");
+    host.send("PATCH", &format!("/api/admin/titles/{red}"), json!({"director": ""})).await;
+    assert!(host.json(&format!("/api/titles/{red}")).await["card"]["director"].is_null());
+
     // «Хочу посмотреть» — это «Мой список».
     host.send("PUT", &format!("/api/list/{second}"), json!({"value": true})).await;
     assert_eq!(titles(&host.json("/api/library?status=want").await), ["Второй"]);
@@ -73,6 +87,7 @@ async fn library_statuses_resume_and_accent() {
     let w = host.json("/api/library?status=watching").await;
     assert_eq!(titles(&w), ["Шоу"]);
     assert_eq!(w["items"][0]["status"], "watching");
+    assert_eq!(host.json("/api/library").await["recent"], json!([show]));
     assert_eq!(w["items"][0]["resume"]["fileId"], e1);
     assert_eq!(w["items"][0]["resume"]["position"], 3.0);
     assert!(w["items"][0]["resume"]["label"].as_str().unwrap().contains("1 серия"));

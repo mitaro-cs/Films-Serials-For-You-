@@ -3,13 +3,14 @@
   import Icon from '$lib/ui/Icon.svelte';
 
   interface View {
-    mode: 'lan' | 'fxtunnel' | 'custom';
+    mode: 'lan' | 'cloudpub' | 'fxtunnel' | 'custom';
     state: string;
     message: string | null;
     publicUrl: string | null;
     lanUrl: string | null;
     subdomain: string;
     fxLoggedIn: boolean;
+    cpLoggedIn: boolean;
     login: { code: string; url: string; expiresAt: number } | null;
     customUrl: string;
   }
@@ -20,6 +21,11 @@
   let error = $state('');
   let busy = $state(false);
   let copied = $state('');
+  // Вход в CloudPub: почта и пароль или ключ API (если на cloudpub.ru входят через Яндекс/VK).
+  let cpEmail = $state('');
+  let cpPass = $state('');
+  let cpToken = $state('');
+  let cpByToken = $state(false);
 
   function load() {
     api<View>('/api/admin/access').then((x) => {
@@ -60,6 +66,25 @@
     }
   }
 
+  async function cpLogin(e: SubmitEvent) {
+    e.preventDefault();
+    error = '';
+    busy = true;
+    try {
+      v = await post<View>('/api/admin/access/cloudpub/login', cpByToken ? { token: cpToken } : { email: cpEmail, password: cpPass });
+      cpPass = '';
+      cpToken = '';
+    } catch (x) {
+      error = errorText(x);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function cpLogout() {
+    v = await post<View>('/api/admin/access/cloudpub/logout').catch(() => v);
+  }
+
   async function copy(t: string) {
     await navigator.clipboard?.writeText(t).catch(() => {});
     copied = t;
@@ -84,10 +109,15 @@
       <b>Только дома</b>
       <span class="muted">Смотрят те, кто подключён к вашему Wi-Fi</span>
     </button>
+    <button class="mode card" class:on={v.mode === 'cloudpub'} onclick={() => set('cloudpub')} disabled={busy}>
+      <Icon name="globe" size={22} />
+      <b>Ссылка для всех <small class="rec">рекомендуем</small></b>
+      <span class="muted">CloudPub: бесплатная постоянная ссылка https://….cloudpub.ru — открывается в России с VPN и без</span>
+    </button>
     <button class="mode card" class:on={v.mode === 'fxtunnel'} onclick={() => set('fxtunnel')} disabled={busy}>
       <Icon name="globe" size={22} />
-      <b>Через интернет</b>
-      <span class="muted">Бесплатный адрес https://….fxtun.ru — работает из России, роутер настраивать не нужно</span>
+      <b>fxTunnel</b>
+      <span class="muted">Запасной бесплатный туннель: свой адрес https://….fxtun.ru</span>
     </button>
     <button class="mode card" class:on={v.mode === 'custom'} onclick={() => set('custom')} disabled={busy || !custom}>
       <Icon name="link" size={22} />
@@ -100,6 +130,35 @@
     <div class="card pane">
       <h3>В домашней сети</h3>
       <div class="url"><code>{v.lanUrl}</code><button class="btn sm" onclick={() => copy(v!.lanUrl!)}><Icon name={copied === v.lanUrl ? 'check' : 'copy'} size={14} /> Копировать</button></div>
+    </div>
+  {/if}
+
+  {#if v.mode === 'cloudpub'}
+    <div class="card pane">
+      <h3>CloudPub <span class="st {v.state}">{STATE[v.state] ?? v.state}</span></h3>
+      {#if v.message}<p class="muted">{v.message}</p>{/if}
+      {#if v.publicUrl}
+        <div class="url"><code>{v.publicUrl}</code><button class="btn sm primary" onclick={() => copy(v!.publicUrl!)}><Icon name={copied === v.publicUrl ? 'check' : 'copy'} size={14} /> Копировать</button></div>
+        <p class="muted small">Эта ссылка не меняется — её можно один раз отправить друзьям. Работает, пока компьютер включён.</p>
+      {/if}
+      {#if !v.cpLoggedIn}
+        <p>Один раз войдите в бесплатный аккаунт <a href="https://cloudpub.ru" target="_blank" rel="noopener noreferrer">cloudpub.ru</a> — дальше ссылка поднимается сама при каждом запуске.</p>
+        <form class="cp" onsubmit={cpLogin}>
+          {#if cpByToken}
+            <label class="field"><span>Ключ API из личного кабинета</span><input class="input" bind:value={cpToken} autocomplete="off" required /></label>
+          {:else}
+            <label class="field"><span>Почта</span><input class="input" type="email" bind:value={cpEmail} autocomplete="username" required /></label>
+            <label class="field"><span>Пароль</span><input class="input" type="password" bind:value={cpPass} autocomplete="current-password" required /></label>
+          {/if}
+          <div class="row">
+            <button class="btn primary" disabled={busy}><Icon name="user" size={15} /> {busy ? 'Входим…' : 'Войти в CloudPub'}</button>
+            <button type="button" class="btn ghost sm" onclick={() => (cpByToken = !cpByToken)}>{cpByToken ? 'Войти почтой' : 'Вход через Яндекс или VK? Ключом API'}</button>
+          </div>
+          <p class="muted small">Пароль не сохраняется — CloudPub выдаёт приложению свой ключ.</p>
+        </form>
+      {:else}
+        <div class="row"><button class="btn sm ghost" onclick={cpLogout}>Выйти из CloudPub</button></div>
+      {/if}
     </div>
   {/if}
 
@@ -146,7 +205,7 @@
 <style>
   .modes {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
     gap: 12px;
     margin-bottom: 16px;
   }
@@ -163,8 +222,8 @@
     font-size: 13px;
   }
   .mode.on {
-    border-color: var(--accent-2);
-    background: rgba(138, 99, 255, 0.12);
+    border-color: #fff;
+    background: rgba(255, 255, 255, 0.1);
   }
   .pane {
     padding: 18px 20px;
@@ -226,7 +285,7 @@
   }
   .sub .input {
     flex: 1;
-    min-width: 200px;
+    min-width: min(200px, 100%);
   }
   .subline {
     display: flex;
@@ -235,5 +294,30 @@
   }
   .small {
     font-size: 13px;
+  }
+  .rec {
+    margin-left: 4px;
+    padding: 1px 7px;
+    border-radius: 99px;
+    background: #fff;
+    color: var(--on-accent);
+    font-size: 10.5px;
+    font-weight: 700;
+    vertical-align: 2px;
+  }
+  .cp {
+    display: grid;
+    gap: 12px;
+    max-width: 420px;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .url code {
+    overflow-wrap: anywhere;
+    min-width: 0;
   }
 </style>

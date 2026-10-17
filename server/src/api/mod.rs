@@ -157,7 +157,11 @@ pub fn visible(kids: bool) -> String {
 
 pub const CARD_COLS: &str = "t.id, t.kind, t.title, t.original_title, t.year, COALESCE(t.poster_sm, t.poster), t.poster,
     COALESCE(t.backdrop, (SELECT f.still FROM files f WHERE f.title_id = t.id AND f.still IS NOT NULL ORDER BY f.season, f.episode LIMIT 1)),
-    t.logo, t.rating, t.genres, t.overview, t.runtime, t.age, t.added_at,
+    t.logo, t.rating, t.genres, t.overview,
+    -- Без описания из интернета длительность фильма — по самому файлу.
+    COALESCE(t.runtime, CASE WHEN t.kind = 'movie' THEN (SELECT CAST(ROUND(SUM(f.duration) / 60.0) AS INTEGER)
+      FROM files f WHERE f.title_id = t.id AND f.missing = 0 AND f.duration > 0) END),
+    t.age, t.added_at,
     (SELECT COUNT(*) FROM files f WHERE f.title_id = t.id AND f.missing = 0),
     (SELECT COUNT(DISTINCT f.season) FROM files f WHERE f.title_id = t.id AND f.missing = 0),
     json_extract(t.countries, '$[0]'),

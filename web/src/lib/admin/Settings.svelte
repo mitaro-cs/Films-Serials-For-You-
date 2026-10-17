@@ -165,7 +165,7 @@
   }
   .prov.on {
     border-color: var(--accent-2);
-    background: rgba(138, 99, 255, 0.14);
+    background: rgba(255, 255, 255, 0.14);
   }
   .pane > .btn {
     justify-self: start;

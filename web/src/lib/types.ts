@@ -22,6 +22,22 @@ export interface Card {
   /** -1 — «не для меня», 1 — «нравится», 2 — «обожаю». */
   myRating: -1 | 1 | 2 | null;
   matchPct: number | null;
+  /** Для билета: первая страна, режиссёр, цвет низа карточки по постеру. */
+  country: string | null;
+  director: string | null;
+  accent: string | null;
+  status: 'want' | 'watching' | 'watched' | null;
+  /** Когда отмечено «Просмотрено». */
+  watchedAt: number | null;
+  /** Где остановился (у начатого). */
+  resume: Next | null;
+}
+
+export interface Library {
+  items: Card[];
+  counts: Record<'all' | 'want' | 'watching' | 'watched', number>;
+  /** Начатое, последнее — первым. */
+  recent: number[];
 }
 
 export interface HeroCard extends Card {

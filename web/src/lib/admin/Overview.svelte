@@ -96,8 +96,12 @@
     border: 1px solid var(--line);
   }
   .tile.dark {
-    background: var(--accent-grad);
+    background: #fff;
+    color: var(--on-accent);
     border: 0;
+  }
+  .tile.dark :global(.muted) {
+    color: #52525b;
   }
   .tile span {
     font-size: 13px;

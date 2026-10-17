@@ -4,9 +4,9 @@
   import { page } from '$app/state';
   import Ask from '$lib/ui/Ask.svelte';
   import Header from '$lib/ui/Header.svelte';
-  import HoverCard from '$lib/ui/HoverCard.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Logo from '$lib/ui/Logo.svelte';
+  import StatusMenu from '$lib/ui/StatusMenu.svelte';
   import { loadMe, net, session } from '$lib/session.svelte';
 
   let { children } = $props();
@@ -50,7 +50,7 @@
 {:else if session.me}
   <Header />
   <main>{@render children()}</main>
-  <HoverCard />
+  <StatusMenu />
   <footer>
     <Logo />
     <p class="muted">Фильмы и сериалы с компьютера {session.me.site.name === 'Films & Serials For You' ? 'хоста' : `«${session.me.site.name}»`}. Смотрите онлайн или скачивайте.</p>
@@ -108,7 +108,7 @@
     max-width: calc(100vw - 32px);
     padding: 10px 16px;
     border-radius: 999px;
-    background: rgba(24, 21, 54, 0.95);
+    background: rgba(20, 20, 22, 0.95);
     border: 1px solid var(--line);
     box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7);
     font-size: 13px;

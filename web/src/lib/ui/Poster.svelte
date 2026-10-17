@@ -55,7 +55,7 @@
   }
   .poster:hover .img {
     transform: translateY(-4px) scale(1.02);
-    box-shadow: 0 18px 40px -16px rgba(138, 99, 255, 0.55);
+    box-shadow: 0 18px 40px -16px rgba(255, 255, 255, 0.55);
   }
   img {
     width: 100%;
@@ -76,7 +76,7 @@
     left: 8px;
     padding: 2px 8px;
     border-radius: 6px;
-    background: rgba(11, 10, 26, 0.75);
+    background: rgba(0, 0, 0, 0.75);
     backdrop-filter: blur(6px);
     font-size: 11px;
     font-weight: 700;

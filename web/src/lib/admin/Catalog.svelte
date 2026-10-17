@@ -251,6 +251,7 @@
 <style>
   .bar {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     margin-bottom: 14px;
   }
@@ -258,17 +259,20 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 1;
+    flex: 1 1 220px;
+    min-width: 0;
     color: var(--muted);
   }
   .search input {
     flex: 1;
+    min-width: 0;
     border: 0;
     outline: none;
     background: none;
   }
   .sel {
     width: auto;
+    max-width: 100%;
   }
   .list {
     list-style: none;
