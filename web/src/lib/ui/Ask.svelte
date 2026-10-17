@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { answer, question } from './ask.svelte';
+  import { answer, question } from './dialogs.svelte';
   import Modal from './Modal.svelte';
 
   let open = $state(false);

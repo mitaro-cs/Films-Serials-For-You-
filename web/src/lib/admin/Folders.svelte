@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api, del, errorText, post } from '$lib/api';
   import { ago, count, size } from '$lib/fmt';
-  import { ask } from '$lib/ui/ask.svelte';
+  import { ask } from '$lib/ui/dialogs.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import type { Status } from './types';
 
