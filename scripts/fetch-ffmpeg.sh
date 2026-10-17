@@ -28,6 +28,8 @@ case "$target" in
       fi
       unzip -oq "$tmp/$tool.zip" -d "$tmp/$tool"
       install -m 755 "$(find "$tmp/$tool" -type f -name "$tool" | head -1)" "$out/$tool"
+      # Подпись «для себя» (ad-hoc): на Apple Silicon неподписанное не запускается.
+      if command -v codesign >/dev/null; then codesign --force --sign - "$out/$tool"; fi
     done
     ;;
   windows)
