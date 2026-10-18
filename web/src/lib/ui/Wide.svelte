@@ -45,14 +45,11 @@
     overflow: hidden;
     background: var(--tint);
     box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.9);
-    transition:
-      transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
-      box-shadow 0.35s;
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .wide:hover .art,
   .wide:focus-visible .art {
     transform: scale(1.04);
-    box-shadow: 0 22px 40px -16px rgba(0, 0, 0, 0.95);
   }
   .wide:focus-visible {
     outline: none;

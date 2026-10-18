@@ -296,6 +296,8 @@ pub fn parse_vk(v: &Value) -> Vec<Value> {
 #[derive(Deserialize)]
 pub struct SearchQuery {
     q: String,
+    /// Только видео не короче стольких секунд (целый фильм, а не трейлер) — до скачивания картинок.
+    min: Option<i64>,
 }
 
 /// Поиск видео: Rutube всегда, VK Видео — если хост указал ключ VK. Картинки — к себе.
@@ -326,8 +328,9 @@ pub async fn search(State(app): State<Arc<App>>, _v: Viewer, Query(q): Query<Sea
     if r.is_none() && k.is_none() {
         return Err(ApiError::bad("search", "Rutube не ответил — попробуйте ещё раз или вставьте ссылку"));
     }
-    let mut out: Vec<Value> = r.unwrap_or_default().into_iter().take(12).collect();
-    out.extend(k.unwrap_or_default().into_iter().take(12));
+    let long = |x: &Value| q.min.is_none_or(|m| x["duration"].as_i64().unwrap_or(0) >= m);
+    let mut out: Vec<Value> = r.unwrap_or_default().into_iter().filter(long).take(12).collect();
+    out.extend(k.unwrap_or_default().into_iter().filter(long).take(12));
     let thumbs = out.iter().map(|x| keep_thumb(&app, x["thumbUrl"].as_str()));
     let thumbs = futures_util::future::join_all(thumbs).await;
     for (x, t) in out.iter_mut().zip(thumbs) {

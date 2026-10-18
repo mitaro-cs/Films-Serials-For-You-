@@ -590,7 +590,7 @@ pub async fn upload_image(
         .map_err(|e| ApiError::bad("bad_image", e.to_string()))?;
     app.db.with(|c| {
         c.execute(
-            &format!("UPDATE titles SET {col} = ?, poster_sm = CASE WHEN '{col}' = 'poster' THEN NULL ELSE poster_sm END, backdrop_sm = CASE WHEN '{col}' = 'backdrop' THEN NULL ELSE backdrop_sm END, locked = 1, updated_at = ? WHERE id = ?"),
+            &format!("UPDATE titles SET {col} = ?, poster_sm = CASE WHEN '{col}' = 'poster' THEN NULL ELSE poster_sm END, backdrop_sm = CASE WHEN '{col}' = 'backdrop' THEN NULL ELSE backdrop_sm END, backdrop_md = CASE WHEN '{col}' = 'backdrop' THEN NULL ELSE backdrop_md END, locked = 1, updated_at = ? WHERE id = ?"),
             params![name, now_ms(), id],
         )
     })?;

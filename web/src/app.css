@@ -346,16 +346,14 @@ select.input option {
 }
 
 .skeleton {
-  background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%);
-  background-size: 300% 100%;
-  animation: shimmer 1.4s infinite linear;
+  /* Только прозрачность: её считает видеокарта без перерисовки (бегущий градиент перерисовывал
+     каждый кадр — на слабом компьютере хоста всё подтормаживало). */
+  background: var(--surface);
+  animation: pulse 1.6s ease-in-out infinite;
 }
-@keyframes shimmer {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: -100% 0;
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
   }
 }
 
@@ -368,30 +366,6 @@ select.input option {
   }
 }
 
-/* ---------- переходы между страницами (View Transitions) ---------- */
-
-::view-transition-old(root) {
-  animation: vt-out 0.16s ease-in both;
-}
-::view-transition-new(root) {
-  animation: vt-in 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-@keyframes vt-out {
-  to {
-    opacity: 0;
-  }
-}
-@keyframes vt-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-}
-/* Постер «перелетает» из карточки на страницу фильма. */
-::view-transition-group(*) {
-  animation-duration: 0.36s;
-  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
-}
 .empty p {
   margin: 0;
 }

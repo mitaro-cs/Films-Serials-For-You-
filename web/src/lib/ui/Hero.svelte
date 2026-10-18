@@ -1,12 +1,12 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
-  import { toggleList } from '$lib/cards.svelte';
   import type { Card } from '$lib/types';
   import Icon from './Icon.svelte';
 
-  // Герой как у Apple TV: большой кадр на всю ширину, слева крупное название, жанр, возраст,
-  // описание и кнопка; внизу точки. Листается сам раз в 8 с (пауза под мышью, в фоне и при
-  // «меньше движения»), пальцем — свайпом. Высота задана заранее: ничего не сдвигается.
+  // Герой как у Apple TV: кадр на весь экран, слева крупное название, жанр, возраст, описание
+  // и одна кнопка «К фильму»; первый ряд лежит на нижней части кадра, точки — над ним. Листается
+  // сам раз в 8 с (пауза под мышью, в фоне и при «меньше движения»), пальцем — свайпом. Высота
+  // задана заранее: ничего не сдвигается. Цвет кадра красит капсулу разделов в шапке.
   let { items }: { items: Card[] } = $props();
 
   let at = $state(0);
@@ -20,6 +20,11 @@
       if (document.visibilityState === 'visible') at = (at + 1) % items.length;
     }, 8000);
     return () => clearInterval(t);
+  });
+
+  $effect(() => {
+    document.documentElement.style.setProperty('--hero-tint', cur.accent ?? '#3a2a1f');
+    return () => document.documentElement.style.removeProperty('--hero-tint');
   });
 
   // Следующий кадр — заранее, чтобы смена была без вспышки.
@@ -68,14 +73,14 @@
         decoding="async"
         fetchpriority={at === 0 ? 'high' : 'auto'}
         class:poster={!cur.backdrop}
-        in:fade={{ duration: still ? 0 : 700 }}
-        out:fade={{ duration: still ? 0 : 700 }}
+        in:fade={{ duration: still ? 0 : 450 }}
+        out:fade={{ duration: still ? 0 : 450 }}
       />
     {/key}
   </div>
 
   {#key cur.id}
-    <div class="info" in:fly={{ y: still ? 0 : 14, duration: 500, delay: still ? 0 : 150 }}>
+    <div class="info" in:fly={{ y: still ? 0 : 10, duration: 400, delay: still ? 0 : 100 }}>
       {#if cur.logo}
         <h1 class="logo"><img src={cur.logo} alt={cur.title} decoding="async" /></h1>
       {:else}
@@ -83,24 +88,15 @@
       {/if}
       <p class="meta">
         {#if cur.genres[0]}<span>{cur.genres[0]}</span>{/if}
-        {#if cur.year}<span>{cur.year}</span>{/if}
         {#if cur.age}<span class="age">{cur.age}</span>{/if}
-        {#if cur.kind === 'series' && cur.seasons}<span>{cur.seasons} сез.</span>{/if}
       </p>
       {#if cur.overview}<p class="text">{cur.overview}</p>{/if}
       <div class="acts">
         {#if cur.status === 'watching' && cur.resume}
           <a class="go" href="/watch/{cur.resume.fileId}"><Icon name="play" size={18} /> Продолжить</a>
+        {:else}
+          <a class="go" href="/title/{cur.id}">{kind}</a>
         {/if}
-        <a class="go" class:alt={cur.status === 'watching' && cur.resume} href="/title/{cur.id}">{kind}</a>
-        <button
-          class="round"
-          aria-label={cur.inList ? 'Убрать из «Хочу посмотреть»' : 'Хочу посмотреть'}
-          title={cur.inList ? 'В списке' : 'Хочу посмотреть'}
-          onclick={() => toggleList(cur)}
-        >
-          <Icon name={cur.inList ? 'check' : 'plus'} size={20} />
-        </button>
       </div>
     </div>
   {/key}
@@ -115,12 +111,13 @@
 </section>
 
 <style>
+  /* Кадр на весь экран; снизу место под первый ряд (--row) и точки. */
   .hero {
     position: relative;
-    height: clamp(460px, 78vh, 860px);
+    height: clamp(560px, 100svh, 1200px);
     display: flex;
     align-items: flex-end;
-    padding: 0 var(--gutter) clamp(150px, 19vh, 210px);
+    padding: 0 var(--gutter) calc(var(--row) + clamp(60px, 9vh, 110px));
     overflow: hidden;
     isolation: isolate;
     touch-action: pan-y;
@@ -137,33 +134,33 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: center 30%;
+    object-position: center 25%;
   }
   .bg img.poster {
     object-fit: contain;
     object-position: 85% center;
   }
-  /* Слева темнее — текст читается; снизу — в цвет страницы, ряды «лежат» на кадре. */
+  /* Как у Apple TV: кадр почти не затемнён, только слева под текстом и внизу под рядом. */
   .bg::after {
     content: '';
     position: absolute;
     inset: 0;
     background:
-      linear-gradient(0deg, var(--bg) 0%, rgba(0, 0, 0, 0.35) 34%, transparent 62%),
-      linear-gradient(90deg, color-mix(in srgb, var(--tint) 45%, rgba(0, 0, 0, 0.7)) 0%, transparent 58%);
+      linear-gradient(0deg, var(--bg) 0%, rgba(0, 0, 0, 0.62) 18%, rgba(0, 0, 0, 0.18) 42%, transparent 58%),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.45) 0%, rgba(0, 0, 0, 0.12) 38%, transparent 60%);
   }
   .info {
-    max-width: min(560px, 100%);
+    max-width: min(440px, 100%);
     display: grid;
-    gap: 10px;
+    gap: 8px;
   }
   h1 {
-    font-size: clamp(36px, 5.6vw, 84px);
-    font-weight: 900;
+    font-size: clamp(40px, 6vw, 96px);
+    font-weight: 800;
     line-height: 0.98;
     letter-spacing: 0.02em;
     text-transform: uppercase;
-    text-shadow: 0 4px 30px rgba(0, 0, 0, 0.35);
+    text-shadow: 0 2px 24px rgba(0, 0, 0, 0.3);
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -172,11 +169,11 @@
     overflow: hidden;
   }
   h1.long {
-    font-size: clamp(30px, 3.6vw, 56px);
+    font-size: clamp(30px, 3.4vw, 52px);
   }
-  /* Короткое название — вразрядку, как «S I L O». */
+  /* Короткое название — широко вразрядку, как «S I L O». */
   h1.short {
-    letter-spacing: 0.22em;
+    letter-spacing: 0.32em;
   }
   /* Высота логотипа задана заранее — после загрузки картинки текст ниже не сдвинется. */
   h1.logo {
@@ -194,88 +191,71 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
-    margin: 0;
+    margin: 2px 0 0;
     font-size: 15px;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.85);
-  }
-  .meta span + span:not(.age)::before {
-    content: '·';
-    margin-right: 8px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.8);
   }
   .age {
-    padding: 0 5px;
-    border: 1.5px solid rgba(255, 255, 255, 0.6);
-    border-radius: 4px;
-    font-size: 11px;
-    line-height: 16px;
+    padding: 0 4px;
+    border: 1.5px solid rgba(255, 255, 255, 0.7);
+    border-radius: 3px;
+    font-size: 10.5px;
+    font-weight: 700;
+    line-height: 15px;
   }
   .text {
-    margin: 0;
+    margin: 4px 0 0;
     font-size: clamp(15px, 1.15vw, 18px);
     line-height: 1.4;
-    color: rgba(255, 255, 255, 0.92);
+    color: #fff;
     display: -webkit-box;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
   .acts {
     display: flex;
     gap: 10px;
-    margin-top: 8px;
+    margin-top: 14px;
   }
-  /* Кнопка — светлое стекло в цвет кадра, как «Go to Show». */
+  /* «Go to Show»: светлое полупрозрачное стекло в цвет кадра, белый текст. */
   .go {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
+    min-width: 170px;
     height: 46px;
-    padding: 0 30px;
+    padding: 0 28px;
     border-radius: 10px;
-    background: color-mix(in srgb, var(--tint) 30%, rgba(255, 255, 255, 0.34));
+    background: color-mix(in srgb, var(--tint) 25%, rgba(255, 255, 255, 0.36));
     color: #fff;
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 600;
     white-space: nowrap;
     transition:
       transform 0.2s,
       background 0.2s;
   }
-  .go:not(.alt):first-child {
-    background: rgba(255, 255, 255, 0.92);
+  .go:hover,
+  .go:focus-visible {
+    transform: scale(1.05);
+    background: rgba(255, 255, 255, 0.9);
     color: #111;
-  }
-  .go:hover {
-    transform: scale(1.04);
-  }
-  .round {
-    display: grid;
-    place-items: center;
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    border: 0;
-    background: rgba(255, 255, 255, 0.18);
-    color: #fff;
-    cursor: pointer;
-    transition: transform 0.2s;
-  }
-  .round:hover {
-    transform: scale(1.08);
+    outline: none;
   }
   .dots {
     position: absolute;
     left: 50%;
-    bottom: clamp(118px, 15vh, 170px);
+    bottom: calc(var(--row) + 14px);
     translate: -50% 0;
     display: flex;
     gap: 2px;
   }
   .dots button {
-    width: 22px;
+    width: 18px;
     height: 22px;
     padding: 0;
     border: 0;
@@ -286,8 +266,8 @@
   }
   .dots button::after {
     content: '';
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 99px;
     background: rgba(255, 255, 255, 0.4);
     transition:
@@ -295,16 +275,16 @@
       background 0.3s;
   }
   .dots button.on::after {
-    background: #fff;
-    transform: scaleX(2.6);
+    background: rgba(255, 255, 255, 0.95);
+    transform: scaleX(3);
   }
   @media (max-width: 640px) {
     .hero {
-      height: clamp(440px, 74vh, 640px);
-      padding-bottom: 104px;
+      height: clamp(520px, 86svh, 760px);
+      padding-bottom: calc(var(--row) + 54px);
     }
     .bg::after {
-      background: linear-gradient(0deg, var(--bg) 0%, rgba(0, 0, 0, 0.55) 45%, transparent 75%);
+      background: linear-gradient(0deg, var(--bg) 0%, rgba(0, 0, 0, 0.6) 35%, transparent 65%);
     }
     .info {
       justify-items: center;
@@ -314,15 +294,8 @@
     .meta {
       justify-content: center;
     }
-    .text {
-      -webkit-line-clamp: 2;
-      line-clamp: 2;
-    }
-    .go {
-      padding: 0 22px;
-    }
     .dots {
-      bottom: 70px;
+      bottom: calc(var(--row) + 8px);
     }
   }
 </style>

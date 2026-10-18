@@ -144,6 +144,35 @@ async fn backdrops(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
         let small = small.unwrap_or_else(|| big.clone());
         let _ = app.db.with(|c| c.execute("UPDATE titles SET backdrop_sm = ? WHERE id = ?", params![small, id]));
     }
+    backdrops_md(app, ffmpeg).await || !todo.is_empty()
+}
+
+/// Большой кадр (1920 px, JPEG) для героя и страницы фильма — вместо оригинала, который бывает 4K.
+async fn backdrops_md(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
+    let todo: Vec<(i64, String)> = app
+        .db
+        .with(|c| {
+            let mut st = c.prepare(
+                "SELECT id, backdrop FROM titles WHERE backdrop IS NOT NULL AND backdrop_md IS NULL LIMIT 10",
+            )?;
+            let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            r.collect()
+        })
+        .unwrap_or_default();
+    for (id, big) in &todo {
+        let md = match app.images.path(big) {
+            Some(src) => probe::scale_image(ffmpeg, &src, 1920).await.ok().and_then(|b| app.images.save(&b).ok()),
+            None => None,
+        };
+        // Уменьшенный вышел больше оригинала (уже сжатый WebP) — оставляем оригинал.
+        let md = md
+            .filter(|m| {
+                let size = |n: &str| app.images.path(n).and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len());
+                size(m) < size(big)
+            })
+            .unwrap_or_else(|| big.clone());
+        let _ = app.db.with(|c| c.execute("UPDATE titles SET backdrop_md = ? WHERE id = ?", params![md, id]));
+    }
     !todo.is_empty()
 }
 

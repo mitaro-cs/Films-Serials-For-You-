@@ -237,6 +237,7 @@ pub async fn apply(
                rating = ?11, votes = ?12, runtime = ?13, age = ?14, age_min = ?15, release_date = ?16,
                poster_sm = CASE WHEN ?17 IS NOT NULL THEN NULL ELSE poster_sm END, poster = COALESCE(?17, poster),
                backdrop_sm = CASE WHEN ?18 IS NOT NULL THEN NULL ELSE backdrop_sm END,
+               backdrop_md = CASE WHEN ?18 IS NOT NULL THEN NULL ELSE backdrop_md END,
                backdrop = COALESCE(?18, backdrop), logo = ?19, gallery = ?20, imdb_id = ?21, provider = ?22,
                provider_id = ?23, meta_status = ?24, updated_at = ?25
              WHERE id = ?26",

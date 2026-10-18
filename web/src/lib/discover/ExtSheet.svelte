@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { api, del, errorText, put } from '$lib/api';
+  import { goto } from '$app/navigation';
+  import { api, del, errorText, post, put } from '$lib/api';
+  import { clock } from '$lib/fmt';
   import LinkCard from '$lib/links/LinkCard.svelte';
   import LinkFinder from '$lib/links/LinkFinder.svelte';
   import NewList from '$lib/social/NewList.svelte';
-  import type { ExtDetail } from '$lib/types';
+  import type { ExtDetail, FoundVideo } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Modal from '$lib/ui/Modal.svelte';
@@ -18,6 +20,8 @@
   let finding = $state(false);
   let creating = $state(false);
   let lists = $state(false);
+  // Сам фильм на Rutube/VK Видео: нашёлся — смотрим там, просить хоста незачем.
+  let online = $state<FoundVideo[] | null>(null);
 
   $effect(() => {
     const id = extSheet.id;
@@ -26,6 +30,7 @@
     d = null;
     error = '';
     lists = false;
+    online = null;
     load(id);
   });
   $effect(() => {
@@ -34,10 +39,51 @@
 
   function load(id: string) {
     api<ExtDetail>(`/api/discover/title/${id}`).then(
-      (r) => extSheet.id === id && (d = r),
+      (r) => {
+        if (extSheet.id !== id) return;
+        d = r;
+        if (!r.card.local && !r.links.length && online === null) lookOnline(r);
+      },
       (x) => (error = errorText(x)),
     );
   }
+
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/ё/g, 'е')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
+
+  /** Полный фильм (от 40 мин) или серия (от 15 мин), в названии которых есть название фильма. */
+  async function lookOnline(r: ExtDetail) {
+    const q = `${r.card.title}${r.card.year ? ` ${r.card.year}` : ''}`;
+    const min = r.card.kind === 'series' ? 15 * 60 : 40 * 60;
+    const found = await api<FoundVideo[]>(`/api/links/search?min=${min}&q=${encodeURIComponent(q)}`).catch(() => [] as FoundVideo[]);
+    if (extSheet.id !== r.card.id) return;
+    const names = [r.card.title, r.card.original].filter((n): n is string => !!n).map(norm);
+    online = found.filter((f) => names.some((n) => norm(f.label).includes(n))).slice(0, 6);
+  }
+
+  async function playFound(f: FoundVideo) {
+    if (!d) return;
+    try {
+      const r = await post<{ id: number }>('/api/links', {
+        url: f.url,
+        extId: d.card.id,
+        label: f.label,
+        thumb: f.thumbUrl,
+        duration: f.duration,
+      });
+      open = false;
+      goto(`/watch/link/${r.id}`);
+    } catch (x) {
+      toast(errorText(x));
+    }
+  }
+
+  // «Хочу на Nova» — только когда фильма нет ни у нас, ни по ссылкам, ни на Rutube/VK.
+  const canWish = $derived(!!d && !d.card.local && !d.links.length && online !== null && !online.length);
 
   const c = $derived(d?.card ?? extSheet.seed);
 
@@ -125,7 +171,7 @@
             <Icon name="check" size={16} /> Просмотрел
           </button>
           <button class="btn" aria-expanded={lists} disabled={!d} onclick={() => (lists = !lists)}><Icon name="plus" size={16} /> В список</button>
-          {#if !c.local}
+          {#if canWish || c.wished}
             <button class="btn" class:on={c.wished} aria-pressed={c.wished} disabled={!d} onclick={wish}>
               <Icon name="mail" size={16} /> {c.wished ? 'Попросили хоста' : 'Хочу на Nova'}
             </button>
@@ -153,6 +199,23 @@
         <div class="links">
           {#each d.links as l (l.id)}<LinkCard link={l} onremove={() => removeLink(l.id)} />{/each}
         </div>
+      {:else if online?.length}
+        <ul class="found">
+          {#each online as f (f.url)}
+            <li>
+              <button onclick={() => playFound(f)} aria-label="Смотреть: {f.label}">
+                <span class="art">
+                  {#if f.thumb}<img src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
+                  <span class="site">{f.site === 'vk' ? 'VK Видео' : 'Rutube'}</span>
+                  {#if f.duration}<span class="dur">{clock(f.duration)}</span>{/if}
+                </span>
+                <span class="name">{f.label}</span>
+              </button>
+            </li>
+          {/each}
+        </ul>
+      {:else if d && !c.local && online === null}
+        <p class="muted small">Ищем на Rutube и VK Видео…</p>
       {:else if d}
         <p class="muted small">Найдите фильм на Rutube или вставьте ссылку — он откроется прямо в плеере Nova.</p>
       {/if}
@@ -165,6 +228,62 @@
 {/if}
 
 <style>
+  .found {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+    gap: 14px;
+  }
+  .found button {
+    display: grid;
+    gap: 6px;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+  }
+  .found .art {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 9;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .found img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .found .site,
+  .found .dur {
+    position: absolute;
+    bottom: 6px;
+    padding: 1px 6px;
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.72);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .found .site {
+    left: 6px;
+  }
+  .found .dur {
+    right: 6px;
+  }
+  .found .name {
+    font-size: 13.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .top {
     display: grid;
     grid-template-columns: 170px minmax(0, 1fr);
