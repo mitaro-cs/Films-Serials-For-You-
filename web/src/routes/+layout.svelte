@@ -1,6 +1,6 @@
 <script lang="ts">
   import '../app.css';
-  import { goto } from '$app/navigation';
+  import { afterNavigate, goto, onNavigate } from '$app/navigation';
   import { page } from '$app/state';
   import ExtSheet from '$lib/discover/ExtSheet.svelte';
   import Ask from '$lib/ui/Ask.svelte';
@@ -50,6 +50,17 @@
     return () => window.removeEventListener('keydown', hold);
   });
 
+  // Смена страниц: старая быстро гаснет (120 мс), новая всплывает (.page в app.css). Без View
+  // Transitions — те держали снимок экрана, пока грузится новая страница, и всё «тормозило».
+  let leaving = $state(false);
+  onNavigate((nav) => {
+    if (!nav.to || nav.from?.url.pathname === nav.to.url.pathname) return;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    leaving = true;
+    return new Promise((r) => setTimeout(r, 120));
+  });
+  afterNavigate(() => (leaving = false));
+
   // Окно приложения хоста: перетаскивают файлы — подсказка, бросили — что сделано.
   let dragging = $state(false);
   $effect(() => {
@@ -98,7 +109,7 @@
   {@render children()}
 {:else if session.me}
   <Header />
-  <main>{@render children()}</main>
+  <main class:leaving>{@render children()}</main>
   {#if !full}
     <footer>
       <div class="top">
@@ -126,6 +137,13 @@
   /* Подвал всегда ниже первого экрана: пока страница грузится, он не прыгает вниз (CLS). */
   main {
     min-height: 100dvh;
+    transition:
+      opacity 0.12s ease-in,
+      transform 0.12s ease-in;
+  }
+  main.leaving {
+    opacity: 0;
+    transform: translateY(-6px);
   }
   footer {
     display: grid;

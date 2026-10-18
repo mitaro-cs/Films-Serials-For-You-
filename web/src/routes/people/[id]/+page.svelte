@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import { page } from '$app/state';
   import { api, errorText } from '$lib/api';
   import { ago } from '$lib/fmt';
@@ -38,7 +39,7 @@
     <div class="empty"><Icon name="info" size={36} /> {error}</div>
   {:else if p}
     <div class="cover" style:--acc={p.decor.accent ?? '#3a3a3c'}>
-      {#if p.decor.cover}<img src={p.decor.cover} alt="" decoding="async" />{/if}
+      {#if p.decor.cover}<img use:fadeIn src={p.decor.cover} alt="" decoding="async" />{/if}
     </div>
     <header class="head">
       <span class="ring" style:--acc={p.decor.accent ?? 'transparent'}><Avatar avatar={p.person.avatar} photo={p.person.photo} size={112} /></span>
@@ -74,7 +75,7 @@
           {#each p.watched as c (c.id)}
             <li>
               <a href="/title/{c.id}" title={c.title} style:background={c.poster ? undefined : placeholder(c.title)}>
-                {#if c.poster}<img src={c.poster} alt={c.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{c.title}</span>{/if}
+                {#if c.poster}<img use:fadeIn src={c.poster} alt={c.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{c.title}</span>{/if}
               </a>
             </li>
           {/each}
@@ -89,7 +90,7 @@
           {#each p.reviews as r (r.id)}
             <li class="rv">
               <a class="mini" href="/title/{r.title.id}" style:background={r.title.poster ? undefined : placeholder(r.title.title)}>
-                {#if r.title.poster}<img src={r.title.poster} alt="" loading="lazy" decoding="async" width="56" height="84" />{/if}
+                {#if r.title.poster}<img use:fadeIn src={r.title.poster} alt="" loading="lazy" decoding="async" width="56" height="84" />{/if}
               </a>
               <div class="body">
                 <a href="/title/{r.title.id}"><b>{r.title.title}</b>{#if r.title.year} <span class="faint">{r.title.year}</span>{/if}</a>

@@ -311,3 +311,41 @@ pub async fn refresh(State(app): State<Arc<App>>, _m: Manager) -> ApiResult<Json
     let n = discover::refresh(&app).await.map_err(|e| ApiError::bad("imdb", format!("IMDb не ответил: {e}")))?;
     Ok(Json(json!({"ok": true, "charts": n})))
 }
+
+// ---------- стена постеров на странице входа ----------
+
+/// Постеры популярного с IMDb для фона страницы входа — без входа. Только из подборок IMDb:
+/// что лежит у хоста, до входа не видно.
+pub async fn wall(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    let names: Vec<String> = app.db.with(|c| {
+        let mut st = c.prepare(
+            "SELECT e.poster FROM ext_titles e JOIN ext_charts ch ON ch.ext_id = e.id
+             WHERE e.poster IS NOT NULL AND e.poster != ''
+             GROUP BY e.id ORDER BY MIN(ch.pos), e.id LIMIT 36",
+        )?;
+        let r = st.query_map([], |r| r.get(0))?;
+        r.collect()
+    })?;
+    Ok(Json(json!(names.into_iter().map(|n| format!("/api/site/wall/{n}")).collect::<Vec<_>>())))
+}
+
+/// Картинка стены: отдаём, только если это постер из подборок IMDb.
+pub async fn wall_image(State(app): State<Arc<App>>, Path(name): Path<String>) -> ApiResult<axum::response::Response> {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+    let known: bool = app.db.with(|c| {
+        c.query_row(
+            "SELECT EXISTS (SELECT 1 FROM ext_titles e JOIN ext_charts ch ON ch.ext_id = e.id WHERE e.poster = ?)",
+            [&name],
+            |r| r.get(0),
+        )
+    })?;
+    let path = app.images.path(&name).filter(|_| known).ok_or_else(ApiError::not_found)?;
+    let bytes = tokio::fs::read(&path).await?;
+    let mime = match name.rsplit('.').next() {
+        Some("png") => "image/png",
+        Some("webp") => "image/webp",
+        _ => "image/jpeg",
+    };
+    Ok(([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "public, max-age=86400")], bytes).into_response())
+}

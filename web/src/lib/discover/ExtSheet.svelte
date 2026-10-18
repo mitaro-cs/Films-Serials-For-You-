@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import { goto } from '$app/navigation';
   import { api, del, errorText, post, put } from '$lib/api';
   import { clock } from '$lib/fmt';
@@ -146,7 +147,7 @@
   {:else if c}
     <div class="top">
       <div class="poster" style:background={c.poster ? undefined : placeholder(c.title)}>
-        {#if c.poster}<img src={c.poster} alt="" width="342" height="513" />{/if}
+        {#if c.poster}<img use:fadeIn src={c.poster} alt="" width="342" height="513" />{/if}
       </div>
       <div class="info">
         <h3>{c.title}</h3>
@@ -205,7 +206,7 @@
             <li>
               <button onclick={() => playFound(f)} aria-label="Смотреть: {f.label}">
                 <span class="art">
-                  {#if f.thumb}<img src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
+                  {#if f.thumb}<img use:fadeIn src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
                   <span class="site">{f.site === 'vk' ? 'VK Видео' : 'Rutube'}</span>
                   {#if f.duration}<span class="dur">{clock(f.duration)}</span>{/if}
                 </span>

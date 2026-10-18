@@ -42,7 +42,7 @@
   </form>
   {#if items?.length}
     <div class="grid">
-      {#each items as card (card.id)}<Wide {card} />{/each}
+      {#each items as card, i (card.id)}<Wide {card} {i} />{/each}
     </div>
   {:else if items}
     <div class="empty"><Icon name="search" size={40} /> По запросу «{q}» ничего нет</div>

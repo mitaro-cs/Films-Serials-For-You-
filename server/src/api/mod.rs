@@ -25,6 +25,8 @@ pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/api/health", get(account::health))
         .route("/api/site", get(account::site))
+        .route("/api/site/wall", get(discover::wall))
+        .route("/api/site/wall/{name}", get(discover::wall_image))
         .route("/api/auth/login", post(account::login))
         .route("/api/auth/logout", post(account::logout))
         .route("/api/auth/register", post(account::register))

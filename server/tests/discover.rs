@@ -45,6 +45,18 @@ async fn feed_marks_wishes_groups_links() {
         .await;
     assert!(r.status().is_success());
 
+    // Стена постеров на входе — без входа и только постеры подборок IMDb.
+    let guest = Client::new(public.clone());
+    assert_eq!(guest.json("/api/site/wall").await, json!([]), "постеров ещё нет");
+    let poster = app.images.save(b"\x89PNG\r\n\x1a\n-test-poster").unwrap();
+    let other = app.images.save(b"\x89PNG\r\n\x1a\n-host-image").unwrap();
+    app.db.with(|c| c.execute("UPDATE ext_titles SET poster = ? WHERE id = 'tt0111161'", [&poster])).unwrap();
+    let wall = guest.json("/api/site/wall").await;
+    assert_eq!(wall, json!([format!("/api/site/wall/{poster}")]));
+    assert_eq!(guest.get(wall[0].as_str().unwrap()).await.status(), 200);
+    assert_eq!(guest.get(&format!("/api/site/wall/{other}")).await.status(), 404, "чужие картинки — нет");
+    assert_eq!(guest.get(&format!("/img/{poster}")).await.status(), 401, "/img — только после входа");
+
     // Лента: подборки по порядку.
     let feed = anna.json("/api/discover").await;
     let keys: Vec<&str> = feed["rows"].as_array().unwrap().iter().map(|r| r["key"].as_str().unwrap()).collect();

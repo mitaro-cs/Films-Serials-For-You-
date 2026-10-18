@@ -115,7 +115,7 @@
       {#if found === null}
         <div class="grid">{#each Array(12) as _, i (i)}<span class="ph skeleton"></span>{/each}</div>
       {:else if found.length}
-        <div class="grid">{#each found as card (card.id)}<Poster {card} />{/each}</div>
+        <div class="grid">{#each found as card, i (card.id)}<Poster {card} {i} />{/each}</div>
       {:else}
         <div class="empty"><Icon name="search" size={40} /><p>По запросу «{q}» ничего нет</p></div>
       {/if}
@@ -127,7 +127,7 @@
         <a class="muted" href="/discover"><Icon name="back" size={14} /> Обзор</a>
       </div>
       {#if full}
-        <div class="grid">{#each full.items as card, i (card.id)}<Poster {card} rank={chart.startsWith('top') ? i + 1 : null} />{/each}</div>
+        <div class="grid">{#each full.items as card, i (card.id)}<Poster {card} rank={chart.startsWith('top') ? i + 1 : null} {i} />{/each}</div>
       {:else}
         <div class="grid">{#each Array(18) as _, i (i)}<span class="ph skeleton"></span>{/each}</div>
       {/if}
@@ -142,8 +142,8 @@
       </div>
     {/each}
   {:else if feed.rows.length}
-    {#each feed.rows as row (row.key)}
-      <PosterRow title={row.title} items={row.items} href="/discover?chart={row.key}" ranked={row.key.startsWith('top')} />
+    {#each feed.rows as row, i (row.key)}
+      <PosterRow title={row.title} items={row.items} href="/discover?chart={row.key}" ranked={row.key.startsWith('top')} {i} />
     {/each}
     {#if session.me?.manage}
       <p class="foot muted">

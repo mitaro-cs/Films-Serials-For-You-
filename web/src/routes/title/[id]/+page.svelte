@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, del, errorText, patch, post } from '$lib/api';
@@ -147,7 +148,7 @@
   <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
     <div class="bg" aria-hidden="true">
       {#key c.backdrop}
-        {#if c.backdrop}<img src={c.backdrop} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
+        {#if c.backdrop}<img use:fadeIn src={c.backdrop} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
       {/key}
     </div>
     {#if session.me?.manage}
@@ -165,7 +166,7 @@
     <div class="wrap">
       <div class="poster-col">
         <div class="poster" style:background={c.posterLarge ? undefined : placeholder(c.title)}>
-          {#if c.posterLarge}<img src={c.posterLarge} alt={c.title} width="460" height="690" decoding="async" />{:else}<span>{c.title}</span>{/if}
+          {#if c.posterLarge}<img use:fadeIn src={c.posterLarge} alt={c.title} width="460" height="690" decoding="async" />{:else}<span>{c.title}</span>{/if}
         </div>
         {#if t.next}
           <a class="btn white block watch" href="/watch/{t.next.fileId}">
@@ -256,7 +257,7 @@
           {#each episodes as f (f.id)}
             <li>
               <a class="still" href="/watch/{f.id}" style:background={f.still ? undefined : placeholder(c.title + f.id)}>
-                {#if f.still}<img src={f.still} alt="" loading="lazy" decoding="async" />{/if}
+                {#if f.still}<img use:fadeIn src={f.still} alt="" loading="lazy" decoding="async" />{/if}
                 <span class="p"><Icon name="play" size={16} /></span>
                 {#if pct(f)}<span class="pbar"><i style:width="{pct(f)}%"></i></span>{/if}
               </a>
@@ -283,7 +284,7 @@
           {#each castAll ? team : team.slice(0, 10) as p, i (i)}
             <li>
               <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
-                {#if p.photo}<img src={p.photo} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p)}{/if}
+                {#if p.photo}<img use:fadeIn src={p.photo} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p)}{/if}
               </span>
               <b>{p.name}</b>
               {#if p.role}<small>{p.role}</small>{/if}
@@ -328,7 +329,7 @@
           {#each t.similar.slice(0, 12) as s (s.id)}
             <li>
               <a href="/title/{s.id}" title={s.title} style:background={s.poster ? undefined : placeholder(s.title)}>
-                {#if s.poster}<img src={s.poster} alt={s.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{s.title}</span>{/if}
+                {#if s.poster}<img use:fadeIn src={s.poster} alt={s.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{s.title}</span>{/if}
               </a>
             </li>
           {/each}
@@ -378,7 +379,7 @@
       {#if t.gallery.length}
         <div class="gallery">
           {#each t.gallery.slice(0, 8) as g, k (k)}
-            <button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img src={g} alt="" loading="lazy" decoding="async" /></button>
+            <button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={g} alt="" loading="lazy" decoding="async" /></button>
           {/each}
         </div>
       {/if}

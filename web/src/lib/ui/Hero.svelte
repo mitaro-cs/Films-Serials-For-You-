@@ -135,6 +135,13 @@
     height: 100%;
     object-fit: cover;
     object-position: center 25%;
+    /* Кадр медленно «отъезжает», как у Apple TV (только transform). */
+    animation: kenburns 12s ease-out both;
+  }
+  @keyframes kenburns {
+    from {
+      transform: scale(1.08);
+    }
   }
   .bg img.poster {
     object-fit: contain;
