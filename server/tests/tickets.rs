@@ -124,12 +124,6 @@ async fn library_statuses_resume_and_accent() {
     assert!(t["card"]["status"].is_null());
     assert!(t["files"][0]["progress"].is_null());
 
-    // Статус — свой у каждого профиля.
-    let kid: Value = host.send("POST", "/api/profiles", json!({"name": "Второй профиль"})).await.json().await.unwrap();
-    host.send("POST", &format!("/api/profiles/{}/select", kid["id"]), json!({})).await;
-    assert_eq!(host.json("/api/library").await["counts"]["watched"], 0);
-    assert_eq!(host.json(&format!("/api/titles/{red}")).await["card"]["status"], Value::Null);
-
     // Чужой id и неверное тело — ошибки, а не падение.
     assert_eq!(host.send("PUT", "/api/titles/999999/watched", json!({"value": true})).await.status(), 404);
     assert_eq!(host.send("PUT", &format!("/api/titles/{red}/watched"), json!({"v": 1})).await.status(), 422);

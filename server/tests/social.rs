@@ -118,6 +118,36 @@ async fn reviews_friends_chat_photo() {
     assert_eq!(new["items"][0]["body"], "Уже смотрю");
     assert_eq!(anna.send("POST", &format!("/api/chats/{pb}"), json!({"body": "  "})).await.status(), 400);
 
+    // ---------- совместный список ----------
+    let l: Value = anna
+        .send("POST", "/api/lists", json!({"name": "  Смотрим вместе ", "members": [pb]}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let lid = l["id"].as_i64().unwrap();
+    let r = anna.send("PUT", &format!("/api/lists/{lid}/items/{dune}"), json!({"value": true})).await;
+    assert!(r.status().is_success());
+    let mine = boris.json("/api/lists").await;
+    assert_eq!((mine[0]["name"].as_str(), mine[0]["count"].as_i64()), (Some("Смотрим вместе"), Some(1)));
+    assert_eq!(mine[0]["members"].as_array().unwrap().len(), 2);
+    assert_eq!(mine[0]["mine"], false);
+    boris.send("PUT", &format!("/api/lists/{lid}/items/{dune}/watched"), json!({"value": true})).await;
+    let full = anna.json(&format!("/api/lists/{lid}")).await;
+    assert_eq!(full["items"][0]["card"]["title"], "Дюна");
+    assert_eq!(full["items"][0]["addedBy"]["id"], pa);
+    assert!(full["items"][0]["watchedAt"].as_i64().is_some(), "посмотрели вместе — видно всем");
+    assert_eq!(anna.json(&format!("/api/titles/{dune}/lists")).await[0]["has"], true);
+    assert_eq!(host.get(&format!("/api/lists/{lid}")).await.status(), 404, "чужой список не виден");
+    assert_eq!(
+        host.send("POST", "/api/lists", json!({"name": "x", "members": [pa]})).await.status(),
+        403,
+        "позвать можно только друга"
+    );
+    let left: Value = boris.send("DELETE", &format!("/api/lists/{lid}"), json!({})).await.json().await.unwrap();
+    assert_eq!(left["left"], true, "участник выходит, список остаётся");
+    assert_eq!(anna.json("/api/lists").await.as_array().unwrap().len(), 1);
+
     // Убрали из друзей — переписка закрыта.
     boris.send("DELETE", &format!("/api/friends/{pa}"), json!({})).await;
     assert_eq!(anna.send("POST", &format!("/api/chats/{pb}"), json!({"body": "эй"})).await.status(), 403);
@@ -173,15 +203,6 @@ async fn reviews_friends_chat_photo() {
         .await
         .unwrap();
     assert_eq!(r.status(), 400);
-
-    // ---------- детский профиль без общения ----------
-    let kid: Value =
-        anna.send("POST", "/api/profiles", json!({"name": "Малыш", "kids": true})).await.json().await.unwrap();
-    let kid_id = kid["id"].as_i64().unwrap();
-    anna.send("POST", &format!("/api/profiles/{kid_id}/select"), json!({})).await;
-    assert_eq!(anna.json("/api/badges").await, json!({"requests": 0, "unread": 0}));
-    assert_eq!(anna.get("/api/members").await.status(), 403);
-    assert!(boris.json("/api/members").await.as_array().unwrap().iter().all(|m| m["id"] != kid_id), "детей не видно");
 
     // ---------- регистрация: хост закрывает и открывает ----------
     let mut extra = Client::new(public.clone());

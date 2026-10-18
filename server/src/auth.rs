@@ -76,10 +76,8 @@ pub struct Viewer {
     pub can_download: bool,
     #[serde(skip)]
     pub local: bool,
-    /// Профиль («Кто смотрит?»): прогресс, список и оценки — у него.
+    /// Профиль аккаунта (один на человека): прогресс, список, оценки, фото и общение — у него.
     pub profile: Profile,
-    /// Профиль выбран в этой сессии (иначе интерфейс спросит «Кто смотрит?»).
-    pub profile_chosen: bool,
     #[serde(skip)]
     pub token_hash: String,
 }
@@ -111,13 +109,13 @@ impl Profile {
 
 pub const PROFILE_COLS: &str = "id, name, avatar, kids, autoplay, photo";
 
-/// Профиль сессии; нет ни одного (новый аккаунт) — создаётся с именем аккаунта.
-fn profile_for(app: &App, user: i64, name: &str, wanted: Option<i64>) -> rusqlite::Result<Profile> {
+/// Профиль аккаунта; нет (новый аккаунт) — создаётся с именем аккаунта.
+fn profile_for(app: &App, user: i64, name: &str) -> rusqlite::Result<Profile> {
     app.db.with(|c| {
         let found = c
             .query_row(
-                &format!("SELECT {PROFILE_COLS} FROM profiles WHERE user_id = ? ORDER BY id = ? DESC, id LIMIT 1"),
-                params![user, wanted.unwrap_or(-1)],
+                &format!("SELECT {PROFILE_COLS} FROM profiles WHERE user_id = ? ORDER BY id LIMIT 1"),
+                [user],
                 Profile::from_row,
             )
             .optional()?;
@@ -211,7 +209,7 @@ fn load(app: &App, parts: &Parts) -> Option<Viewer> {
         .db
         .with(|c| {
             c.query_row(
-                "SELECT u.id, u.login, u.name, u.role, u.can_download, s.local, s.seen_at, s.expires_at, s.profile_id
+                "SELECT u.id, u.login, u.name, u.role, u.can_download, s.local, s.seen_at, s.expires_at
                  FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.hash = ? AND u.disabled = 0",
                 [&hash],
                 |r| {
@@ -226,20 +224,18 @@ fn load(app: &App, parts: &Parts) -> Option<Viewer> {
                         ),
                         r.get::<_, i64>(6)?,
                         r.get::<_, i64>(7)?,
-                        r.get::<_, Option<i64>>(8)?,
                     ))
                 },
             )
             .optional()
         })
         .ok()??;
-    let ((id, login, name, role, can_download, local), seen, expires, wanted) = row;
+    let ((id, login, name, role, can_download, local), seen, expires) = row;
     if expires < now || local && !via.window {
         return None;
     }
-    let profile = profile_for(app, id, &name, wanted).ok()?;
-    let profile_chosen = wanted == Some(profile.id);
-    let v = Viewer { id, login, name, role, can_download, local, profile, profile_chosen, token_hash: hash.clone() };
+    let profile = profile_for(app, id, &name).ok()?;
+    let v = Viewer { id, login, name, role, can_download, local, profile, token_hash: hash.clone() };
     // Скользящий срок: продлеваем не чаще раза в час, чтобы не писать на каждый запрос.
     if now - seen > 3600 * 1000 {
         let _ = app.db.with(|c| {

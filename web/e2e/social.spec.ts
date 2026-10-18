@@ -33,7 +33,7 @@ test('страница фильма: оценки, актёры, отзывы д
 
 test('люди: заявка в друзья, принять, написать', async ({ page }, info) => {
   // Свой человек на каждый прогон: дружба меняется, демо-данные — нет.
-  const name = `Гость ${info.project.name}`;
+  const name = `Гость ${info.project.name} ${Date.now() % 100000}`;
   const guest = await stranger(name);
   await guest.c.post(`/api/friends/${env().people.me}`);
   await page.goto(url('/people'));
@@ -75,6 +75,6 @@ test('регистрация без приглашения', async ({ browser })
   await page.getByLabel(/Логин/).fill(login);
   await page.getByLabel(/Пароль/).fill('пароль-12345');
   await page.getByRole('button', { name: 'Создать аккаунт' }).click();
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Фильмы');
+  await expect(page.getByRole('region', { name: 'Рекомендуем' })).toBeVisible();
   await ctx.close();
 });

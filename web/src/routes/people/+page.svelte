@@ -25,7 +25,10 @@
 </script>
 
 <div class="page narrow">
-  <h1>Люди</h1>
+  <div class="top">
+    <h1>Люди</h1>
+    <a class="btn sm" href="/lists"><Icon name="users" size={15} /> Смотрим вместе</a>
+  </div>
   <label class="find">
     <Icon name="search" size={18} />
     <input type="search" bind:value={q} placeholder="Найти по имени" aria-label="Найти человека" />
@@ -63,6 +66,13 @@
 </div>
 
 <style>
+  .top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
   .narrow {
     max-width: 820px;
     margin: 0 auto;

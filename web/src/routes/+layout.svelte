@@ -6,7 +6,6 @@
   import Header from '$lib/ui/Header.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Logo from '$lib/ui/Logo.svelte';
-  import StatusMenu from '$lib/ui/StatusMenu.svelte';
   import Toasts from '$lib/ui/Toasts.svelte';
   import { toast } from '$lib/ui/toast.svelte';
   import { count } from '$lib/fmt';
@@ -17,7 +16,7 @@
   const AUTH = ['/login', '/join', '/register'];
   const path = $derived(page.url.pathname);
   const auth = $derived(AUTH.some((p) => path.startsWith(p)));
-  const bare = $derived(auth || path.startsWith('/watch') || path === '/profiles');
+  const bare = $derived(auth || path.startsWith('/watch'));
 
   $effect(() => {
     if (auth || session.me) {
@@ -28,15 +27,26 @@
       const here = location.pathname + location.search;
       if (!me && !AUTH.some((p) => location.pathname.startsWith(p))) {
         goto(`/login?next=${encodeURIComponent(here)}`, { replaceState: true });
-      } else if (me && me.profiles.length > 1 && !me.user.profileChosen && location.pathname !== '/profiles') {
-        // Как у Netflix: на новом устройстве сначала «Кто смотрит?».
-        goto(`/profiles?next=${encodeURIComponent(here)}`, { replaceState: true });
       }
     });
   });
 
   $effect(() => {
     document.title = session.me?.site.name ?? 'Films & Serials For You';
+  });
+
+  // Esc никогда не выводит окно приложения на Mac из полноэкранного режима (необработанный Esc
+  // WebKit отдаёт системе). Окна и меню закрываются своими обработчиками, плеер — выходит в сервис.
+  $effect(() => {
+    const hold = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      e.preventDefault();
+      // Без стандартного действия окно <dialog> само не закроется — закрываем верхнее.
+      const open = [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')].pop();
+      open?.dispatchEvent(new Event('cancel', { cancelable: true })) && open.close();
+    };
+    window.addEventListener('keydown', hold);
+    return () => window.removeEventListener('keydown', hold);
   });
 
   // Плавная смена страниц (View Transitions): старая растворяется, новая чуть всплывает;
@@ -100,7 +110,6 @@
 {:else if session.me}
   <Header />
   <main>{@render children()}</main>
-  <StatusMenu />
   {#if !full}
     <footer>
       <div class="top">
@@ -108,7 +117,7 @@
         <nav aria-label="Ссылки">
           <a href="/?tab=movies">Фильмы</a>
           <a href="/?tab=series">Сериалы</a>
-          {#if !session.me.user.profile.kids}<a href="/people">Люди</a><a href="/chats">Чаты</a>{/if}
+          <a href="/people">Люди</a><a href="/chats">Чаты</a>
           <a href="/profile">Профиль</a>
         </nav>
       </div>

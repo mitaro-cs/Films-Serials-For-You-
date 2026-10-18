@@ -58,6 +58,14 @@ async fn upload_watch_and_drop() {
     assert!(up("../../escape.mp4", "", bytes.clone()).await.unwrap().status().is_success());
     assert!(inbox.join("escape.mp4").is_file());
     assert!(!dir.path().join("escape.mp4").exists());
+    assert_eq!(up("a.mp4", "Сериал/../../x", bytes.clone()).await.unwrap().status(), 400);
+    // Сериал папкой: структура сохраняется, серии без сезона — один сериал.
+    for n in ["01. Пилот.mp4", "02. Второй день.mp4"] {
+        let r = up(n, "Мой сериал/Сезон 1", bytes.clone()).await.unwrap();
+        assert!(r.status().is_success(), "{}", r.status());
+    }
+    assert!(inbox.join("Мой сериал/Сезон 1/02. Второй день.mp4").is_file());
+    assert!(until(|| async { titles(&host).await.contains(&"Мой сериал".to_string()) }).await);
     // Зритель загружать не может.
     let mut viewer = common::Client::new(format!("http://127.0.0.1:{}", running.app.ports.0));
     viewer

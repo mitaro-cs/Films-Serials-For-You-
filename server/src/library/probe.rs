@@ -136,6 +136,29 @@ pub fn command(bin: &Path) -> Command {
     c
 }
 
+/// Фоновая работа (кадры, картинки): низкий приоритет, чтобы не мешать просмотру и не
+/// раскручивать вентилятор. На Mac и Linux — через `nice`, на Windows — класс «ниже среднего».
+pub fn background(bin: &Path) -> Command {
+    #[cfg(unix)]
+    {
+        let nice = Path::new("/usr/bin/nice");
+        if nice.is_file() {
+            let mut c = command(nice);
+            c.args(["-n", "15"]).arg(bin);
+            return c;
+        }
+    }
+    #[cfg(windows)]
+    {
+        let mut c = command(bin);
+        // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
+        c.creation_flags(0x0800_0000 | 0x0000_4000);
+        return c;
+    }
+    #[allow(unreachable_code)]
+    command(bin)
+}
+
 pub async fn probe(ffprobe: &Path, file: &Path) -> anyhow::Result<Probe> {
     let out = tokio::time::timeout(
         Duration::from_secs(60),
@@ -329,12 +352,12 @@ pub async fn trickplay(
     std::fs::create_dir_all(dir)?;
     let status = tokio::time::timeout(
         Duration::from_secs(900),
-        command(ffmpeg)
-            .args(["-hide_banner", "-loglevel", "error", "-skip_frame", "nokey", "-i"])
+        background(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-threads", "1", "-skip_frame", "nokey", "-i"])
             .arg(file)
             .args(["-an", "-sn", "-dn", "-vf"])
             .arg(format!("fps=1/{interval},scale={width}:{height},tile={cols}x{rows}"))
-            .args(["-fps_mode", "vfr", "-q:v", "5", "-start_number", "0"])
+            .args(["-fps_mode", "vfr", "-q:v", "5", "-threads", "1", "-filter_threads", "1", "-start_number", "0"])
             .arg(dir.join("%d.jpg"))
             .stdout(Stdio::null())
             .stderr(Stdio::null())

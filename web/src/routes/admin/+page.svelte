@@ -8,6 +8,7 @@
   import Overview from '$lib/admin/Overview.svelte';
   import People from '$lib/admin/People.svelte';
   import Settings from '$lib/admin/Settings.svelte';
+  import Version from '$lib/admin/Version.svelte';
   import type { Status } from '$lib/admin/types';
   import { session } from '$lib/session.svelte';
   import Icon from '$lib/ui/Icon.svelte';
@@ -20,6 +21,7 @@
     ['people', 'Люди', 'users'],
     ['access', 'Доступ', 'globe'],
     ['settings', 'Настройки', 'sliders'],
+    ['version', 'Версия', 'download'],
   ];
 
   const tab = $derived(page.url.searchParams.get('tab') ?? 'overview');
@@ -42,10 +44,11 @@
       {#each TABS as [id, label, icon] (id)}
         <a href="?tab={id}" class:on={tab === id} data-sveltekit-replacestate data-sveltekit-noscroll>
           <span class="ic"><Icon name={icon} size={18} /></span>{label}
+          {#if id === 'version' && status?.update?.state === 'available'}<i class="new" aria-label="есть обновление"></i>{/if}
         </a>
       {/each}
     </nav>
-    {#if status}<p class="faint ver">Версия {status.version}</p>{/if}
+    {#if status}<a class="faint ver" href="?tab=version">Версия {status.version}</a>{/if}
   </aside>
   <section>
     {#if status}
@@ -55,6 +58,7 @@
       {:else if tab === 'people'}<People />
       {:else if tab === 'access'}<Access />
       {:else if tab === 'settings'}<Settings />
+      {:else if tab === 'version'}<Version {status} {reload} />
       {/if}
     {/if}
   </section>
@@ -111,8 +115,16 @@
     color: var(--on-accent);
   }
   .ver {
+    display: block;
     font-size: 12px;
     margin-top: 18px;
+  }
+  .new {
+    width: 8px;
+    height: 8px;
+    margin-left: auto;
+    border-radius: 50%;
+    background: #ff5c7a;
   }
   @media (max-width: 860px) {
     .admin {

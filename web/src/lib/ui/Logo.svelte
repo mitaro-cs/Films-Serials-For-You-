@@ -3,7 +3,7 @@
 </script>
 
 <span class="logo" class:compact>
-  <img src="/logo.svg" width="34" height="34" alt="" />
+  <img src="/logo.svg" width="47" height="24" alt="" />
   {#if !compact}
     <span class="word">Films &amp; Serials <small>For You</small></span>
   {/if}
@@ -21,7 +21,6 @@
     white-space: nowrap;
   }
   img {
-    image-rendering: pixelated;
     flex: none;
   }
   small {

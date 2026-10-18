@@ -17,5 +17,5 @@ test('скриншоты для README', async ({ page }, info) => {
     await shot(`/title/${env().ids['Ла-Ла Ленд']}`, '3-movie');
     await shot('/admin?tab=access', '6-admin');
   }
-  if (info.project.name === 'phone') await shot('/?status=watched', '9-mobile');
+  if (info.project.name === 'phone') await shot('/', '9-mobile');
 });

@@ -237,8 +237,18 @@ pub fn upload_target(app: &App, name: &str, subfolder: Option<&str>) -> Result<(
         return Err("Можно загрузить видео и субтитры".into());
     }
     let mut dir = folder(app).map_err(|e| e.to_string())?;
+    // Папка — с вложенными («Сериал/Сезон 1»), как её выбрали: каждая часть проверяется отдельно.
     if let Some(s) = subfolder.filter(|s| !s.trim().is_empty()) {
-        dir = dir.join(safe_name(s).ok_or("Неверное имя папки")?);
+        let parts: Vec<&str> = s.split(['/', '\\']).filter(|p| !p.trim().is_empty()).collect();
+        if parts.len() > 4 {
+            return Err("Слишком глубокая папка".into());
+        }
+        for p in parts {
+            if p.trim().trim_matches('.').is_empty() {
+                return Err("Неверное имя папки".into());
+            }
+            dir = dir.join(safe_name(p).ok_or("Неверное имя папки")?);
+        }
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     }
     let dst = dir.join(&name);

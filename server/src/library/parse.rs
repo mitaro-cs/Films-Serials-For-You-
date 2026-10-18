@@ -95,6 +95,12 @@ fn title_year(s: &str) -> (String, Option<i32>) {
     (tidy(&s[..cut]), year)
 }
 
+/// Имя похоже на серию без сезона: «01. Пилот», «Серия 5», «E07». Несколько таких в одной папке —
+/// это сериал (`scan` решает по папке, по одному имени не угадать: «21 Jump Street»).
+pub fn numbered(stem: &str) -> bool {
+    (LEADING_NUM.is_match(stem) || EP_ONLY.is_match(stem)) && title_year(stem).1.is_none()
+}
+
 /// Разбор пути относительно корня библиотеки. `force`: Some(true) — сериал, Some(false) — фильм.
 pub fn parse(rel: &Path, force: Option<bool>) -> Parsed {
     let stem = rel.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();

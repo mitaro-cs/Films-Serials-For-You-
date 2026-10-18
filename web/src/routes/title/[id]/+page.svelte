@@ -2,11 +2,13 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, errorText, patch, post } from '$lib/api';
+  import { toast } from '$lib/ui/toast.svelte';
   import { rate, toggleList, toggleWatched } from '$lib/cards.svelte';
   import { count, date, kindLabel, runtime, size, votes } from '$lib/fmt';
   import { day, left, percent } from '$lib/library';
   import { session } from '$lib/session.svelte';
   import Reviews from '$lib/social/Reviews.svelte';
+  import ListPicker from '$lib/social/ListPicker.svelte';
   import ShareTitle from '$lib/social/ShareTitle.svelte';
   import StarInput from '$lib/social/StarInput.svelte';
   import type { FileItem, Person, Review, Reviews as ReviewsData, TitleDetail } from '$lib/types';
@@ -24,6 +26,7 @@
   let castAll = $state(false);
   let shot = $state<number | null>(null);
   let sharing = $state(false);
+  let picking = $state(false);
   let reviewsBox = $state<ReturnType<typeof Reviews>>();
 
   const id = $derived(Number(page.params.id));
@@ -59,7 +62,6 @@
   const episodes = $derived((t?.files ?? []).filter((f) => season === null || f.season === season));
   const isSeries = $derived(c?.kind === 'series');
   const started = $derived(!!t?.next && t.next.position > 5);
-  const kids = $derived(!!session.me?.user.profile.kids);
   /** Своя оценка — последняя из своих отзывов со звёздами. */
   const mine = $derived(rv?.items.find((r) => r.mine && r.stars) ?? null);
 
@@ -96,6 +98,27 @@
     return Math.min(100, (f.progress.position / f.progress.duration) * 100);
   }
 
+  // Обложка и фон — прямо отсюда, без файлов в папке фильма (хост и администраторы).
+  let artBusy = $state('');
+  async function setArt(which: 'poster' | 'backdrop', e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const f = input.files?.[0];
+    input.value = '';
+    if (!f || !c) return;
+    if (f.size > 15 * 1024 * 1024) return toast('Картинка больше 15 МБ');
+    artBusy = which;
+    try {
+      const r = await api<{ url: string }>(`/api/admin/titles/${c.id}/image/${which}`, { method: 'PUT', body: f });
+      if (which === 'poster') Object.assign(c, { poster: r.url, posterLarge: r.url });
+      else Object.assign(c, { backdrop: r.url, backdropSmall: null });
+      toast(which === 'poster' ? 'Обложка обновлена' : 'Фон обновлён');
+    } catch (x) {
+      toast(errorText(x));
+    } finally {
+      artBusy = '';
+    }
+  }
+
   const initials = (p: Person | { name: string }) =>
     p.name
       .split(/\s+/)
@@ -109,8 +132,22 @@
 {:else if t && c}
   <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
     <div class="bg" aria-hidden="true">
-      {#if c.backdrop}<img src={c.backdrop} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
+      {#key c.backdrop}
+        {#if c.backdrop}<img src={c.backdrop} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
+      {/key}
     </div>
+    {#if session.me?.manage}
+      <div class="art-edit">
+        <label class="glass" class:busy={artBusy === 'poster'}>
+          <Icon name="image" size={15} /> {artBusy === 'poster' ? 'Загружаем…' : 'Обложка'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => setArt('poster', e)} hidden />
+        </label>
+        <label class="glass" class:busy={artBusy === 'backdrop'}>
+          <Icon name="image" size={15} /> {artBusy === 'backdrop' ? 'Загружаем…' : 'Фон'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => setArt('backdrop', e)} hidden />
+        </label>
+      </div>
+    {/if}
     <div class="wrap">
       <div class="poster-col">
         <div class="poster" style:view-transition-name="poster-{c.id}" style:background={c.posterLarge ? undefined : placeholder(c.title)}>
@@ -164,14 +201,13 @@
             <Icon name="bookmark" size={22} /><span>Хочу</span>
           </button>
         </div>
-        {#if !kids}
-          <div class="rate">
-            <small>Оценка</small>
-            <StarInput value={mine?.stars ?? null} onchange={setStars} size={24} label="Ваша оценка" />
-          </div>
-          <button class="btn block" onclick={() => (sharing = true)}><Icon name="share" size={15} /> Обсудить с другом</button>
-          <button class="btn block" onclick={writeReview}><Icon name="edit" size={15} /> Написать отзыв</button>
-        {/if}
+        <div class="rate">
+          <small>Оценка</small>
+          <StarInput value={mine?.stars ?? null} onchange={setStars} size={24} label="Ваша оценка" />
+        </div>
+        <button class="btn block" onclick={() => (picking = true)}><Icon name="users" size={15} /> В общий список</button>
+        <button class="btn block" onclick={() => (sharing = true)}><Icon name="share" size={15} /> Обсудить с другом</button>
+        <button class="btn block" onclick={writeReview}><Icon name="edit" size={15} /> Написать отзыв</button>
         {#if c.status === 'watched' && c.watchedAt}<p class="stub">Просмотрено {day(c.watchedAt)}</p>{/if}
       </aside>
     </div>
@@ -320,6 +356,7 @@
   </main>
 
   <ShareTitle bind:open={sharing} titleId={c.id} title={c.title} />
+  <ListPicker bind:open={picking} titleId={c.id} />
   <Lightbox images={t.gallery} bind:index={shot} />
 {:else}
   <div class="sk-hero skeleton" aria-busy="true"></div>
@@ -332,6 +369,37 @@
     padding: calc(var(--header) + clamp(120px, 22vw, 260px)) var(--gutter) 34px;
     overflow: hidden;
     isolation: isolate;
+  }
+  .art-edit {
+    position: absolute;
+    z-index: 2;
+    top: calc(var(--header) + env(safe-area-inset-top) + 12px);
+    right: var(--gutter);
+    display: flex;
+    gap: 8px;
+  }
+  .glass {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .glass:hover {
+    background: rgba(0, 0, 0, 0.65);
+  }
+  .glass.busy {
+    opacity: 0.6;
+    pointer-events: none;
   }
   .bg {
     position: absolute;

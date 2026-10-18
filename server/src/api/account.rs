@@ -238,10 +238,8 @@ pub async fn enter(
 pub async fn me(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
     let has_pass: bool =
         app.db.with(|c| c.query_row("SELECT pass IS NOT NULL FROM users WHERE id = ?", [v.id], |r| r.get(0)))?;
-    let profiles = super::profiles::list_of(&app, v.id)?;
     Ok(Json(json!({
         "user": v,
-        "profiles": profiles,
         "hasPassword": has_pass,
         "manage": v.manages(),
         "window": v.local,
@@ -252,13 +250,27 @@ pub async fn me(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>
 #[derive(Deserialize)]
 pub struct MeBody {
     name: Option<String>,
+    avatar: Option<i64>,
+    autoplay: Option<bool>,
 }
 
+/// Имя (у аккаунта и профиля — одно), рисованный аватар, автозапуск следующей серии.
 pub async fn update_me(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<MeBody>) -> ApiResult<Json<Value>> {
-    if let Some(n) = b.name {
-        let n = auth::check_name(&n)?;
-        app.db.with(|c| c.execute("UPDATE users SET name = ? WHERE id = ?", params![n, v.id]))?;
-    }
+    let name = b.name.as_deref().map(auth::check_name).transpose()?;
+    app.db.tx(|tx| {
+        if let Some(n) = &name {
+            tx.execute("UPDATE users SET name = ? WHERE id = ?", params![n, v.id])?;
+            tx.execute("UPDATE profiles SET name = ? WHERE id = ?", params![n, v.profile.id])?;
+        }
+        if let Some(a) = b.avatar {
+            let a = a.rem_euclid(super::profiles::AVATARS);
+            tx.execute("UPDATE profiles SET avatar = ? WHERE id = ?", params![a, v.profile.id])?;
+        }
+        if let Some(a) = b.autoplay {
+            tx.execute("UPDATE profiles SET autoplay = ? WHERE id = ?", params![a, v.profile.id])?;
+        }
+        Ok(())
+    })?;
     Ok(Json(json!({"ok": true})))
 }
 

@@ -3,6 +3,7 @@
 pub(crate) mod account;
 mod admin;
 mod catalog;
+mod lists;
 mod play;
 mod profiles;
 mod social;
@@ -35,15 +36,18 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/genres", get(catalog::genres))
         .route("/api/list", get(catalog::my_list))
         .route("/api/titles/{id}/rating", put(catalog::set_rating))
-        .route("/api/profiles", get(profiles::list).post(profiles::create))
-        .route("/api/profiles/{id}", patch(profiles::edit).delete(profiles::delete))
-        .route("/api/profiles/{id}/select", post(profiles::select))
         .route("/api/list/{id}", put(catalog::set_list))
         .route("/api/library", get(catalog::library))
         .route("/api/titles/{id}/watched", put(catalog::set_watched))
         .route("/img/{name}", get(catalog::image))
         // люди
         .route("/api/titles/{id}/reviews", get(social::reviews).post(social::add_review))
+        .route("/api/titles/{id}/lists", get(lists::of_title))
+        .route("/api/lists", get(lists::lists).post(lists::create))
+        .route("/api/lists/{id}", get(lists::list).patch(lists::rename).delete(lists::delete))
+        .route("/api/lists/{id}/members", post(lists::invite))
+        .route("/api/lists/{id}/items/{title}", put(lists::item))
+        .route("/api/lists/{id}/items/{title}/watched", put(lists::watched))
         .route("/api/reviews/{id}", patch(social::edit_review).delete(social::delete_review))
         .route("/api/reviews/{id}/like", put(social::like_review))
         .route("/api/members", get(social::members))
@@ -64,6 +68,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/files/{id}/download", get(play::download))
         .route("/api/files/{id}/play", get(play::remux))
         .route("/api/files/{id}/subs/{sid}", get(play::subs))
+        .route("/api/files/{id}/copy/{audio}/index.m3u8", get(play::copy_playlist))
+        .route("/api/files/{id}/copy/{audio}/{name}", get(play::copy_part))
         .route("/api/files/{id}/hls/master.m3u8", get(play::hls_master))
         .route("/api/files/{id}/hls/{h}/index.m3u8", get(play::hls_variant))
         .route("/api/files/{id}/hls/{h}/{seg}", get(play::hls_segment))
@@ -77,6 +83,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/admin/libraries/pick", post(admin::pick_folder))
         .route("/api/admin/libraries/{id}", delete(admin::remove_library))
         .route("/api/admin/scan", post(admin::rescan))
+        .route("/api/admin/update/{what}", post(admin::update))
         .route("/api/admin/inbox", post(admin::inbox))
         .route("/api/admin/inbox/reveal", post(admin::reveal_inbox))
         .route("/api/admin/upload", put(admin::upload).layer(axum::extract::DefaultBodyLimit::disable()))
@@ -144,6 +151,8 @@ pub struct Card {
     pub country: Option<String>,
     pub director: Option<String>,
     pub accent: Option<String>,
+    /// Кадр 640 px для широкой карточки (нет — кадр серии или большой кадр).
+    pub backdrop_small: Option<String>,
     /// Статус профиля: want («Хочу посмотреть»), watching, watched; None — ничего.
     pub status: Option<&'static str>,
     /// Когда отмечено «Просмотрено» (для белого билета).
@@ -186,7 +195,11 @@ pub const CARD_COLS: &str = "t.id, t.kind, t.title, t.original_title, t.year, CO
     (SELECT COUNT(DISTINCT f.season) FROM files f WHERE f.title_id = t.id AND f.missing = 0),
     json_extract(t.countries, '$[0]'),
     (SELECT json_extract(value, '$.name') FROM json_each(t.people) WHERE json_extract(value, '$.job') = 'director' LIMIT 1),
-    t.accent";
+    t.accent,
+    COALESCE(t.backdrop_sm, (SELECT f.still FROM files f WHERE f.title_id = t.id AND f.still IS NOT NULL ORDER BY f.season, f.episode LIMIT 1), t.backdrop)";
+
+/// Сколько столбцов в `CARD_COLS`: следующие за ними в запросе читаются с этого номера.
+pub const CARD_LEN: usize = 21;
 
 pub fn card(r: &Row) -> rusqlite::Result<Card> {
     Ok(Card {
@@ -213,6 +226,7 @@ pub fn card(r: &Row) -> rusqlite::Result<Card> {
         country: r.get(17)?,
         director: r.get(18)?,
         accent: r.get(19)?,
+        backdrop_small: img(r.get(20)?),
         status: None,
         watched_at: None,
         resume: None,

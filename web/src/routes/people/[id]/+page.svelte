@@ -42,7 +42,7 @@
           {count(p.stats.watched, 'фильм просмотрен', 'фильма просмотрено', 'фильмов просмотрено')} · {count(p.stats.reviews, 'отзыв', 'отзыва', 'отзывов')}
         </p>
         {#if p.me}
-          <a class="btn sm" href="/profiles?manage=1"><Icon name="edit" size={14} /> Изменить фото и имя</a>
+          <a class="btn sm" href="/profile"><Icon name="edit" size={14} /> Изменить фото и имя</a>
         {:else if p.relation}
           <FriendButton id={p.person.id} bind:relation={p.relation} />
         {/if}

@@ -67,33 +67,21 @@ async fn profiles_taste_hls_trickplay_markers() {
     host.send("PATCH", &format!("/api/admin/titles/{glavy}"), json!({"genres": ["Комедия", "Драма"]})).await;
     assert!(until(|| async { host.json("/api/admin/status").await["unprobed"] == 0 }).await);
 
-    // ---------- профили и детский режим ----------
-    let p = host.json("/api/profiles").await;
-    assert_eq!(p["profiles"].as_array().unwrap().len(), 1);
-    let main = p["current"].as_i64().unwrap();
-    assert_eq!(p["chosen"], false, "профиль ещё не выбирали — интерфейс спросит «Кто смотрит?»");
-    let kids: Value = host
-        .send("POST", "/api/profiles", json!({"name": "Дети", "kids": true, "avatar": 3}))
-        .await
-        .json()
-        .await
-        .unwrap();
-    let kids_id = kids["id"].as_i64().unwrap();
-    assert!(host.send("POST", &format!("/api/profiles/{kids_id}/select"), json!({})).await.status().is_success());
+    // ---------- один аккаунт — один профиль (выбора «Кто смотрит?» нет) ----------
+    let me = host.json("/api/me").await;
+    assert_eq!(me["user"]["profile"]["kids"], false);
+    assert!(me.get("profiles").is_none() && me["user"].get("profileChosen").is_none());
+    assert!(!host.send("POST", "/api/profiles", json!({"name": "Дети"})).await.status().is_success());
+    assert_eq!(host.json("/api/titles").await.as_array().unwrap().len(), 4);
+    host.send("PATCH", "/api/me", json!({"name": "Хост Кино", "avatar": 5, "autoplay": false})).await;
     let me = host.json("/api/me").await;
     assert_eq!(
-        (me["user"]["profile"]["kids"].as_bool(), me["user"]["profileChosen"].as_bool()),
-        (Some(true), Some(true))
+        (me["user"]["name"].as_str(), me["user"]["profile"]["name"].as_str(), me["user"]["profile"]["avatar"].as_i64()),
+        (Some("Хост Кино"), Some("Хост Кино"), Some(5))
     );
-    assert_eq!(ids(&host.json("/api/titles").await), vec!["Мульт"]);
-    let adult_file = host.json("/api/admin/titles?q=Взрослый").await;
-    assert_eq!(adult_file.as_array().unwrap().len(), 1);
-    assert_eq!(host.get(&format!("/api/titles/{adult}")).await.status(), 404, "детский профиль не видит 18+");
+    assert_eq!(me["user"]["profile"]["autoplay"], false);
 
-    host.send("POST", &format!("/api/profiles/{main}/select"), json!({})).await;
-    assert_eq!(host.json("/api/titles").await.as_array().unwrap().len(), 4);
-
-    // ---------- прогресс у каждого профиля свой, Топ-10 ----------
+    // ---------- «Продолжить», Топ-10 ----------
     let file_of = |d: &Value| d["files"][0]["id"].as_i64().unwrap();
     let gd = host.json(&format!("/api/titles/{glavy}")).await;
     let glavy_file = file_of(&gd);
@@ -106,9 +94,6 @@ async fn profiles_taste_hls_trickplay_markers() {
     assert_eq!(home["continue"][0]["id"], glavy);
     let top = home["rows"].as_array().unwrap().iter().find(|r| r["key"] == "top10").expect("Топ-10");
     assert_eq!(top["items"].as_array().unwrap().len(), 3);
-    host.send("POST", &format!("/api/profiles/{kids_id}/select"), json!({})).await;
-    assert_eq!(host.json("/api/home").await["continue"], json!([]), "у детского профиля своя история");
-    host.send("POST", &format!("/api/profiles/{main}/select"), json!({})).await;
 
     // ---------- оценки и «совпадение» ----------
     host.send("PUT", &format!("/api/titles/{comedy}/rating"), json!({"value": 2})).await;

@@ -127,6 +127,10 @@ pub fn args(input: &Path, dir: &Path, height: i64, source_height: i64, audio: us
             "yuv420p",
             "-crf",
             "23",
+            // Не больше 4 потоков: этого хватает на 1080p быстрее просмотра, а компьютер хоста
+            // не раскручивает вентилятор на все ядра.
+            "-threads",
+            "4",
         ]
         .map(String::from),
     );

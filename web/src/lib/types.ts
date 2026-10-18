@@ -26,6 +26,8 @@ export interface Card {
   country: string | null;
   director: string | null;
   accent: string | null;
+  /** Кадр 640 px для широкой карточки. */
+  backdropSmall: string | null;
   status: 'want' | 'watching' | 'watched' | null;
   /** Когда отмечено «Просмотрено». */
   watchedAt: number | null;
@@ -195,12 +197,10 @@ export interface User {
   role: 'host' | 'admin' | 'viewer';
   canDownload: boolean;
   profile: Profile;
-  profileChosen: boolean;
 }
 
 export interface Me {
   user: User;
-  profiles: Profile[];
   hasPassword: boolean;
   manage: boolean;
   window: boolean;
@@ -255,4 +255,33 @@ export interface Trickplay {
   rows: number;
   count: number;
   sheets: number;
+}
+
+/** Человек в совместном списке. */
+export type Friend = Pick<Member, 'id' | 'name' | 'avatar' | 'photo'>;
+
+/** Совместный список: «смотрим вместе». */
+export interface SharedList {
+  id: number;
+  name: string;
+  mine: boolean;
+  count: number;
+  watched: number;
+  members: Friend[];
+  art: string[];
+}
+
+export interface SharedItem {
+  card: Card;
+  addedAt: number;
+  watchedAt: number | null;
+  addedBy: Friend | null;
+}
+
+export interface SharedListFull {
+  id: number;
+  name: string;
+  mine: boolean;
+  members: Friend[];
+  items: SharedItem[];
 }

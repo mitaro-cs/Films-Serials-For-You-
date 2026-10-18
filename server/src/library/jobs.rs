@@ -121,11 +121,35 @@ async fn thumbs(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
             c.execute("UPDATE titles SET poster_sm = ?, accent = ? WHERE id = ?", params![small, accent, id])
         });
     }
+    backdrops(app, ffmpeg).await || !todo.is_empty()
+}
+
+/// Лёгкие кадры (640 px) для широких карточек главной: большой кадр — только у героя.
+async fn backdrops(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
+    let todo: Vec<(i64, String)> = app
+        .db
+        .with(|c| {
+            let mut st = c.prepare(
+                "SELECT id, backdrop FROM titles WHERE backdrop IS NOT NULL AND backdrop_sm IS NULL LIMIT 20",
+            )?;
+            let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            r.collect()
+        })
+        .unwrap_or_default();
+    for (id, big) in &todo {
+        let small = match app.images.path(big) {
+            Some(src) => probe::scale_image(ffmpeg, &src, 640).await.ok().and_then(|b| app.images.save(&b).ok()),
+            None => None,
+        };
+        let small = small.unwrap_or_else(|| big.clone());
+        let _ = app.db.with(|c| c.execute("UPDATE titles SET backdrop_sm = ? WHERE id = ?", params![small, id]));
+    }
     !todo.is_empty()
 }
 
 /// Кадры для полосы перемотки, как у Netflix: раз в 10 секунд, листы 10×10 по 240 px.
-/// Декодируются только ключевые кадры — быстро даже для длинного фильма. true — что-то сделано.
+/// Только для того, что начали смотреть (не для всей библиотеки — иначе компьютер хоста часами
+/// шумит вентилятором), в один поток и с низким приоритетом. true — что-то сделано.
 async fn trickplay_one(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
     if app.db.setting_or("media.trickplay", "1") != "1" {
         return false;
@@ -134,7 +158,9 @@ async fn trickplay_one(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
         .db
         .with(|c| {
             c.query_row(
-                "SELECT id, path, probe FROM files WHERE trickplay IS NULL AND missing = 0 AND probe IS NOT NULL ORDER BY added_at DESC LIMIT 1",
+                "SELECT f.id, f.path, f.probe FROM files f WHERE f.trickplay IS NULL AND f.missing = 0 AND f.probe IS NOT NULL
+                   AND EXISTS (SELECT 1 FROM progress p WHERE p.file_id = f.id)
+                 ORDER BY (SELECT MAX(p.updated_at) FROM progress p WHERE p.file_id = f.id) DESC LIMIT 1",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )

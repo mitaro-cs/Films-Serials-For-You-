@@ -20,7 +20,7 @@
 
   // Источник: файл как есть, перепаковка с места `offset` (время потока ffmpeg с нуля) или
   // адаптивный HLS (как у Netflix: качество под скорость интернета).
-  let mode = $state<'raw' | 'remux' | 'hls'>('raw');
+  let mode = $state<'raw' | 'remux' | 'copy' | 'hls'>('raw');
   let quality = $state<'orig' | 'auto' | number>('orig');
   let hlsHeight = $state<number | null>(null);
   let offset = $state(0);
@@ -47,6 +47,38 @@
   let creditsSkipped = $state(false);
 
   let subId = $state('');
+
+  // Вид субтитров — у каждого зрителя свой, помнится на устройстве.
+  type SubLook = { size: 's' | 'm' | 'l'; look: 'box' | 'shadow' | 'yellow' | 'cinema'; high: boolean };
+  const SUB_SIZES = [
+    { id: 's', label: 'Мелкие' },
+    { id: 'm', label: 'Средние' },
+    { id: 'l', label: 'Крупные' },
+  ] as const;
+  const SUB_LOOKS = [
+    { id: 'box', label: 'На плашке' },
+    { id: 'shadow', label: 'С тенью' },
+    { id: 'cinema', label: 'Обводка' },
+    { id: 'yellow', label: 'Жёлтые' },
+  ] as const;
+  function savedLook(): SubLook {
+    const base: SubLook = { size: 'm', look: 'box', high: false };
+    try {
+      const saved = JSON.parse(localStorage.getItem('fsfy-subs-look') ?? 'null');
+      return saved && typeof saved === 'object' ? { ...base, ...saved } : base;
+    } catch {
+      return base;
+    }
+  }
+  let subLook = $state<SubLook>(savedLook());
+  function setLook(p: Partial<SubLook>) {
+    subLook = { ...subLook, ...p };
+    try {
+      localStorage.setItem('fsfy-subs-look', JSON.stringify(subLook));
+    } catch {
+      /* приватный режим */
+    }
+  }
   let cues = $state<Cue[]>([]);
 
   const hevcOk =
@@ -68,7 +100,7 @@
   const origOk = $derived.by(() => {
     const p = info?.play;
     if (!p) return false;
-    return (p.direct && audio === 0 && (!p.hevc || hevcOk)) || (p.remux && !p.transcode) || (!p.remux && !info?.hls);
+    return (p.direct && audio === 0 && (!p.hevc || hevcOk)) || (p.remux && !p.transcode && (!p.hevc || hevcOk)) || (!p.remux && !info?.hls);
   });
   const ladder = $derived(levels(info?.play.height ?? null));
   const qualityLabel = $derived(
@@ -97,18 +129,25 @@
     waiting = true;
     if (quality === 'orig') {
       const direct = (p.direct && audio === 0 && (!p.hevc || hevcOk)) || !p.remux;
-      mode = direct ? 'raw' : 'remux';
-      offset = direct ? 0 : at;
-      pendingSeek = direct ? at : 0;
-      video.src = direct ? `/api/files/${fileId}/raw` : remuxUrl(at);
-      return;
+      if (direct) {
+        mode = 'raw';
+        offset = 0;
+        pendingSeek = at;
+        video.src = `/api/files/${fileId}/raw`;
+        return;
+      }
+      // Готовая копия у хоста: видео как есть, кусочками HLS — Safari и перемотка работают.
+      mode = 'copy';
+    } else {
+      mode = 'hls';
     }
-    mode = 'hls';
     offset = 0;
     const url =
-      quality === 'auto'
-        ? `/api/files/${fileId}/hls/master.m3u8?audio=${audio}`
-        : `/api/files/${fileId}/hls/${quality}/index.m3u8?audio=${audio}`;
+      mode === 'copy'
+        ? `/api/files/${fileId}/copy/${audio}/index.m3u8?from=${Math.floor(at)}`
+        : quality === 'auto'
+          ? `/api/files/${fileId}/hls/master.m3u8?audio=${audio}`
+          : `/api/files/${fileId}/hls/${quality}/index.m3u8?audio=${audio}`;
     if (nativeHls) {
       pendingSeek = at;
       video.src = url;
@@ -157,6 +196,7 @@
     const id = fileId;
     info = null;
     error = '';
+    recovered = 0;
     countdown = null;
     creditsSkipped = false;
     subId = '';
@@ -190,8 +230,14 @@
     if (!hls) video.play().catch(() => (paused = true));
   }
 
+  let recovered = 0;
   function onError() {
     if (!info || !video?.error || hls) return;
+    // Сбой связи или туннеля — тихо пробуем ещё раз с того же места, без окна ошибки.
+    if (mode !== 'raw' && recovered++ < 2) {
+      load(time);
+      return;
+    }
     // Браузер не смог сам — адаптивный поток или перепаковка через ffmpeg у хоста.
     if (mode === 'raw' && (info.hls || info.play.remux)) {
       info.play.direct = false;
@@ -208,7 +254,7 @@
   let stalls: number[] = [];
   function onWaiting() {
     waiting = true;
-    if (!info?.hls || mode === 'hls' || !video || video.seeking || current < 2) return;
+    if (!info?.hls || mode === 'hls' || mode === 'copy' || !video || video.seeking || current < 2) return;
     const now = Date.now();
     stalls = [...stalls.filter((t) => now - t < 45_000), now];
     if (stalls.length >= 3) {
@@ -472,7 +518,12 @@
     else if (k === 'KeyS' && inIntro && intro) seek(intro[1]);
     else if (k === 'KeyN' && info?.next) goNext();
     else if (k === 'KeyC' && info?.play.subs.length) pickSubs(subId ? '' : info.play.subs[0].id);
-    else if (k === 'Escape' && panel) panel = '';
+    else if (k === 'Escape') {
+      // Esc не выводит окно из полноэкранного режима: закрывает меню, иначе — назад в сервис.
+      if (panel) panel = '';
+      else if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else back();
+    }
     else if (k === 'Period' && e.shiftKey) setRate(rate + 0.25);
     else if (k === 'Comma' && e.shiftKey) setRate(rate - 0.25);
     else if (k === 'KeyP' && pipOk) pip();
@@ -552,7 +603,7 @@
   {/if}
 
   {#if subtitle}
-    <div class="subs" class:up={shown}>{subtitle}</div>
+    <div class="subs {subLook.look} size-{subLook.size}" class:up={shown} class:high={subLook.high}>{subtitle}</div>
   {/if}
 
   {#if waiting && !error}
@@ -716,6 +767,23 @@
             <Icon name="check" size={16} /> {s.label}
           </button>
         {/each}
+        <h4 class="sep">Вид</h4>
+        <div class="looks" role="radiogroup" aria-label="Вид субтитров">
+          {#each SUB_LOOKS as l (l.id)}
+            <button role="radio" aria-checked={subLook.look === l.id} class="look {l.id}" class:on={subLook.look === l.id} onclick={() => setLook({ look: l.id })}>
+              <span>Аа</span>{l.label}
+            </button>
+          {/each}
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Размер субтитров">
+          {#each SUB_SIZES as z (z.id)}
+            <button role="radio" aria-checked={subLook.size === z.id} class:on={subLook.size === z.id} onclick={() => setLook({ size: z.id })}>{z.label}</button>
+          {/each}
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Положение субтитров">
+          <button role="radio" aria-checked={!subLook.high} class:on={!subLook.high} onclick={() => setLook({ high: false })}>Внизу</button>
+          <button role="radio" aria-checked={subLook.high} class:on={subLook.high} onclick={() => setLook({ high: true })}>Выше</button>
+        </div>
       {:else if panel === 'speed'}
         <h4>Скорость</h4>
         {#each SPEEDS as r (r)}
@@ -993,6 +1061,102 @@
   }
   .subs.up {
     bottom: calc(110px + env(safe-area-inset-bottom));
+  }
+  .subs.high {
+    bottom: 18%;
+  }
+  .subs.size-s {
+    font-size: clamp(14px, 2vw, 24px);
+  }
+  .subs.size-l {
+    font-size: clamp(20px, 3.4vw, 40px);
+  }
+  /* Варианты вида: плашка (по умолчанию), тень, обводка как в кино, жёлтые. */
+  .subs.shadow,
+  .subs.cinema,
+  .subs.yellow {
+    background: none;
+    padding: 0;
+  }
+  .subs.shadow {
+    text-shadow:
+      0 2px 6px rgba(0, 0, 0, 0.95),
+      0 0 18px rgba(0, 0, 0, 0.7);
+  }
+  .subs.cinema,
+  .subs.yellow {
+    font-weight: 700;
+    text-shadow:
+      -1.5px -1.5px 0 #000,
+      1.5px -1.5px 0 #000,
+      -1.5px 1.5px 0 #000,
+      1.5px 1.5px 0 #000,
+      0 2px 6px rgba(0, 0, 0, 0.8);
+  }
+  .subs.yellow {
+    color: #ffd84d;
+  }
+  .panel h4.sep {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+  .looks {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 0 4px 8px;
+  }
+  .panel .looks button {
+    display: grid;
+    justify-items: center;
+    gap: 2px;
+    padding: 8px 4px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 12.5px;
+  }
+  .looks span {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .look.box span {
+    padding: 0 6px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.7);
+  }
+  .look.shadow span {
+    text-shadow: 0 2px 6px #000;
+  }
+  .look.cinema span,
+  .look.yellow span {
+    -webkit-text-stroke: 1px #000;
+  }
+  .look.yellow span {
+    color: #ffd84d;
+  }
+  .panel .looks button.on {
+    box-shadow: inset 0 0 0 2px #fff;
+  }
+  .seg {
+    display: flex;
+    gap: 4px;
+    margin: 0 4px 6px;
+    padding: 3px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .panel .seg button {
+    flex: 1;
+    justify-content: center;
+    padding: 7px 4px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .panel .seg button.on {
+    background: rgba(255, 255, 255, 0.9);
+    color: #000;
   }
   .panel {
     position: absolute;

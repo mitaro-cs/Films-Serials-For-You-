@@ -233,6 +233,55 @@ pub async fn remux(
     Ok(stream::remux(&ffmpeg, stream::remux_args(&f.path, &opts), permit)?)
 }
 
+// ---------- готовая копия без перекодирования (HLS из fMP4) ----------
+
+#[derive(Deserialize)]
+pub struct CopyQuery {
+    /// С какого места начнут смотреть: ответ — когда оно уже готово.
+    #[serde(default)]
+    from: f64,
+}
+
+/// Видео копируется как есть: H.264 (8 бит) или HEVC; остальное — только перекодированием.
+fn copy_source(app: &App, v: &Viewer, id: i64, audio: usize) -> ApiResult<(FileRow, crate::copy::Key, bool, bool)> {
+    let f = file_row(app, v, id)?;
+    let p =
+        f.probe.as_ref().ok_or_else(|| ApiError::bad("not_ready", "Файл ещё разбирается — попробуйте через минуту"))?;
+    let vid = p.video.as_ref().ok_or_else(|| ApiError::bad("no_video", "В файле нет видео"))?;
+    let hevc = vid.codec == "hevc";
+    if !(hevc || vid.codec == "h264" && !vid.pix_fmt.contains("10")) {
+        return Err(ApiError::bad("transcode", "Этот файл нужно перекодировать — включите адаптивное качество"));
+    }
+    let audio = audio.min(p.audio.len().saturating_sub(1));
+    let copy_audio = p.audio.get(audio).is_some_and(|a| a.codec == "aac");
+    Ok((f, crate::copy::Key { file: id, audio }, hevc, copy_audio))
+}
+
+pub async fn copy_playlist(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Path((id, audio)): Path<(i64, usize)>,
+    Query(q): Query<CopyQuery>,
+) -> ApiResult<Response> {
+    let ffmpeg = app.tools.read().ffmpeg.clone().ok_or_else(no_ffmpeg)?;
+    let (f, key, hevc, copy_audio) = copy_source(&app, &v, id, audio)?;
+    let src = crate::copy::Source { input: &f.path, hevc, copy_audio };
+    let from = q.from.clamp(0.0, 60.0 * 60.0 * 24.0);
+    let text = app.copies.playlist(&app, &ffmpeg, key, src, from).await?;
+    Ok(m3u8(text))
+}
+
+pub async fn copy_part(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Path((id, audio, name)): Path<(i64, usize, String)>,
+) -> ApiResult<Response> {
+    let (_, key, _, _) = copy_source(&app, &v, id, audio)?;
+    let path = app.copies.part(&app, key, &name)?;
+    let bytes = tokio::fs::read(&path).await?;
+    Ok(([(header::CONTENT_TYPE, "video/mp4"), (header::CACHE_CONTROL, "private, max-age=3600")], bytes).into_response())
+}
+
 // ---------- адаптивный поток HLS ----------
 
 #[derive(Deserialize)]

@@ -31,14 +31,6 @@ export async function toggleWatched(card: Mark) {
   }
 }
 
-/** Меню статуса у карточки — одно на страницу. */
-export const statusMenu = $state<{ card: Card | null; anchor: HTMLElement | null }>({ card: null, anchor: null });
-
-export function openStatus(card: Card, el: HTMLElement) {
-  statusMenu.card = card;
-  statusMenu.anchor = el;
-}
-
 export async function rate(card: Pick<Card, 'id' | 'myRating'>, value: -1 | 1 | 2) {
   const before = card.myRating;
   const next = before === value ? null : value;

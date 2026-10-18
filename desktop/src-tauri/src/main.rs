@@ -27,6 +27,22 @@ struct DesktopHost {
 }
 
 impl Host for DesktopHost {
+    fn update_info(&self) -> Option<fsfy::host::UpdateInfo> {
+        Some(self.app.get()?.state::<update::Updates>().info())
+    }
+
+    fn update_check(&self) {
+        if let Some(app) = self.app.get() {
+            update::from_page(app, false);
+        }
+    }
+
+    fn update_install(&self) {
+        if let Some(app) = self.app.get() {
+            update::from_page(app, true);
+        }
+    }
+
     fn can_pick(&self) -> bool {
         true
     }
