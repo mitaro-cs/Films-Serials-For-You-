@@ -140,6 +140,28 @@ async fn feed_marks_wishes_groups_links() {
     assert_eq!(anna.json("/api/links").await[0]["label"], "Трейлер");
     let detail = anna.json("/api/discover/title/tt0111161").await;
     assert_eq!(detail["links"][0]["label"], "Фильм в VK");
+
+    // Своя страница фильма из ленты: кадр, актёры, кадры и похожие — из базы, без IMDb.
+    let extra = json!({"tagline": "Страх держит в плену", "people": [{"name": "Тим Роббинс", "job": "actor",
+        "role": "Энди", "photo": poster}], "gallery": [poster, ""], "similar": ["tt0903747", "tt0000404"],
+        "countries": ["США"], "poster": poster});
+    app.db
+        .with(|c| {
+            c.execute(
+                "UPDATE ext_titles SET backdrop = ?, extra = ?, detailed = ? WHERE id = 'tt0111161'",
+                rusqlite::params![poster, extra.to_string(), fsfy::discover::DETAILED],
+            )
+        })
+        .unwrap();
+    let page = anna.json("/api/discover/title/tt0111161").await;
+    assert_eq!(page["backdrop"], format!("/img/{poster}"));
+    assert_eq!(page["posterLarge"], format!("/img/{poster}"));
+    assert_eq!(page["tagline"], "Страх держит в плену");
+    assert_eq!(page["people"][0]["photo"], format!("/img/{poster}"));
+    assert_eq!(page["gallery"], json!([format!("/img/{poster}")]), "пустые имена — мимо");
+    assert_eq!(page["similar"].as_array().unwrap().len(), 1, "неизвестный id — мимо");
+    assert_eq!(page["similar"][0]["title"], "Во все тяжкие");
+    assert_eq!(page["countries"], json!(["США"]));
     let lid2 = link["id"].as_i64().unwrap();
     let mut boris = Client::new(public.clone());
     boris.send("POST", "/api/auth/register", json!({"name": "Б", "login": "boris", "password": "пароль-12345"})).await;

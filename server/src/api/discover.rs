@@ -111,48 +111,53 @@ pub async fn search(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<Sear
     Ok(Json(json!(out)))
 }
 
-/// Карточка фильма из ленты: описание (из IMDb, один раз), мои списки, ссылки на видео.
+/// Страница фильма из ленты: описание, кадр, актёры, кадры и похожие (с IMDb, один раз —
+/// дальше из базы), мои списки, ссылки на видео.
 pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     if !discover::valid_id(&id) {
         return Err(ApiError::not_found());
     }
-    let known: Option<bool> =
+    let known: Option<i64> =
         app.db.with(|c| c.query_row("SELECT detailed FROM ext_titles WHERE id = ?", [&id], |r| r.get(0)).optional())?;
-    if known != Some(true) {
-        if let Ok(d) = Imdb::new(app.http.clone()).details(&id, &[]).await {
-            let e = discover::Ext {
-                id: id.clone(),
-                series: d.series,
-                title: d.title.clone(),
-                original: d.original.clone(),
-                year: d.year,
-                rating: d.rating,
-                votes: d.votes,
-                genres: d.genres.iter().map(|g| crate::meta::genre_ru(g)).collect(),
-                poster_url: d.poster.clone(),
-            };
-            discover::upsert(&app, &[e])?;
-            app.db.with(|c| {
-                c.execute(
-                    "UPDATE ext_titles SET overview = ?, runtime = ?, detailed = 1 WHERE id = ?",
-                    params![d.overview, d.runtime, id],
-                )
-            })?;
-            let _ = tokio::time::timeout(Duration::from_secs(5), discover::posters_batch(&app, 1)).await;
-        } else if known.is_none() {
+    if known != Some(discover::DETAILED) {
+        let got = tokio::time::timeout(Duration::from_secs(25), discover::detail(&app, &id)).await;
+        if !matches!(got, Ok(Ok(()))) && known.is_none() {
             return Err(ApiError::bad("imdb", "IMDb сейчас не отвечает — попробуйте позже"));
         }
     }
     let card = ext_card(&app, &v, &id)?;
-    let (overview, runtime, votes): (Option<String>, Option<i64>, Option<i64>) = app.db.with(|c| {
-        c.query_row("SELECT overview, runtime, votes FROM ext_titles WHERE id = ?", [&id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    type Row = (Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>);
+    let (overview, runtime, votes, backdrop, extra): Row = app.db.with(|c| {
+        c.query_row("SELECT overview, runtime, votes, backdrop, extra FROM ext_titles WHERE id = ?", [&id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })
     })?;
+    let x: Value = extra.and_then(|e| serde_json::from_str(&e).ok()).unwrap_or(Value::Null);
+    let img = |v: &Value| v.as_str().filter(|n| !n.is_empty()).map(|n| format!("/img/{n}"));
+    let people: Vec<Value> = x["people"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| json!({"name": p["name"], "job": p["job"], "role": p["role"], "photo": img(&p["photo"])}))
+        .collect();
+    let gallery: Vec<String> = x["gallery"].as_array().into_iter().flatten().filter_map(img).collect();
+    let similar = ext_cards(
+        &app,
+        &v,
+        "e.id IN (SELECT value FROM json_each(?2))",
+        "(SELECT key FROM json_each(?2) j WHERE j.value = e.id)",
+        &[&x["similar"].to_string()],
+    )?;
     let local: Vec<Card> =
         card.local.map(|t| cards_by_ids(&app, v.profile.kids, &[t])).transpose()?.unwrap_or_default();
+    let list = |k: &str| x[k].as_array().cloned().unwrap_or_default();
     Ok(Json(json!({
         "card": card, "overview": overview, "runtime": runtime, "votes": votes,
+        "backdrop": crate::api::img(backdrop.filter(|b| !b.is_empty())),
+        "posterLarge": img(&x["poster"]),
+        "tagline": x["tagline"], "age": x["age"], "releaseDate": x["releaseDate"],
+        "countries": list("countries"), "languages": list("languages"), "aka": list("aka"),
+        "people": people, "gallery": gallery, "similar": similar,
         "localCard": local.first(),
         "lists": super::lists::of_ext(&app, &v, &id)?,
         "links": super::links::of(&app, None, Some(&id))?,

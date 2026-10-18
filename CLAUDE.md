@@ -70,7 +70,8 @@
     (`/api/discover/search`), отметки `ext_marks` (want|watched), просьбы хосту `wishes`
     (`/api/admin/wishes`, значок `badges.wishes`; уходят сами, когда фильм с тем же `imdb_id`
     появился). Фронт — `/discover`, `discover/Poster` (и для фильмов с сервиса: `local`),
-    `PosterRow`, `ExtSheet` (одна на приложение, `openExt`, `extSheet.version` — перезагрузить).
+    `PosterRow`, страница `/ext/[id]` (с 0.6.4 вместо окна; `remember(card)` — показать сразу,
+    `extSheet.version` — перезагрузить списки).
   - Ссылки (0.6, `api/links.rs`): `links` у фильма (`title_id` или `ext_id`), `parse` —
     rutube/vk/youtube → `embed` (iframe; домены — `frame-src` в CSP `web.rs`), прямые
     .mp4/.webm/.m3u8 — наш `<video>` (hls.js лениво). Поиск: Rutube без ключа, VK —
@@ -159,7 +160,7 @@
   (1920 px, миграция 7, `jobs::backdrops_md`), в `Card.backdrop` — он. Сетка коллекции — по 48.
 - Главная (0.6.1): герой на весь экран, `--row` (в `.home`) — высота первого ряда, он лежит на
   кадре (`.rows` с отрицательным отступом); `--hero-tint` на `<html>` красит капсулу разделов.
-- Обзор (0.6.1): `ExtSheet` сам ищет фильм на Rutube/VK (`/api/links/search?min=` — от 40 мин,
+- Обзор (0.6.1): страница `/ext/[id]` сама ищет фильм на Rutube/VK (`/api/links/search?min=` — от 40 мин,
   у сериала от 15, название совпадает); нашёлся или есть ссылки — «Хочу на Nova» не показываем.
 - Движение (0.6.2): `.page`/`.home` — `page-in`, `main.leaving` — гаснет 120 мс в `onNavigate`
   (+layout), `.rise` + `--i` — лесенка рядов и карточек (`Shelf`/`PosterRow`/`Wide`/`Poster` с `i`),
@@ -179,3 +180,8 @@
   вверх на фоне всей страницы, `page`; `.narrow` — свой слой и появление без transform), `image` — своя. Убрать оценку — `DELETE /api/titles/{id}/stars`.
 - e2e, которые меняют дружбу или статусы, заводят своего человека (`stranger()`) или
   сбрасывают состояние (`resetStatuses`): проекты phone/tablet/desktop идут подряд на одних данных.
+- Страница фильма из IMDb (0.6.4, миграция 9): `discover::detail` один раз (`ext_titles.detailed` =
+  `DETAILED`) берёт описание, `moreLikeThisTitles` (похожие) и качает к себе большой постер, кадр
+  (`ext_titles.backdrop`), фото актёров и кадры — всё в JSON `ext_titles.extra` (имена картинок).
+  Раскладка — как у `title/[id]` (стили скопированы: общий глобальный CSS протекал бы в
+  `Reviews`, `LinkCard` и окна). Обе страницы — до 1440 px шириной.

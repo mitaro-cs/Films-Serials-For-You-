@@ -28,6 +28,18 @@ const CHART: &str = r#"query C($chart: ChartTitleType!) { chartTitles(first: 250
   } }
 } }"#;
 
+const SIMILAR: &str = r#"query S($id: ID!) { title(id: $id) { moreLikeThisTitles(first: 12) {
+  edges { node {
+    id titleText { text } originalTitleText { text } titleType { id isSeries }
+    releaseYear { year } ratingsSummary { aggregateRating voteCount }
+    primaryImage { url } genres { genres { text } }
+  } }
+} } }"#;
+
+/// Описание фильма из ленты в нынешнем виде (`ext_titles.detailed`): 1 — только сюжет (0.6),
+/// 2 — со своей страницей: кадр, актёры, кадры, похожие.
+pub const DETAILED: i64 = 2;
+
 const EVERY: Duration = Duration::from_secs(12 * 3600);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -196,6 +208,27 @@ pub async fn posters_batch(app: &Arc<App>, limit: i64) -> usize {
             r.collect()
         })
         .unwrap_or_default();
+    fetch_posters(app, todo).await
+}
+
+/// Постеры именно этих фильмов (ещё не скачанные).
+pub async fn posters_of(app: &Arc<App>, ids: &[String]) -> usize {
+    let list = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+    let todo: Vec<(String, String)> = app
+        .db
+        .with(|c| {
+            let mut st = c.prepare(
+                "SELECT id, poster_url FROM ext_titles WHERE poster IS NULL AND poster_url IS NOT NULL
+                   AND id IN (SELECT value FROM json_each(?))",
+            )?;
+            let r = st.query_map([list], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            r.collect()
+        })
+        .unwrap_or_default();
+    fetch_posters(app, todo).await
+}
+
+async fn fetch_posters(app: &Arc<App>, todo: Vec<(String, String)>) -> usize {
     let jobs = todo.iter().map(|(id, url)| async move {
         // Не вышло — помечаем пустой строкой, чтобы не пробовать по кругу.
         let name = app.images.download(url).await.unwrap_or_default();
@@ -203,6 +236,70 @@ pub async fn posters_batch(app: &Arc<App>, limit: i64) -> usize {
     });
     futures_util::future::join_all(jobs).await;
     todo.len()
+}
+
+/// Картинка к себе (не дольше 8 с); не вышло — без неё.
+async fn grab(app: &App, url: Option<&str>) -> Option<String> {
+    let url = url?;
+    tokio::time::timeout(Duration::from_secs(8), app.images.download(url)).await.ok()?.ok()
+}
+
+/// Всё для страницы фильма из ленты — один раз: описание с IMDb, большой постер, кадр, актёры с
+/// фото, кадры и похожие (с постерами). Картинки качаются вместе, браузер получит их у нас.
+pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
+    let imdb = Imdb::new(app.http.clone());
+    let d = imdb.details(id, &[]).await?;
+    let similar = match imdb.data(SIMILAR, json!({ "id": id }), "title").await {
+        Ok(v) => parse_chart(&v["moreLikeThisTitles"]),
+        Err(_) => vec![],
+    };
+    let e = Ext {
+        id: id.to_string(),
+        series: d.series,
+        title: d.title.clone(),
+        original: d.original.clone().filter(|o| *o != d.title),
+        year: d.year,
+        rating: d.rating,
+        votes: d.votes,
+        genres: d.genres.clone(),
+        poster_url: d.poster.as_deref().map(|u| sized(u, 342)),
+    };
+    let similar: Vec<Ext> = similar.into_iter().filter(|s| s.id != id).collect();
+    upsert(app, &similar)?;
+    upsert(app, std::slice::from_ref(&e))?;
+
+    let people: Vec<_> = d.people.iter().take(16).collect();
+    let (poster, backdrop, gallery, photos, _) = tokio::join!(
+        grab(app, d.poster.as_deref()),
+        grab(app, d.backdrop.as_deref()),
+        futures_util::future::join_all(d.gallery.iter().take(6).map(|u| grab(app, Some(u)))),
+        futures_util::future::join_all(people.iter().map(|p| grab(app, p.photo.as_deref()))),
+        async {
+            let ids: Vec<String> = similar.iter().map(|s| s.id.clone()).chain([e.id.clone()]).collect();
+            posters_of(app, &ids).await
+        },
+    );
+    let extra = json!({
+        "tagline": d.tagline,
+        "age": d.age,
+        "countries": d.countries,
+        "languages": d.languages,
+        "releaseDate": d.release_date,
+        "aka": d.aka,
+        "poster": poster,
+        "people": people.iter().zip(photos).map(|(p, photo)| json!({
+            "name": p.name, "job": p.job, "role": p.role, "photo": photo,
+        })).collect::<Vec<_>>(),
+        "gallery": gallery.into_iter().flatten().collect::<Vec<_>>(),
+        "similar": similar.iter().map(|s| &s.id).collect::<Vec<_>>(),
+    });
+    app.db.with(|c| {
+        c.execute(
+            "UPDATE ext_titles SET overview = ?, runtime = ?, backdrop = ?, extra = ?, detailed = ? WHERE id = ?",
+            params![d.overview, d.runtime, backdrop, extra.to_string(), DETAILED, id],
+        )
+    })?;
+    Ok(())
 }
 
 /// Карточка фильма из ленты для интерфейса.
