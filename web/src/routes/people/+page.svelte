@@ -159,9 +159,7 @@
       transform: translateY(8px);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    li {
-      animation: none;
-    }
+  :global(.no-motion) li {
+    animation: none;
   }
 </style>

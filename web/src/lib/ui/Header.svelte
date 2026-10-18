@@ -344,6 +344,21 @@
     .tabs a.on {
       color: var(--text);
     }
+    /* Значок раздела пружинит при нажатии и подпрыгивает, когда раздел выбран. */
+    .tabs a :global(svg) {
+      transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.6);
+    }
+    .tabs a:active :global(svg) {
+      transform: scale(0.85);
+    }
+    .tabs a.on :global(svg) {
+      animation: tab-pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.6);
+    }
+    @keyframes tab-pop {
+      40% {
+        transform: translateY(-3px) scale(1.12);
+      }
+    }
     .tabs .ic {
       position: relative;
       display: grid;

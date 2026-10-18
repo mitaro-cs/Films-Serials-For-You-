@@ -2,13 +2,13 @@
   import type { Snippet } from 'svelte';
   import Logo from './Logo.svelte';
 
-  // Вход и регистрация: за формой — стена постеров популярного с IMDb, ряды плывут навстречу
-  // друг другу, сверху медленно дышат цветные пятна. Только transform/opacity — видеокарте легко.
-  // Постеров ещё нет (лента не загружалась) — цветные заглушки в том же ритме.
+  // Вход и регистрация: за формой — стена постеров популярного с IMDb, колонки плавно плывут
+  // вверх (каждая со своей скоростью), сверху медленно дышат цветные пятна. Только
+  // transform/opacity — видеокарте легко. Постеров ещё нет — цветные заглушки в том же ритме.
   let { title, subtitle, children }: { title: string; subtitle?: string; children: Snippet } = $props();
 
-  const ROWS = 4;
-  const PER = 12;
+  const COLS = 14;
+  const PER = 6;
   let posters = $state<string[]>([]);
 
   $effect(() => {
@@ -17,20 +17,20 @@
       .then((list: string[]) => (posters = list), () => {});
   });
 
-  // Ряд i — свои постеры по кругу; дважды подряд, чтобы бегущая лента была бесшовной.
-  const rows = $derived(
-    Array.from({ length: ROWS }, (_, r) =>
-      Array.from({ length: PER }, (_, i) => (posters.length ? posters[(r * PER + i * 3 + r) % posters.length] : null)),
+  // Колонка c — свои постеры по кругу; дважды подряд, чтобы бегущая лента была бесшовной.
+  const cols = $derived(
+    Array.from({ length: COLS }, (_, c) =>
+      Array.from({ length: PER }, (_, i) => (posters.length ? posters[(c * PER + i * 5 + c) % posters.length] : null)),
     ),
   );
 </script>
 
 <div class="shell">
   <div class="wall" aria-hidden="true">
-    {#each rows as row, r (r)}
-      <div class="row" class:rev={r % 2 === 1} style:--speed="{70 + r * 12}s">
+    {#each cols as col, r (r)}
+      <div class="col" style:--speed="{60 + ((r * 17) % 5) * 9}s" style:--delay="{-((r * 23) % 40)}s">
         {#each [0, 1] as half (half)}
-          {#each row as src, i (`${half}-${i}`)}
+          {#each col as src, i (`${half}-${i}`)}
             <span class="tile" style:--h={(r * 61 + i * 37) % 360}>
               {#if src}<img {src} alt="" decoding="async" width="342" height="513" />{/if}
             </span>
@@ -66,10 +66,10 @@
   /* Стена: наклонённые ряды постеров на весь экран. */
   .wall {
     position: absolute;
-    inset: -30% -20%;
+    inset: -40% -15%;
     z-index: -3;
-    display: grid;
-    align-content: center;
+    display: flex;
+    justify-content: center;
     gap: 18px;
     transform: rotate(-12deg);
     opacity: 0;
@@ -80,18 +80,18 @@
       opacity: 0.55;
     }
   }
-  .row {
+  /* Колонки плывут вверх, каждая своей скоростью и со своего места — стена «живая». */
+  .col {
     display: flex;
+    flex-direction: column;
     gap: 18px;
-    width: max-content;
+    height: max-content;
     animation: drift var(--speed) linear infinite;
-  }
-  .row.rev {
-    animation-direction: reverse;
+    animation-delay: var(--delay);
   }
   @keyframes drift {
     to {
-      transform: translateX(-50%);
+      transform: translateY(-50%);
     }
   }
   .tile {
@@ -184,10 +184,7 @@
     margin-top: 24px;
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .row,
-    .glow {
-      animation-name: none !important;
-    }
+  :global(.no-motion) :is(.col, .glow) {
+    animation-name: none !important;
   }
 </style>

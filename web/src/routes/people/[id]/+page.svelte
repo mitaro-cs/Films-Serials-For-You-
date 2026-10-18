@@ -5,7 +5,7 @@
   import { ago } from '$lib/fmt';
   import Poster from '$lib/discover/Poster.svelte';
   import FriendButton from '$lib/social/FriendButton.svelte';
-  import PosterRibbon from '$lib/social/PosterRibbon.svelte';
+  import PosterWall from '$lib/social/PosterWall.svelte';
   import ProfileStats from '$lib/social/ProfileStats.svelte';
   import StarsShow from '$lib/social/StarsShow.svelte';
   import type { Card, MiniTitle, Person, ProfileDecor, ProfileStats as Stats, Relation } from '$lib/types';
@@ -39,13 +39,15 @@
   {#if error}
     <div class="empty"><Icon name="info" size={36} /> {error}</div>
   {:else if p}
-    <div class="cover" style:--acc={p.decor.accent ?? '#3a3a3c'}>
-      {#if p.decor.coverKind === 'image' && p.decor.cover}
+    {#if p.decor.coverKind === 'image' && p.decor.cover}
+      <div class="cover" style:--acc={p.decor.accent ?? '#3a3a3c'}>
         <img use:fadeIn src={p.decor.cover} alt="" decoding="async" />
-      {:else}
-        <PosterRibbon posters={p.decor.ribbon} accent={p.decor.accent} />
-      {/if}
-    </div>
+      </div>
+    {:else}
+      <!-- Фон всей страницы — постеры просмотренного плывут вверх; сверху — пустое место под имя. -->
+      <PosterWall posters={p.decor.ribbon} accent={p.decor.accent} page />
+      <div class="cover open"></div>
+    {/if}
     <header class="head">
       <span class="ring" style:--acc={p.decor.accent ?? 'transparent'}><Avatar avatar={p.person.avatar} photo={p.person.photo} size={112} /></span>
       <div class="who">
@@ -131,9 +133,19 @@
 </div>
 
 <style>
+  /* Свой слой (z-index 0): фон-стена с z-index -1 лежит под содержимым, но над фоном body.
+     Появление — только прозрачностью: transform сдвинул бы position: fixed у стены. */
   .narrow {
+    position: relative;
+    z-index: 0;
     max-width: 880px;
     margin: 0 auto;
+    animation-name: fade-in;
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
   }
   /* Обложка: своя картинка или мягкий градиент своего цвета; аватар заходит на её край. */
   .cover {
@@ -145,6 +157,9 @@
     background:
       radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--acc) 80%, transparent), transparent 60%),
       linear-gradient(135deg, color-mix(in srgb, var(--acc) 45%, #111), #111);
+  }
+  .cover.open {
+    background: none;
   }
   .cover img {
     position: absolute;

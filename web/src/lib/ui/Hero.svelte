@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { motionOn } from '$lib/motion';
   import { fade, fly } from 'svelte/transition';
   import type { Card } from '$lib/types';
   import Icon from './Icon.svelte';
@@ -12,7 +13,7 @@
   let at = $state(0);
   let paused = $state(false);
   const cur = $derived(items[Math.min(at, items.length - 1)]);
-  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const still = typeof localStorage !== 'undefined' && !motionOn();
 
   $effect(() => {
     if (items.length < 2 || paused || still) return;

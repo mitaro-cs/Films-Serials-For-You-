@@ -362,13 +362,47 @@ select.input option {
 /* Страница появляется мягко — при каждом переходе. */
 .page,
 .home {
-  animation: page-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: page-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 @keyframes page-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(16px);
   }
+}
+/* Карточки-панели (профиль, управление, списки) всплывают по очереди. */
+.pane {
+  animation: rise-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.pane:nth-child(2) {
+  animation-delay: 60ms;
+}
+.pane:nth-child(3) {
+  animation-delay: 120ms;
+}
+.pane:nth-child(4) {
+  animation-delay: 180ms;
+}
+.pane:nth-child(n + 5) {
+  animation-delay: 240ms;
+}
+/* Кнопки и капсулы чуть приподнимаются под мышью и пружинят при нажатии. */
+.btn,
+.chip {
+  transition:
+    background 0.2s,
+    color 0.2s,
+    transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+@media (hover: hover) {
+  .btn:hover:not(:disabled),
+  .chip:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+.btn:active:not(:disabled),
+.chip:active:not(:disabled) {
+  transform: scale(0.95);
 }
 /* Ряды и карточки — лесенкой, сверху вниз и слева направо (--i — номер). */
 .rise {
@@ -378,7 +412,7 @@ select.input option {
 @keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(22px);
   }
 }
 /* Значок пустого экрана чуть покачивается. */
@@ -391,14 +425,12 @@ select.input option {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
+.no-motion *,
+.no-motion *::before,
+.no-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
 
 .empty p {

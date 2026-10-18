@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { afterNavigate, goto, onNavigate } from '$app/navigation';
+  import { applyMotion, motionOn } from '$lib/motion';
   import { page } from '$app/state';
   import ExtSheet from '$lib/discover/ExtSheet.svelte';
   import Ask from '$lib/ui/Ask.svelte';
@@ -53,9 +54,10 @@
   // Смена страниц: старая быстро гаснет (120 мс), новая всплывает (.page в app.css). Без View
   // Transitions — те держали снимок экрана, пока грузится новая страница, и всё «тормозило».
   let leaving = $state(false);
+  $effect(() => applyMotion());
   onNavigate((nav) => {
     if (!nav.to || nav.from?.url.pathname === nav.to.url.pathname) return;
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (!motionOn()) return;
     leaving = true;
     return new Promise((r) => setTimeout(r, 120));
   });
