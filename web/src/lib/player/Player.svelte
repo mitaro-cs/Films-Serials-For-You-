@@ -136,7 +136,15 @@
         video.src = `/api/files/${fileId}/raw`;
         return;
       }
-      // Готовая копия у хоста: видео как есть, кусочками HLS — Safari и перемотка работают.
+      if (!nativeHls) {
+        // Chrome, Edge, окно на Windows: поток перепаковки — без ожидания, перемотка — новым потоком.
+        mode = 'remux';
+        offset = at;
+        pendingSeek = 0;
+        video.src = remuxUrl(at);
+        return;
+      }
+      // Safari и окно на Mac ходят по Range — им готовая копия у хоста кусочками HLS.
       mode = 'copy';
     } else {
       mode = 'hls';
@@ -163,6 +171,23 @@
       startPosition: at,
       maxBufferLength: 40,
       backBufferLength: 60,
+      // Плейлист у хоста может готовиться несколько секунд (копия, перекодирование).
+      manifestLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 60_000,
+          maxLoadTimeMs: 90_000,
+          timeoutRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 4000 },
+          errorRetry: { maxNumRetry: 3, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+        },
+      },
+      playlistLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 60_000,
+          maxLoadTimeMs: 90_000,
+          timeoutRetry: { maxNumRetry: 2, retryDelayMs: 1000, maxRetryDelayMs: 4000 },
+          errorRetry: { maxNumRetry: 3, retryDelayMs: 1000, maxRetryDelayMs: 8000 },
+        },
+      },
       fragLoadPolicy: {
         default: {
           maxTimeToFirstByteMs: 45_000,
@@ -239,9 +264,9 @@
       return;
     }
     // Браузер не смог сам — адаптивный поток или перепаковка через ffmpeg у хоста.
+    // Без перекодирования, если можно: перекодирование нагружает компьютер хоста.
     if (mode === 'raw' && (info.hls || info.play.remux)) {
       info.play.direct = false;
-      if (info.hls) quality = 'auto';
       load(time);
       return;
     }
@@ -1168,7 +1193,6 @@
     padding: 8px;
     border-radius: 14px;
     background: rgba(20, 20, 22, 0.94);
-    backdrop-filter: blur(14px);
     border: 1px solid var(--line);
   }
   .panel h4 {
@@ -1266,7 +1290,6 @@
     border-radius: 8px;
     border: 1.5px solid rgba(255, 255, 255, 0.8);
     background: rgba(20, 17, 43, 0.75);
-    backdrop-filter: blur(8px);
     color: #fff;
     font-weight: 700;
     font-size: 15px;

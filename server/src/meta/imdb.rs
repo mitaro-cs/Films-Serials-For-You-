@@ -77,6 +77,11 @@ const EPISODES: &str = r#"query E($id: ID!, $season: String!) { title(id: $id) {
 
 impl Imdb {
     async fn gql(&self, query: &str, vars: Value) -> anyhow::Result<Value> {
+        self.data(query, vars, "title").await
+    }
+
+    /// Ответ GraphQL IMDb: `data.<field>` (пробует оба адреса).
+    pub async fn data(&self, query: &str, vars: Value, field: &str) -> anyhow::Result<Value> {
         let mut last = anyhow::anyhow!("IMDb недоступен");
         for url in &self.graphql {
             let res = self
@@ -91,8 +96,8 @@ impl Imdb {
             match res {
                 Ok(r) if r.status().is_success() => {
                     let v: Value = r.json().await?;
-                    if v["data"]["title"].is_object() {
-                        return Ok(v["data"]["title"].clone());
+                    if v["data"][field].is_object() {
+                        return Ok(v["data"][field].clone());
                     }
                     last = anyhow::anyhow!("IMDb: {}", v["errors"][0]["message"].as_str().unwrap_or("пустой ответ"));
                 }

@@ -46,7 +46,7 @@
   <div class="ver">
     <img src="/logo.svg" alt="" width="64" height="33" />
     <div>
-      <b>Films &amp; Serials For You</b>
+      <b>Nova</b>
       <span class="muted">Версия {status.version}</span>
     </div>
   </div>

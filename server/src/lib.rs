@@ -1,4 +1,4 @@
-//! Films & Serials For You — домашний кинотеатр: сервер раздаёт фильмы и сериалы с компьютера
+//! Nova (внутреннее имя — fsfy, бывший «Films & Serials For You») — домашний кинотеатр: сервер раздаёт фильмы и сериалы с компьютера
 //! хоста, интерфейс — в браузере у зрителей и в окне приложения у хоста.
 
 pub mod access;
@@ -7,12 +7,14 @@ pub mod auth;
 pub mod cloudpub;
 pub mod copy;
 pub mod db;
+pub mod discover;
 pub mod error;
 pub mod hls;
 pub mod host;
 pub mod images;
 pub mod library;
 pub mod meta;
+pub mod release;
 pub mod stream;
 pub mod taste;
 pub mod util;
@@ -30,7 +32,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{Notify, Semaphore};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const NAME: &str = "Films & Serials For You";
+pub const NAME: &str = "Nova";
 pub const DEFAULT_PORT: u16 = 17480;
 pub const DEFAULT_WINDOW_PORT: u16 = 17481;
 
@@ -48,6 +50,9 @@ pub struct App {
     pub meta_kick: Notify,
     pub meta_state: Mutex<meta::MetaState>,
     pub probe_kick: Notify,
+    /// Лента IMDb: обновить подборки / докачать постеры.
+    pub discover_kick: Notify,
+    pub posters_kick: Notify,
     pub access: access::Access,
     pub login_limit: auth::Limiter,
     pub signup_limit: auth::Limiter,
@@ -187,6 +192,8 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         meta_kick: Notify::new(),
         meta_state: Mutex::default(),
         probe_kick: Notify::new(),
+        discover_kick: Notify::new(),
+        posters_kick: Notify::new(),
         access: access::Access::default(),
         login_limit: auth::Limiter::new(10, 10 * 60 * 1000),
         signup_limit: auth::Limiter::new(5, 10 * 60 * 1000),
@@ -209,6 +216,8 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
     tokio::spawn(cleanup(app.clone()));
     tokio::spawn(hls::janitor(app.clone()));
     tokio::spawn(copy::janitor(app.clone()));
+    tokio::spawn(discover::worker(app.clone()));
+    tokio::spawn(discover::posters(app.clone()));
     access::Access::restart(&app);
 
     let router = api::router(app.clone());

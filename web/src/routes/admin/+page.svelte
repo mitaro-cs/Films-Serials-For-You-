@@ -9,6 +9,8 @@
   import People from '$lib/admin/People.svelte';
   import Settings from '$lib/admin/Settings.svelte';
   import Version from '$lib/admin/Version.svelte';
+  import Wishes from '$lib/admin/Wishes.svelte';
+  import { badges } from '$lib/social/badges.svelte';
   import type { Status } from '$lib/admin/types';
   import { session } from '$lib/session.svelte';
   import Icon from '$lib/ui/Icon.svelte';
@@ -19,6 +21,7 @@
     ['folders', 'Папки', 'folder'],
     ['catalog', 'Каталог', 'film'],
     ['people', 'Люди', 'users'],
+    ['wishes', 'Просьбы', 'flag'],
     ['access', 'Доступ', 'globe'],
     ['settings', 'Настройки', 'sliders'],
     ['version', 'Версия', 'download'],
@@ -45,6 +48,7 @@
         <a href="?tab={id}" class:on={tab === id} data-sveltekit-replacestate data-sveltekit-noscroll>
           <span class="ic"><Icon name={icon} size={18} /></span>{label}
           {#if id === 'version' && status?.update?.state === 'available'}<i class="new" aria-label="есть обновление"></i>{/if}
+          {#if id === 'wishes' && badges.wishes}<i class="new" aria-label="есть просьбы"></i>{/if}
         </a>
       {/each}
     </nav>
@@ -56,6 +60,7 @@
       {:else if tab === 'folders'}<Folders {status} window={!!session.me?.window} {reload} />
       {:else if tab === 'catalog'}<Catalog />
       {:else if tab === 'people'}<People />
+      {:else if tab === 'wishes'}<Wishes />
       {:else if tab === 'access'}<Access />
       {:else if tab === 'settings'}<Settings />
       {:else if tab === 'version'}<Version {status} {reload} />

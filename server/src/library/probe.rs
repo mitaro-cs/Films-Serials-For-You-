@@ -125,38 +125,40 @@ impl Tools {
     }
 }
 
+/// ffmpeg и ffprobe — всегда ниже обычного приоритета: компьютер хоста — это ещё и чей-то
+/// рабочий компьютер, интерфейс и другие программы не должны тормозить из-за просмотра.
 pub fn command(bin: &Path) -> Command {
+    prioritized(bin, 10, 0x0000_4000) // BELOW_NORMAL_PRIORITY_CLASS
+}
+
+/// Фоновая работа (кадры, картинки): ещё ниже — только когда компьютер свободен.
+pub fn background(bin: &Path) -> Command {
+    prioritized(bin, 19, 0x0000_0040) // IDLE_PRIORITY_CLASS
+}
+
+#[allow(unused_variables)]
+fn prioritized(bin: &Path, nice: u8, class: u32) -> Command {
+    #[cfg(unix)]
+    let mut c = {
+        // `nice` заменяет себя программой (exec): тот же процесс, его и остановим.
+        let tool = Path::new("/usr/bin/nice");
+        if tool.is_file() {
+            let mut c = Command::new(tool);
+            c.args(["-n", &nice.to_string()]).arg(bin);
+            c
+        } else {
+            Command::new(bin)
+        }
+    };
+    #[cfg(not(unix))]
     let mut c = Command::new(bin);
     c.stdin(Stdio::null()).kill_on_drop(true);
     #[cfg(windows)]
     {
-        // Без чёрного окна консоли на каждый запуск.
-        c.creation_flags(0x0800_0000);
+        // Без чёрного окна консоли на каждый запуск (CREATE_NO_WINDOW) и с низким приоритетом.
+        c.creation_flags(0x0800_0000 | class);
     }
     c
-}
-
-/// Фоновая работа (кадры, картинки): низкий приоритет, чтобы не мешать просмотру и не
-/// раскручивать вентилятор. На Mac и Linux — через `nice`, на Windows — класс «ниже среднего».
-pub fn background(bin: &Path) -> Command {
-    #[cfg(unix)]
-    {
-        let nice = Path::new("/usr/bin/nice");
-        if nice.is_file() {
-            let mut c = command(nice);
-            c.args(["-n", "15"]).arg(bin);
-            return c;
-        }
-    }
-    #[cfg(windows)]
-    {
-        let mut c = command(bin);
-        // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
-        c.creation_flags(0x0800_0000 | 0x0000_4000);
-        return c;
-    }
-    #[allow(unreachable_code)]
-    command(bin)
 }
 
 pub async fn probe(ffprobe: &Path, file: &Path) -> anyhow::Result<Probe> {

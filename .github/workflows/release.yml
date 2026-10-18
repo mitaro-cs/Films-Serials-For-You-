@@ -47,7 +47,7 @@ jobs:
           TAG: ${{ steps.v.outputs.tag }}
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" \
-            --title "Films & Serials For You $TAG" \
+            --title "Nova $TAG" \
             --notes "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md." \
             $([[ "$TAG" == *-* ]] && echo --prerelease)
 
@@ -108,7 +108,7 @@ jobs:
           # а упаковщик искал программу в target/release (выпуск 0.1.1 упал так).
           args: --target ${{ matrix.target }} ${{ steps.sign.outputs.extra }}
           tagName: ${{ needs.version.outputs.tag }}
-          releaseName: "Films & Serials For You ${{ needs.version.outputs.tag }}"
+          releaseName: "Nova ${{ needs.version.outputs.tag }}"
           releaseCommitish: ${{ github.sha }}
           releaseBody: "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md."
           releaseDraft: false

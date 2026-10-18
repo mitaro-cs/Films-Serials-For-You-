@@ -10,7 +10,7 @@ const LIMIT = 0.02;
 for (const [path, what] of [
   ['/', 'главная'],
   ['/?tab=movies&status=watched', 'просмотрено'],
-  ['/lists', 'смотрим вместе'],
+  ['/lists', 'списки'],
   ['TITLE', 'страница фильма'],
   ['/people', 'люди'],
   ['CHAT', 'переписка'],

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, errorText, patch, post } from '$lib/api';
+  import { api, del, errorText, patch, post } from '$lib/api';
   import { toast } from '$lib/ui/toast.svelte';
   import { rate, toggleList, toggleWatched } from '$lib/cards.svelte';
   import { count, date, kindLabel, runtime, size, votes } from '$lib/fmt';
@@ -11,7 +11,9 @@
   import ListPicker from '$lib/social/ListPicker.svelte';
   import ShareTitle from '$lib/social/ShareTitle.svelte';
   import StarInput from '$lib/social/StarInput.svelte';
-  import type { FileItem, Person, Review, Reviews as ReviewsData, TitleDetail } from '$lib/types';
+  import LinkCard from '$lib/links/LinkCard.svelte';
+  import LinkFinder from '$lib/links/LinkFinder.svelte';
+  import type { FileItem, Person, Review, Reviews as ReviewsData, TitleDetail, VideoLink } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
@@ -28,6 +30,16 @@
   let sharing = $state(false);
   let picking = $state(false);
   let reviewsBox = $state<ReturnType<typeof Reviews>>();
+  let links = $state<VideoLink[]>([]);
+  let finding = $state(false);
+
+  function loadLinks() {
+    api<VideoLink[]>(`/api/links?titleId=${id}`).then((r) => (links = r), () => {});
+  }
+  async function removeLink(l: VideoLink) {
+    links = links.filter((x) => x !== l);
+    await del(`/api/links/${l.id}`).catch(loadLinks);
+  }
 
   const id = $derived(Number(page.params.id));
 
@@ -41,10 +53,12 @@
     Promise.all([
       api<TitleDetail>(`/api/titles/${want}`),
       api<ReviewsData>(`/api/titles/${want}/reviews`).catch(() => empty),
+      api<VideoLink[]>(`/api/links?titleId=${want}`).catch(() => [] as VideoLink[]),
     ]).then(
-      ([d, r]) => {
+      ([d, r, l]) => {
         if (want !== id) return;
         rv = r;
+        links = l;
         t = d;
         const cur = d.files.find((f) => f.id === d.next?.fileId);
         season = cur?.season ?? d.seasons[0] ?? null;
@@ -291,6 +305,22 @@
       {/if}
     </section>
 
+    <section class="block" aria-labelledby="s-links">
+      <div class="lhead">
+        <h2 id="s-links">Видео по ссылке {#if links.length}<span class="faint">{links.length}</span>{/if}</h2>
+        <button class="btn sm ghost" onclick={() => (finding = true)}><Icon name="link" size={14} /> Добавить</button>
+      </div>
+      {#if links.length}
+        <div class="vlinks">
+          {#each links as l (l.id)}
+            <LinkCard link={l} onremove={session.me?.manage || l.addedBy === session.me?.user.profile?.id ? () => removeLink(l) : undefined} />
+          {/each}
+        </div>
+      {:else}
+        <p class="muted none">Трейлер, другая озвучка или серия с Rutube и VK Видео — вставьте ссылку, видео откроется в плеере Nova.</p>
+      {/if}
+    </section>
+
     {#if t.similar.length}
       <section class="block" aria-labelledby="s-similar">
         <h2 id="s-similar">Похожие</h2>
@@ -362,6 +392,8 @@
   <div class="sk-hero skeleton" aria-busy="true"></div>
 {/if}
 
+{#if t}<LinkFinder bind:open={finding} query={t.card.title} titleId={t.card.id} onadded={loadLinks} />{/if}
+
 <style>
   /* ---------- большой кадр ---------- */
   .hero {
@@ -386,8 +418,6 @@
     padding: 0 14px;
     border-radius: 999px;
     background: rgba(0, 0, 0, 0.45);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
     border: 1px solid rgba(255, 255, 255, 0.18);
     font-size: 13px;
     font-weight: 600;
@@ -412,8 +442,8 @@
     height: 100%;
     object-fit: cover;
     object-position: center 25%;
-    /* Медленное приближение кадра — только transform, без сдвигов. */
-    animation: kenburns 24s ease-out both;
+    /* Кадр проявляется один раз — без долгой анимации (она нагружала видеокарту). */
+    animation: kenburns 0.6s ease-out both;
   }
   .bg::after {
     content: '';
@@ -425,14 +455,7 @@
   }
   @keyframes kenburns {
     from {
-      transform: scale(1.12);
       opacity: 0;
-    }
-    8% {
-      opacity: 1;
-    }
-    to {
-      transform: scale(1);
     }
   }
   .wrap {
@@ -568,8 +591,6 @@
     padding: 14px;
     border-radius: 16px;
     background: rgba(28, 28, 30, 0.72);
-    backdrop-filter: blur(18px) saturate(140%);
-    -webkit-backdrop-filter: blur(18px) saturate(140%);
     border: 1px solid rgba(255, 255, 255, 0.08);
     animation: rise 0.6s 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
@@ -664,6 +685,21 @@
   .block {
     padding: 28px 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .lhead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .vlinks {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+    gap: 18px 16px;
+  }
+  .none {
+    margin: 0;
+    font-size: 14px;
   }
   .block:last-child {
     border-bottom: 0;

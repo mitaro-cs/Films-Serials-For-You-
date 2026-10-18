@@ -4,7 +4,7 @@ import { expectClean, url } from './util';
 // Сама проверка вёрстки должна ловить ошибки, иначе её зелёный цвет ничего не значит.
 test('самопроверка: наложение ловится', async ({ page }) => {
   await page.goto(url('/'));
-  await page.waitForSelector('.wide');
+  await page.waitForSelector('main .wide');
   await page.evaluate(() => {
     const h = document.querySelector('h1')!;
     h.style.marginBottom = '-60px';

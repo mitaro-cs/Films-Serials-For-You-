@@ -75,7 +75,6 @@
     width: min(420px, 100%);
     padding: 34px 30px 30px;
     background: rgba(18, 18, 20, 0.86);
-    backdrop-filter: blur(20px);
     box-shadow: 0 40px 80px -30px rgba(0, 0, 0, 0.8);
   }
   .logo {

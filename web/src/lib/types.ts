@@ -272,7 +272,10 @@ export interface SharedList {
 }
 
 export interface SharedItem {
-  card: Card;
+  /** С сервиса или из ленты IMDb — одно из двух. */
+  card?: Card;
+  ext?: ExtCard;
+  groupId: number | null;
   addedAt: number;
   watchedAt: number | null;
   addedBy: Friend | null;
@@ -284,4 +287,85 @@ export interface SharedListFull {
   mine: boolean;
   members: Friend[];
   items: SharedItem[];
+  groups: { id: number; name: string }[];
+}
+
+/** Фильм или сериал из ленты IMDb (может не быть на сервисе). */
+export interface ExtCard {
+  id: string;
+  kind: Kind;
+  title: string;
+  original: string | null;
+  year: number | null;
+  rating: number | null;
+  poster: string | null;
+  genres: string[];
+  /** Есть на сервисе — id фильма у нас. */
+  local: number | null;
+  mark: 'want' | 'watched' | null;
+  wished: boolean;
+}
+
+export interface ExtDetail {
+  card: ExtCard;
+  overview: string | null;
+  runtime: number | null;
+  votes: number | null;
+  localCard: Card | null;
+  lists: { id: number; name: string; has: boolean }[];
+  links: VideoLink[];
+}
+
+/** Видео по ссылке: Rutube, VK, YouTube (их плеер) или прямой файл (наш). */
+export interface VideoLink {
+  id: number;
+  kind: 'rutube' | 'vk' | 'youtube' | 'direct';
+  url: string;
+  embed: string | null;
+  label: string;
+  thumb: string | null;
+  duration: number | null;
+  titleId: number | null;
+  extId: string | null;
+  addedBy: number | null;
+  author: string;
+  addedAt: number;
+}
+
+/** Найденное на Rutube/VK — ещё не сохранено. */
+export interface FoundVideo {
+  site: 'rutube' | 'vk';
+  url: string;
+  label: string;
+  thumb: string | null;
+  thumbUrl: string | null;
+  duration: number | null;
+  author: string | null;
+}
+
+/** Элемент «Буду смотреть»/«Просмотрел»: с сервиса или из ленты. */
+export interface MarkItem {
+  at: number;
+  card?: Card;
+  ext?: ExtCard;
+}
+
+export interface ProfileStats {
+  hours: number;
+  movies: number;
+  episodes: number;
+  series: number;
+  reviews: number;
+  friends: number;
+  outside: number;
+  watched: number;
+  genres: { genre: string; count: number }[];
+  months: number[];
+}
+
+export interface ProfileDecor {
+  cover: string | null;
+  accent: string | null;
+  bio: string | null;
+  favorites: { key: string; card?: Card; ext?: ExtCard }[];
 }

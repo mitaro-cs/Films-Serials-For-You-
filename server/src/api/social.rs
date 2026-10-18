@@ -360,10 +360,11 @@ pub async fn member(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>)
         let r = st.query_map([id], card)?;
         r.collect()
     })?;
+    let mut stats = super::profile::stats(&app, id, crate::util::now_ms())?;
+    stats["watched"] = json!(m.as_ref().map(|m| m.watched).unwrap_or(watched.len() as i64));
     Ok(Json(json!({
         "person": person, "me": id == me, "relation": m.as_ref().map(|m| m.relation),
-        "stats": {"watched": m.as_ref().map(|m| m.watched).unwrap_or(watched.len() as i64),
-                  "reviews": m.as_ref().map(|m| m.reviews).unwrap_or(reviews.len() as i64)},
+        "stats": stats, "decor": super::profile::decor(&app, &v, id)?,
         "reviews": reviews, "watched": watched,
     })))
 }
@@ -559,7 +560,7 @@ pub async fn send(
 /// Для значков в шапке: просьбы дружбы и непрочитанные сообщения.
 pub async fn badges(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
     if v.profile.kids {
-        return Ok(Json(json!({"requests": 0, "unread": 0})));
+        return Ok(Json(json!({"requests": 0, "unread": 0, "wishes": 0})));
     }
     let me = v.profile.id;
     let (requests, unread): (i64, i64) = app.db.with(|c| {
@@ -572,7 +573,9 @@ pub async fn badges(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Va
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
     })?;
-    Ok(Json(json!({"requests": requests, "unread": unread})))
+    // Хосту и администраторам — сколько фильмов просят добавить.
+    let wishes = if v.manages() { super::discover::open_wishes(&app)? } else { 0 };
+    Ok(Json(json!({"requests": requests, "unread": unread, "wishes": wishes})))
 }
 
 // ---------- фото профиля ----------

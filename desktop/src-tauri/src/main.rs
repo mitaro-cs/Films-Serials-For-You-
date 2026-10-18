@@ -17,7 +17,7 @@ use tauri_plugin_opener::OpenerExt;
 
 mod update;
 
-pub const TITLE: &str = "Films & Serials For You";
+pub const TITLE: &str = "Nova";
 
 #[derive(Default)]
 struct DesktopHost {

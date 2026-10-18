@@ -50,14 +50,21 @@
     {#each TABS as t (t.id)}
       <a href={t.href} class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined}>{t.label}</a>
     {/each}
-    <a href="/lists" class:on={path.startsWith('/lists')}>Вместе</a>
+    <a href="/discover" class:on={path.startsWith('/discover')}>Обзор</a>
+    <a href="/lists" class:on={path.startsWith('/lists')}>Списки</a>
     <a href="/people" class:on={path.startsWith('/people')}>Люди{#if badges.requests}<i class="dot" aria-label="есть просьбы дружбы"></i>{/if}</a>
     <a href="/chats" class:on={path.startsWith('/chats')}>Чаты{#if badges.unread}<i class="num">{badges.unread}</i>{/if}</a>
     <a href="/search" class="find" class:on={path === '/search'} aria-label="Поиск" title="Поиск"><Icon name="search" size={18} /></a>
   </nav>
 
   <div class="right">
+    <a class="round find-m" href="/search" aria-label="Поиск" title="Поиск"><Icon name="search" size={21} /></a>
     {#if session.me?.manage}
+      {#if badges.wishes}
+        <a class="round" href="/admin?tab=wishes" aria-label="Просьбы зрителей: {badges.wishes}" title="Просьбы зрителей">
+          <Icon name="flag" size={20} /><i class="num">{badges.wishes}</i>
+        </a>
+      {/if}
       <a class="round" href="/admin?tab=folders" aria-label="Добавить фильмы" title="Добавить фильмы"><Icon name="plus" size={22} /></a>
     {/if}
     <div class="me">
@@ -74,8 +81,7 @@
           {#if profile}
             <a href="/people/{profile.id}" role="menuitem" onclick={() => (menu = false)}><Icon name="user" size={18} /> Моя страница</a>
           {/if}
-          <a href="/lists" role="menuitem" onclick={() => (menu = false)}><Icon name="users" size={18} /> Смотрим вместе</a>
-          <a href="/profile" role="menuitem" onclick={() => (menu = false)}><Icon name="image" size={18} /> Аккаунт и фото</a>
+          <a href="/profile" role="menuitem" onclick={() => (menu = false)}><Icon name="image" size={18} /> Профиль и оформление</a>
           {#if session.me?.manage}
             <a href="/admin" role="menuitem" onclick={() => (menu = false)}><Icon name="sliders" size={18} /> Управление</a>
           {/if}
@@ -91,15 +97,13 @@
 <!-- Телефон и планшет: главные разделы внизу, под большим пальцем. -->
 <nav class="tabs" aria-label="Разделы">
   <a href="/" class:on={path === '/'}><Icon name="home" size={22} /><span>Главная</span></a>
-  <a href="/search" class:on={path === '/search'}><Icon name="search" size={22} /><span>Поиск</span></a>
+  <a href="/discover" class:on={path.startsWith('/discover')}><Icon name="globe" size={22} /><span>Обзор</span></a>
+  <a href="/lists" class:on={path.startsWith('/lists')}><Icon name="bookmark" size={22} /><span>Списки</span></a>
   <a href="/people" class:on={path.startsWith('/people')}>
     <span class="ic"><Icon name="users" size={22} />{#if badges.requests}<i class="dot"></i>{/if}</span><span>Люди</span>
   </a>
   <a href="/chats" class:on={path.startsWith('/chats')}>
     <span class="ic"><Icon name="mail" size={22} />{#if badges.unread}<i class="num">{badges.unread}</i>{/if}</span><span>Чаты</span>
-  </a>
-  <a href="/profile" class:on={path === '/profile'}>
-    <Avatar avatar={profile?.avatar ?? 0} photo={profile?.photo} size={24} /><span>Аккаунт</span>
   </a>
 </nav>
 
@@ -124,9 +128,7 @@
     position: absolute;
     inset: 0;
     z-index: -1;
-    background: rgba(0, 0, 0, 0.72);
-    backdrop-filter: saturate(160%) blur(20px);
-    -webkit-backdrop-filter: saturate(160%) blur(20px);
+    background: rgba(8, 8, 10, 0.94);
     border-bottom: 1px solid var(--line);
     opacity: 0;
     transition: opacity 0.25s;
@@ -146,9 +148,7 @@
     gap: 2px;
     padding: 5px;
     border-radius: 999px;
-    background: rgba(48, 44, 42, 0.62);
-    backdrop-filter: saturate(180%) blur(24px);
-    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    background: rgba(40, 37, 35, 0.9);
     box-shadow:
       inset 0 0 0 1px rgba(255, 255, 255, 0.08),
       0 8px 30px -10px rgba(0, 0, 0, 0.6);
@@ -214,6 +214,7 @@
     gap: 6px;
   }
   .round {
+    position: relative;
     display: grid;
     place-items: center;
     width: 40px;
@@ -259,7 +260,6 @@
     padding: 6px;
     border-radius: var(--radius);
     background: rgba(28, 28, 30, 0.97);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--line);
     box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.8);
     display: grid;
@@ -304,6 +304,9 @@
   .tabs {
     display: none;
   }
+  .find-m {
+    display: none;
+  }
 
   /* Ниже 1000 px капсула не помещается — разделы в нижней панели (Фильмы и Сериалы —
      капсулой на главной). Одна из двух навигаций видна всегда: e2e проверяет. */
@@ -314,6 +317,9 @@
     .pill {
       display: none;
     }
+    .find-m {
+      display: grid;
+    }
     .tabs {
       position: fixed;
       inset: auto 0 0;
@@ -321,9 +327,7 @@
       display: grid;
       grid-template-columns: repeat(5, 1fr);
       padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
-      background: rgba(0, 0, 0, 0.88);
-      backdrop-filter: saturate(160%) blur(18px);
-      -webkit-backdrop-filter: saturate(160%) blur(18px);
+      background: rgba(8, 8, 10, 0.96);
       border-top: 1px solid var(--line);
       view-transition-name: site-tabs;
     }
@@ -353,7 +357,7 @@
       right: -10px;
     }
   }
-  /* Капсула из семи разделов: на узком компьютере слово рядом со знаком не помещается. */
+  /* Капсула из восьми разделов: на узком компьютере слово рядом со знаком не помещается. */
   @media (max-width: 1240px) {
     .brand :global(.word) {
       display: none;

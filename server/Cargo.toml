@@ -1,6 +1,6 @@
 [package]
 name = "fsfy-server"
-description = "Films & Serials For You — домашний кинотеатр на своём компьютере"
+description = "Nova — домашний кинотеатр на своём компьютере"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

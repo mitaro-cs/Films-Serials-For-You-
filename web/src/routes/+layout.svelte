@@ -2,6 +2,7 @@
   import '../app.css';
   import { goto, onNavigate } from '$app/navigation';
   import { page } from '$app/state';
+  import ExtSheet from '$lib/discover/ExtSheet.svelte';
   import Ask from '$lib/ui/Ask.svelte';
   import Header from '$lib/ui/Header.svelte';
   import Icon from '$lib/ui/Icon.svelte';
@@ -32,7 +33,7 @@
   });
 
   $effect(() => {
-    document.title = session.me?.site.name ?? 'Films & Serials For You';
+    document.title = session.me?.site.name ?? 'Nova';
   });
 
   // Esc никогда не выводит окно приложения на Mac из полноэкранного режима (необработанный Esc
@@ -88,6 +89,7 @@
 
 <Ask />
 <Toasts />
+{#if session.me}<ExtSheet />{/if}
 
 {#if dragging}
   <div class="dropping" aria-hidden="true">
@@ -117,12 +119,15 @@
         <nav aria-label="Ссылки">
           <a href="/?tab=movies">Фильмы</a>
           <a href="/?tab=series">Сериалы</a>
-          <a href="/people">Люди</a><a href="/chats">Чаты</a>
+          <a href="/discover">Обзор</a>
+          <a href="/lists">Списки</a>
+          <a href="/people">Люди</a>
+          <a href="/chats">Чаты</a>
           <a href="/profile">Профиль</a>
         </nav>
       </div>
       <p class="faint">
-        © {new Date().getFullYear()} {session.me.site.name} · фильмы с компьютера {session.me.site.name === 'Films & Serials For You' ? 'хоста' : `«${session.me.site.name}»`} · описания — IMDb · версия {session.me.site.version}
+        © {new Date().getFullYear()} {session.me.site.name} · фильмы с компьютера {session.me.site.name === 'Nova' ? 'хоста' : `«${session.me.site.name}»`} · описания — IMDb · версия {session.me.site.version}
       </p>
     </footer>
   {/if}
@@ -178,7 +183,6 @@
     place-items: center;
     padding: 24px;
     background: rgba(0, 0, 0, 0.72);
-    backdrop-filter: blur(6px);
     animation: fade 0.15s ease-out;
   }
   .dropping div {

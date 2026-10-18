@@ -3,8 +3,11 @@
 pub(crate) mod account;
 mod admin;
 mod catalog;
+mod discover;
+mod links;
 mod lists;
 mod play;
+mod profile;
 mod profiles;
 mod social;
 
@@ -44,6 +47,32 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/titles/{id}/reviews", get(social::reviews).post(social::add_review))
         .route("/api/titles/{id}/lists", get(lists::of_title))
         .route("/api/lists", get(lists::lists).post(lists::create))
+        .route("/api/lists/{id}/ext/{ext}", put(lists::ext_item))
+        .route("/api/lists/{id}/ext/{ext}/watched", put(lists::ext_watched))
+        .route("/api/lists/{id}/groups", post(lists::add_group))
+        .route("/api/lists/{id}/groups/{gid}", patch(lists::rename_group).delete(lists::delete_group))
+        .route("/api/lists/{id}/move", put(lists::move_item))
+        .route("/api/discover", get(discover::feed))
+        .route("/api/discover/search", get(discover::search))
+        .route("/api/discover/chart/{key}", get(discover::chart))
+        .route("/api/discover/title/{id}", get(discover::title))
+        .route("/api/discover/title/{id}/mark", put(discover::mark))
+        .route("/api/discover/title/{id}/wish", put(discover::wish))
+        .route("/api/discover/title/{id}/lists", get(lists::ext_lists))
+        .route("/api/me/marks", get(discover::my_marks))
+        .route("/api/me/profile", patch(profile::set_decor))
+        .route(
+            "/api/me/cover",
+            put(profile::set_cover)
+                .delete(profile::delete_cover)
+                .layer(axum::extract::DefaultBodyLimit::max(crate::images::MAX_IMAGE + 1024)),
+        )
+        .route("/api/admin/wishes", get(discover::wishes))
+        .route("/api/admin/wishes/{id}", delete(discover::dismiss_wish))
+        .route("/api/admin/discover/refresh", post(discover::refresh))
+        .route("/api/links", get(links::list).post(links::add))
+        .route("/api/links/search", get(links::search))
+        .route("/api/links/{id}", get(links::one).delete(links::delete))
         .route("/api/lists/{id}", get(lists::list).patch(lists::rename).delete(lists::delete))
         .route("/api/lists/{id}/members", post(lists::invite))
         .route("/api/lists/{id}/items/{title}", put(lists::item))

@@ -2,11 +2,12 @@
   import { goto } from '$app/navigation';
   import { api, del, errorText, patch, post, put } from '$lib/api';
   import { loadMe, session } from '$lib/session.svelte';
+  import DecorEditor from '$lib/profile/DecorEditor.svelte';
   import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import { toast } from '$lib/ui/toast.svelte';
 
-  // Мой аккаунт: у каждого один — имя, фото или рисованный аватар, пароль.
+  // Мой аккаунт: у каждого один — имя, фото или рисованный аватар, оформление страницы, пароль.
   const me = $derived(session.me);
   const profile = $derived(me?.user.profile);
 
@@ -105,6 +106,8 @@
         </div>
       </div>
     </section>
+
+    <DecorEditor profileId={profile.id} />
 
     {#if !profile.photo}
       <section class="card pane">

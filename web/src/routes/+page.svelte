@@ -61,11 +61,16 @@
     </div>
   {:else if items.length === 0}
     <div class="page empty">
-      <Icon name="film" size={40} />
-      {#if session.me?.manage}
-        Фильмов ещё нет. <a class="btn primary sm" href="/admin?tab=folders">Добавить фильмы</a>
+      <Icon name={tab === 'series' ? 'tv' : 'film'} size={40} />
+      {#if catalog.items?.length}
+        <!-- Во вкладке пусто, а в каталоге что-то есть — не пугаем «ничего нет». -->
+        <p>{tab === 'series' ? 'Сериалов пока нет' : 'Фильмов пока нет'} — загляните в другие разделы.</p>
+        <a class="btn sm" href={tab === 'series' ? '/?tab=movies' : '/?tab=series'}>{tab === 'series' ? 'К фильмам' : 'К сериалам'}</a>
+      {:else if session.me?.manage}
+        <p>Здесь пока пусто.</p>
+        <a class="btn primary sm" href="/admin?tab=folders">Добавить фильмы</a>
       {:else}
-        Здесь пока пусто — хост ещё не добавил фильмы
+        <p>Здесь пока пусто — хост ещё не добавил фильмы.</p>
       {/if}
     </div>
   {:else}
@@ -120,9 +125,7 @@
       gap: 2px;
       padding: 4px;
       border-radius: 999px;
-      background: rgba(48, 44, 42, 0.62);
-      backdrop-filter: saturate(180%) blur(24px);
-      -webkit-backdrop-filter: saturate(180%) blur(24px);
+      background: rgba(40, 37, 35, 0.9);
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     }
     .kinds a {

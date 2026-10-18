@@ -62,8 +62,19 @@ test('совместный список: из фильма — в список �
   await page.getByRole('link', { name: new RegExp(name) }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
   await page.getByRole('button', { name: 'Посмотрели вместе' }).click();
-  await expect(page.getByRole('region', { name: 'Посмотрели вместе' }).getByRole('link', { name: /Дюна/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Удалить' }).click();
+  await expect(page.getByRole('button', { name: 'Не смотрели' })).toBeVisible();
+
+  // Группы: создать и переложить фильм.
+  await page.getByRole('button', { name: 'Новая группа' }).click();
+  const g = page.getByRole('dialog', { name: 'Новая группа' });
+  await g.getByLabel('Название группы').fill('На выходные');
+  await g.getByRole('button', { name: 'Создать' }).click();
+  await page.getByRole('combobox', { name: 'Группа' }).selectOption({ label: 'На выходные' });
+  await expect(page.getByRole('region', { name: 'На выходные' }).getByRole('link', { name: /Дюна/ })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'На выходные' }).getByRole('link', { name: /Дюна/ })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Удалить', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Удалить', exact: true }).click();
   await expect(page).toHaveURL(/\/lists$/);
 });
@@ -85,4 +96,39 @@ test('Esc в плеере — назад в сервис, а не из прил�
   await expect(page.getByRole('button', { name: 'Во весь экран' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(/\/title\//);
+});
+
+test('видео по ссылке: в плеере Nova, Esc — назад', async ({ page }) => {
+  const id = env().ids['Амели'];
+  await page.goto(url(`/title/${id}`));
+  await page.getByRole('region', { name: 'Видео по ссылке' }).getByRole('button', { name: 'Добавить' }).click();
+  const d = page.getByRole('dialog', { name: 'Смотреть по ссылке' });
+  await d.getByLabel('Ссылка или название').fill(`https://example.com/amelie-${test.info().project.name}.mp4`);
+  await d.getByRole('button', { name: 'Смотреть' }).click();
+  await expect(page).toHaveURL(/\/watch\/link\/\d+/);
+  await expect(page.getByRole('button', { name: 'Назад' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page).toHaveURL(new RegExp(`/title/${id}`));
+  await expect(page.getByRole('region', { name: 'Видео по ссылке' }).getByRole('link').first()).toBeVisible();
+});
+
+test('обзор и профиль: поиск IMDb открывается, оформление сохраняется', async ({ page }) => {
+  await page.goto(url('/discover'));
+  await expect(page.getByRole('searchbox', { name: 'Поиск по IMDb' })).toBeVisible();
+  await page.getByRole('button', { name: 'Смотреть по ссылке' }).click();
+  await expect(page.getByRole('dialog', { name: 'Смотреть по ссылке' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await page.goto(url('/profile'));
+  const colors = page.getByRole('radiogroup', { name: 'Цвет профиля' }).getByRole('radio');
+  await colors.nth(3).click();
+  await expect(colors.nth(3)).toHaveAttribute('aria-checked', 'true');
+  await page.getByLabel(/О себе/).fill('Люблю фантастику');
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).first().click();
+  await expect(page.getByText('Сохранено')).toBeVisible();
+  await page.getByRole('link', { name: 'Моя страница' }).click();
+  await expect(page.getByText('Люблю фантастику')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Статистика' })).toBeVisible();
+  await page.goto(url('/profile'));
+  await page.getByRole('radiogroup', { name: 'Цвет профиля' }).getByRole('radio', { name: 'Без цвета' }).click();
 });
