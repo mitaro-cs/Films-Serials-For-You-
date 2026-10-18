@@ -29,14 +29,15 @@ pub struct Person {
     pub photo: Option<String>,
 }
 
-const PERSON_COLS: &str = "p.id, p.name, p.avatar, p.photo";
+pub(super) const PERSON_COLS: &str = "p.id, p.name, p.avatar, p.photo";
 
-fn person(r: &Row, at: usize) -> rusqlite::Result<Person> {
+pub(super) fn person(r: &Row, at: usize) -> rusqlite::Result<Person> {
     Ok(Person { id: r.get(at)?, name: r.get(at + 1)?, avatar: r.get(at + 2)?, photo: img(r.get(at + 3)?) })
 }
 
 /// Профили, видимые в общении: не детские, аккаунт не отключён.
-const SOCIAL: &str = "p.kids = 0 AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled = 0)";
+pub(super) const SOCIAL: &str =
+    "p.kids = 0 AND EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id AND u.disabled = 0)";
 
 fn adult(v: &Viewer) -> ApiResult<()> {
     if v.profile.kids {
@@ -57,7 +58,7 @@ fn social_profile(app: &App, id: i64) -> ApiResult<Person> {
 }
 
 /// Текст: без пустых строк по краям, не длиннее предела.
-fn text(s: &str, max: usize, what: &str) -> ApiResult<String> {
+pub(super) fn text(s: &str, max: usize, what: &str) -> ApiResult<String> {
     let t = s.trim();
     if t.chars().count() > max {
         return Err(ApiError::bad("too_long", format!("{what} — не длиннее {max} символов")));
@@ -108,7 +109,7 @@ fn review(r: &Row, me: i64) -> rusqlite::Result<Review> {
     })
 }
 
-fn title_visible(app: &App, v: &Viewer, id: i64) -> ApiResult<()> {
+pub(super) fn title_visible(app: &App, v: &Viewer, id: i64) -> ApiResult<()> {
     let ok: bool = app.db.with(|c| {
         c.query_row(
             &format!("SELECT EXISTS (SELECT 1 FROM titles t WHERE t.id = ? AND {})", visible(v.profile.kids)),
@@ -256,7 +257,7 @@ pub async fn like_review(
 // ---------- участники и друзья ----------
 
 /// Отношение ко мне: none, friend, incoming (просит дружбы), outgoing (я просил).
-fn relation(app: &App, me: i64, other: i64) -> rusqlite::Result<&'static str> {
+pub(super) fn relation(app: &App, me: i64, other: i64) -> rusqlite::Result<&'static str> {
     app.db.with(|c| {
         let row: Option<(i64, String)> = c
             .query_row(

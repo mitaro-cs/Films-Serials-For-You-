@@ -253,6 +253,36 @@ CREATE TABLE messages (
 CREATE INDEX messages_to ON messages(to_id, read_at);
 CREATE INDEX messages_pair ON messages(min(from_id, to_id), max(from_id, to_id), id);
 "#,
+    // 5 — один аккаунт без профилей; лёгкие кадры для широких карточек
+    r#"
+DELETE FROM profiles WHERE id NOT IN (SELECT MIN(id) FROM profiles GROUP BY user_id);
+UPDATE profiles SET kids = 0, name = (SELECT substr(u.name, 1, 60) FROM users u WHERE u.id = profiles.user_id);
+UPDATE sessions SET profile_id = NULL;
+ALTER TABLE titles ADD COLUMN backdrop_sm TEXT;
+
+-- Совместные списки: «смотрим вместе» — с друзьями, у каждого участника одинаковый.
+CREATE TABLE lists (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  owner_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE list_members (
+  list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  PRIMARY KEY (list_id, profile_id)
+);
+CREATE INDEX list_members_profile ON list_members(profile_id);
+CREATE TABLE list_items (
+  list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+  title_id INTEGER NOT NULL REFERENCES titles(id) ON DELETE CASCADE,
+  added_by INTEGER REFERENCES profiles(id) ON DELETE SET NULL,
+  added_at INTEGER NOT NULL,
+  -- Посмотрели вместе (отмечает любой участник).
+  watched_at INTEGER,
+  PRIMARY KEY (list_id, title_id)
+);
+"#,
 ];
 
 impl Db {
@@ -359,5 +389,28 @@ mod tests {
         })
         .map(|at| assert_eq!(at, 42))
         .unwrap();
+    }
+
+    #[test]
+    fn one_profile_per_account() {
+        let db = Db::memory().unwrap();
+        let sql = MIGRATIONS[4].split("ALTER TABLE titles").next().unwrap();
+        let (n, name, kids, other) = db
+            .with(|c| {
+                c.execute_batch(
+                    "INSERT INTO users (id, login, name, role, created_at) VALUES (1, 'a', 'Анна', 'viewer', 0);
+                     INSERT INTO profiles (id, user_id, name, kids, created_at) VALUES (1, 1, 'Мама', 1, 0), (2, 1, 'Дети', 1, 0);
+                     INSERT INTO titles (id, kind, key, title, added_at, updated_at) VALUES (1, 'movie', 'm', 'M', 0, 0);
+                     INSERT INTO my_list (profile_id, title_id, added_at) VALUES (2, 1, 0);",
+                )?;
+                c.execute_batch(sql)?;
+                c.query_row(
+                    "SELECT COUNT(*), MIN(name), MAX(kids), (SELECT COUNT(*) FROM my_list) FROM profiles",
+                    [],
+                    |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, bool>(2)?, r.get::<_, i64>(3)?)),
+                )
+            })
+            .unwrap();
+        assert_eq!((n, name.as_str(), kids, other), (1, "Анна", false, 0));
     }
 }

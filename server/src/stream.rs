@@ -247,6 +247,27 @@ pub fn play_info(video: &Path, p: Option<&Probe>, has_ffmpeg: bool) -> PlayInfo 
             });
         }
     }
+    let mut audio: Vec<TrackInfo> = p
+        .audio
+        .iter()
+        .map(|a| {
+            let base = a.title.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| {
+                a.lang.as_deref().map(lang_name).unwrap_or_else(|| format!("Дорожка {}", a.index + 1))
+            });
+            let base = match (&a.lang, &a.title) {
+                (Some(l), Some(t)) if !t.is_empty() => format!("{t} · {}", lang_name(l)),
+                _ => base,
+            };
+            TrackInfo {
+                index: a.index,
+                label: format!("{base}{}", channels(a.channels)),
+                lang: a.lang.clone(),
+                default: a.default,
+            }
+        })
+        .collect();
+    distinct(audio.iter_mut().map(|a| &mut a.label));
+    distinct(subs.iter_mut().map(|s| &mut s.label));
     PlayInfo {
         direct: container_ok && (video_ok || hevc) && audio_ok && !(ten_bit && vcodec == "h264"),
         remux: has_ffmpeg,
@@ -255,26 +276,21 @@ pub fn play_info(video: &Path, p: Option<&Probe>, has_ffmpeg: bool) -> PlayInfo 
         duration: p.duration,
         width: p.video.as_ref().map(|v| v.width),
         height: p.video.as_ref().map(|v| v.height),
-        audio: p
-            .audio
-            .iter()
-            .map(|a| {
-                let base = a.title.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| {
-                    a.lang.as_deref().map(lang_name).unwrap_or_else(|| format!("Дорожка {}", a.index + 1))
-                });
-                let base = match (&a.lang, &a.title) {
-                    (Some(l), Some(t)) if !t.is_empty() => format!("{t} · {}", lang_name(l)),
-                    _ => base,
-                };
-                TrackInfo {
-                    index: a.index,
-                    label: format!("{base}{}", channels(a.channels)),
-                    lang: a.lang.clone(),
-                    default: a.default,
-                }
-            })
-            .collect(),
+        audio,
         subs,
+    }
+}
+
+/// Одинаковые подписи (две русские дорожки без названий, файл .srt рядом и дорожка внутри)
+/// различаются номером: «Русский», «Русский 2».
+fn distinct<'a>(labels: impl Iterator<Item = &'a mut String>) {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for l in labels {
+        let n = seen.entry(l.clone()).or_insert(0);
+        *n += 1;
+        if *n > 1 {
+            *l = format!("{l} {n}");
+        }
     }
 }
 
@@ -476,6 +492,18 @@ mod tests {
         p.audio[0].codec = "ac3".into();
         let i = play_info(Path::new("a.mp4"), Some(&p), true);
         assert!(!i.direct && i.remux && !i.transcode);
+    }
+
+    #[test]
+    fn same_labels_get_numbers() {
+        let mut p = Probe { duration: Some(10.0), ..Default::default() };
+        let ru = |index| probe::Track { index, codec: "subrip".into(), lang: Some("rus".into()), ..Default::default() };
+        p.subs = vec![ru(0), probe::Track { lang: Some("eng".into()), ..ru(1) }, ru(2)];
+        p.audio = vec![probe::Track { codec: "aac".into(), lang: Some("rus".into()), ..Default::default() }; 2];
+        let i = play_info(Path::new("a.mkv"), Some(&p), true);
+        let subs: Vec<&str> = i.subs.iter().map(|s| s.label.as_str()).collect();
+        assert_eq!(subs, ["Русский", "English", "Русский 2"]);
+        assert_eq!(i.audio[1].label, "Русский 2");
     }
 
     #[test]

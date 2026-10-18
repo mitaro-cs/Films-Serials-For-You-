@@ -1,56 +1,28 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api } from '$lib/api';
-  import { counts, filter, left, percent, STATUSES, statusOf, TABS, tabOf, TITLES, type Status } from '$lib/library';
+  import { catalog, loadCatalog } from '$lib/catalog.svelte';
+  import { counts, featured, filter, ofTab, shelves, STATUSES, statusOf, TABS, tabOf, type Status } from '$lib/library';
   import { session } from '$lib/session.svelte';
-  import type { Card, Library } from '$lib/types';
+  import Hero from '$lib/ui/Hero.svelte';
   import Icon from '$lib/ui/Icon.svelte';
-  import Ticket from '$lib/ui/Ticket.svelte';
+  import Shelf from '$lib/ui/Shelf.svelte';
+  import Wide from '$lib/ui/Wide.svelte';
 
-  // Главная — каталог-билеты по макету: крупный заголовок раздела, фильтры-капсулы,
-  // «Продолжить» (где остановились) и сетка карточек. Фильтры и поиск — на месте, без запросов.
+  // Главная как у Apple TV: герой-карусель и ряды широких карточек. Фильмы и Сериалы — тот же
+  // вид плюс фильтр по статусу и вся коллекция сеткой. Каталог — один запрос на все вкладки.
   const tab = $derived(tabOf(page.url.searchParams));
   const status = $derived(statusOf(page.url.searchParams));
 
-  let items = $state<Card[] | null>(null);
-  let recent = $state<number[]>([]);
-  let failed = $state(false);
-  let query = $state('');
-  let searching = $state(false);
-  let input = $state<HTMLInputElement>();
-
   $effect(() => {
-    const t = tab;
-    items = null;
-    failed = false;
-    // Поиск — по разделу: на другой вкладке начинаем с чистого листа.
-    query = '';
-    searching = false;
-    api<Library>(`/api/library?tab=${t}`).then(
-      (r) => {
-        if (t !== tab) return;
-        items = r.items;
-        recent = r.recent;
-      },
-      () => (failed = true),
-    );
+    loadCatalog();
   });
 
-  const shown = $derived(items ? filter(items, status, query) : []);
+  const items = $derived(catalog.items ? ofTab(catalog.items, tab) : null);
+  const hero = $derived(items ? featured(items) : []);
+  const rows = $derived(items ? shelves(items, catalog.recent, tab) : []);
   const n = $derived(items ? counts(items) : null);
-  const resume = $derived(
-    status === 'all' && !query && items
-      ? recent.map((id) => items!.find((c) => c.id === id && c.status === 'watching' && c.resume)).filter((c) => !!c)
-      : [],
-  );
-
-  // Выбранный фильтр всегда виден, даже если лента капсул прокручена (узкий телефон).
-  let chips = $state<HTMLDivElement>();
-  $effect(() => {
-    void status;
-    chips?.querySelector<HTMLElement>('.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  });
+  const shown = $derived(items && tab !== 'home' ? filter(items, status) : []);
 
   function setStatus(s: Status) {
     const u = new URL(page.url);
@@ -59,288 +31,199 @@
     goto(u, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
-  function toggleSearch() {
-    searching = !searching;
-    if (searching) queueMicrotask(() => input?.focus());
-    else query = '';
-  }
-
   const EMPTY: Record<Status, string> = {
     all: 'Здесь пока пусто',
-    want: 'Отметьте «Хочу посмотреть» кнопкой на карточке',
+    want: 'Отметьте «Хочу посмотреть» — кнопкой «+» на странице фильма',
     watching: 'Начатого нет — всё досмотрено',
-    watched: 'Досмотренное появится здесь белыми билетами',
+    watched: 'Досмотренное появится здесь',
   };
 </script>
 
-<div class="page">
-  <!-- Ниже 1000 px капсулы в шапке нет — разделы здесь. -->
+<div class="home" class:flat={items !== null && !hero.length}>
+  <!-- Ниже 1000 px капсулы в шапке нет — разделы каталога здесь, поверх кадра. -->
   <nav class="kinds" aria-label="Разделы каталога">
     {#each TABS as t (t.id)}
       <a href={t.href} class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined}>{t.label}</a>
     {/each}
   </nav>
-  <h1>{TITLES[tab]}</h1>
 
-  <div class="filters">
-    <div class="chips" role="tablist" aria-label="Статус" bind:this={chips}>
-      <!-- Капсулы — когда известны числа: иначе они расширятся после загрузки и сдвинут соседей. -->
-      {#if !n}
-        {#each STATUSES as s (s.id)}<span class="chip ph-chip skeleton" aria-hidden="true">{s.label}</span>{/each}
-      {/if}
-      {#each n ? STATUSES : [] as s (s.id)}
-        <button class="chip" class:on={status === s.id} role="tab" aria-selected={status === s.id} onclick={() => setStatus(s.id)}>
-          {s.label}
-          {#if n && n[s.id]}<small>{n[s.id]}</small>{/if}
-        </button>
+  {#if catalog.failed}
+    <div class="page empty"><Icon name="offline" size={40} /> Не удалось загрузить — проверьте связь</div>
+  {:else if items === null}
+    <div class="ph-hero skeleton" aria-busy="true"></div>
+    <div class="rows">
+      {#each Array(2) as _, r (r)}
+        <div class="ph-row">
+          <span class="ph-title skeleton"></span>
+          <div class="ph-cards">{#each Array(6) as _, i (i)}<span class="ph-card skeleton"></span>{/each}</div>
+        </div>
       {/each}
     </div>
-    <div class="find" class:open={searching}>
-      {#if searching}
-        <input bind:this={input} bind:value={query} type="search" placeholder="Название, режиссёр, год" aria-label="Найти в разделе" onkeydown={(e) => e.key === 'Escape' && toggleSearch()} />
+  {:else if items.length === 0}
+    <div class="page empty">
+      <Icon name="film" size={40} />
+      {#if session.me?.manage}
+        Фильмов ещё нет. <a class="btn primary sm" href="/admin?tab=folders">Добавить фильмы</a>
+      {:else}
+        Здесь пока пусто — хост ещё не добавил фильмы
       {/if}
-      <button class="round" aria-label={searching ? 'Закрыть поиск' : 'Найти в разделе'} onclick={toggleSearch}>
-        <Icon name={searching ? 'close' : 'search'} size={19} />
-      </button>
-    </div>
-  </div>
-
-  {#if resume.length}
-    <section class="resume" aria-label="Продолжить просмотр">
-      <h2>Продолжить</h2>
-      <div class="strip">
-        {#each resume as c (c.id)}
-          <a class="go" href="/watch/{c.resume!.fileId}" style:--tint={c.accent ?? '#2c2c2e'}>
-            {#if c.backdrop || c.poster}<img src={c.backdrop ?? c.poster} alt="" loading="lazy" decoding="async" />{/if}
-            <span class="play"><Icon name="play" size={18} /></span>
-            <span class="txt">
-              <b>{c.title}</b>
-              <small>{c.resume!.label || left(c.resume!.position, c.resume!.duration)}</small>
-              {#if c.resume!.label}<small>{left(c.resume!.position, c.resume!.duration)}</small>{/if}
-            </span>
-            <span class="bar"><i style:width="{percent(c.resume!.position, c.resume!.duration)}%"></i></span>
-          </a>
-        {/each}
-      </div>
-    </section>
-  {/if}
-
-  {#if failed}
-    <div class="empty"><Icon name="offline" size={40} /> Не удалось загрузить — проверьте связь</div>
-  {:else if items === null}
-    <div class="grid" aria-busy="true">
-      {#each Array(8) as _, i (i)}<div class="ph skeleton"></div>{/each}
-    </div>
-  {:else if shown.length}
-    <div class="grid">
-      {#each shown as card, i (card.id)}<Ticket {card} eager={i < 8} index={i} />{/each}
     </div>
   {:else}
-    <div class="empty">
-      <Icon name={query ? 'search' : 'film'} size={40} />
-      {#if query}
-        Ничего не нашлось по «{query}»
-      {:else if items.length === 0 && session.me?.manage}
-        Фильмов ещё нет. <a class="btn primary sm" href="/admin?tab=folders">Добавить папку с фильмами</a>
+    {#if hero.length}<Hero items={hero} />{/if}
+
+    <div class="rows">
+      {#if tab === 'home'}
+        {#each rows as row, i (row.key)}<Shelf title={row.title} items={row.items} eager={i < 2} />{/each}
       {:else}
-        {EMPTY[status]}
+        {#each rows.filter((r) => r.key === 'continue') as row (row.key)}<Shelf title={row.title} items={row.items} eager />{/each}
+        <section aria-label="Вся коллекция">
+          <div class="head">
+            <h2>{tab === 'movies' ? 'Все фильмы' : 'Все сериалы'}</h2>
+            <div class="chips" role="tablist" aria-label="Статус">
+              {#each STATUSES as s (s.id)}
+                <button class="chip" class:on={status === s.id} role="tab" aria-selected={status === s.id} onclick={() => setStatus(s.id)}>
+                  {s.label}
+                  {#if n && n[s.id]}<small>{n[s.id]}</small>{/if}
+                </button>
+              {/each}
+            </div>
+          </div>
+          {#if shown.length}
+            <div class="grid">
+              {#each shown as card, i (card.id)}<Wide {card} eager={i < 8} />{/each}
+            </div>
+          {:else}
+            <div class="empty">{EMPTY[status]}</div>
+          {/if}
+        </section>
       {/if}
     </div>
   {/if}
 </div>
 
 <style>
+  .home {
+    min-height: 100dvh;
+    padding-bottom: calc(48px + var(--tabbar));
+  }
   .kinds {
     display: none;
   }
   @media (max-width: 1000px) {
     .kinds {
-      display: inline-flex;
+      position: absolute;
+      z-index: 5;
+      top: calc(var(--header) + env(safe-area-inset-top) + 4px);
+      left: 50%;
+      translate: -50% 0;
+      display: flex;
       gap: 2px;
       padding: 4px;
       border-radius: 999px;
-      background: #1c1c1e;
-      border: 1px solid var(--line);
+      background: rgba(48, 44, 42, 0.62);
+      backdrop-filter: saturate(180%) blur(24px);
+      -webkit-backdrop-filter: saturate(180%) blur(24px);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     }
     .kinds a {
       padding: 6px 16px;
       border-radius: 999px;
-      color: var(--muted);
+      color: rgba(255, 255, 255, 0.82);
       font-size: 14px;
       font-weight: 600;
+      white-space: nowrap;
       transition:
         background 0.2s,
         color 0.2s;
     }
     .kinds a.on {
-      background: #3a3a3c;
-      color: var(--text);
+      background: rgba(235, 235, 240, 0.92);
+      color: #111;
+    }
+    /* Без героя капсула — над содержимым. */
+    .flat .kinds {
+      position: relative;
+      top: auto;
+      left: auto;
+      translate: none;
+      width: max-content;
+      margin: calc(var(--header) + env(safe-area-inset-top) + 4px) auto 0;
     }
   }
-  h1 {
-    font-size: clamp(34px, 6vw, 52px);
-    font-weight: 800;
-    font-style: italic;
-    letter-spacing: -0.03em;
-    margin: 8px 0 18px;
+  /* Ряды «лежат» на нижней части кадра, как у Apple TV. */
+  .rows {
+    position: relative;
+    z-index: 1;
+    margin-top: clamp(-150px, -15vh, -96px);
+    padding: 0 var(--gutter);
   }
-  .filters {
+  .flat .rows {
+    margin-top: 0;
+    padding-top: calc(var(--header) + 24px);
+  }
+  @media (max-width: 1000px) {
+    .flat .rows {
+      padding-top: 20px;
+    }
+  }
+  @media (max-width: 640px) {
+    .rows {
+      margin-top: -64px;
+    }
+  }
+  .head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 10px;
-    margin-bottom: 22px;
-    min-width: 0;
+    justify-content: space-between;
+    gap: 12px 20px;
+    margin-bottom: 16px;
+  }
+  h2 {
+    font-size: clamp(19px, 1.6vw, 24px);
+    font-weight: 700;
   }
   .chips {
     display: flex;
     gap: 8px;
-    flex: 1;
     min-width: 0;
     overflow-x: auto;
-    /* Тень у края — видно, что фильтры листаются. */
-    mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
-    padding-right: 24px;
   }
-  .ph-chip {
-    color: transparent;
-    border-color: transparent;
-    padding-right: 34px;
+  .ph-hero {
+    height: clamp(460px, 78vh, 860px);
+    border-radius: 0;
   }
-  .find {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex: none;
-  }
-  .find.open {
-    flex: 1 1 220px;
-    max-width: 320px;
-    padding-left: 12px;
-    border-radius: 999px;
-    border: 1.5px solid var(--line-strong);
-  }
-  .find input {
-    flex: 1;
-    min-width: 0;
-    height: 34px;
-    border: 0;
-    outline: none;
-    background: transparent;
-  }
-  .find input::-webkit-search-cancel-button {
-    display: none;
-  }
-  .round {
-    display: grid;
-    place-items: center;
-    width: 36px;
-    height: 36px;
-    flex: none;
-    border-radius: 50%;
-    border: 0;
-    background: none;
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .round:hover {
-    color: var(--text);
-  }
-  @media (max-width: 560px) {
-    .filters:has(.find.open) .chips {
-      display: none;
-    }
-    .find.open {
-      max-width: none;
+  @media (max-width: 640px) {
+    .ph-hero {
+      height: clamp(440px, 74vh, 640px);
     }
   }
-
-  .resume {
-    margin-bottom: 26px;
+  .ph-row {
+    margin-bottom: 30px;
   }
-  h2 {
-    font-size: 18px;
-    font-weight: 700;
-    margin-bottom: 12px;
+  .ph-title {
+    display: block;
+    width: 180px;
+    height: 24px;
+    border-radius: 6px;
+    margin-bottom: 14px;
   }
-  .strip {
+  .ph-cards {
     display: grid;
     grid-auto-flow: column;
-    grid-auto-columns: minmax(250px, 300px);
-    gap: 12px;
-    overflow-x: auto;
-    margin: 0 calc(var(--gutter) * -1);
-    padding: 0 var(--gutter) 4px;
-    scroll-snap-type: x proximity;
-    scroll-padding: 0 var(--gutter);
-  }
-  .go {
-    position: relative;
-    display: flex;
-    align-items: flex-end;
-    min-width: 0;
-    height: 120px;
-    border-radius: var(--radius);
+    grid-auto-columns: calc((100% - 4.3 * 18px) / 5.3);
+    gap: 18px;
     overflow: hidden;
-    background: var(--tint);
-    scroll-snap-align: start;
   }
-  .go img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0.55;
+  .ph-card {
+    aspect-ratio: 16 / 9;
+    border-radius: 12px;
   }
-  .go::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(0deg, var(--tint) 10%, transparent 90%);
-  }
-  .play {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    width: 34px;
-    height: 34px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background: #fff;
-    color: #0a0a0a;
-  }
-  .txt {
-    position: relative;
-    display: grid;
-    min-width: 0;
-    padding: 0 14px 16px;
-  }
-  .txt b,
-  .txt small {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .txt small {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.75);
-  }
-  .go .bar {
-    position: absolute;
-    inset: auto 0 0;
-    height: 4px;
-    background: rgba(0, 0, 0, 0.45);
-  }
-  .go .bar i {
-    display: block;
-    height: 100%;
-    background: #fff;
-  }
-
-  .ph {
-    aspect-ratio: 20 / 27;
-    border-radius: var(--radius);
+  @media (max-width: 640px) {
+    .ph-cards {
+      grid-auto-columns: calc((100% - 12px) / 1.75);
+      gap: 12px;
+    }
   }
   .empty :global(.btn) {
     margin-top: 6px;

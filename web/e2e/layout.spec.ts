@@ -4,21 +4,22 @@ import { env, expectClean, url } from './util';
 // Каждая страница на телефоне, планшете и компьютере: без наложений и горизонтальной прокрутки.
 
 const PAGES = [
-  ['/', 'главная — фильмы'],
+  ['/', 'главная'],
+  ['/?tab=movies', 'фильмы'],
   ['/?tab=series', 'сериалы'],
-  ['/?tab=new', 'новое'],
-  ['/?status=want', 'хочу посмотреть'],
-  ['/?status=watching', 'смотрю'],
-  ['/?status=watched', 'просмотрено'],
+  ['/?tab=movies&status=want', 'хочу посмотреть'],
+  ['/?tab=movies&status=watching', 'смотрю'],
+  ['/?tab=movies&status=watched', 'просмотрено'],
   ['/search?q=на', 'поиск'],
   ['/profile', 'аккаунт'],
-  ['/profiles', 'кто смотрит'],
+  ['/lists', 'смотрим вместе'],
   ['/admin', 'управление'],
   ['/admin?tab=folders', 'папки'],
   ['/admin?tab=catalog', 'каталог'],
   ['/admin?tab=people', 'люди'],
   ['/admin?tab=access', 'доступ'],
   ['/admin?tab=settings', 'настройки'],
+  ['/admin?tab=version', 'версия'],
 ] as const;
 
 for (const [path, what] of PAGES) {

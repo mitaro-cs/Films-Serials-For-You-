@@ -1,5 +1,15 @@
+export interface UpdateInfo {
+  state: 'idle' | 'checking' | 'latest' | 'available' | 'downloading' | 'installing' | 'error';
+  latest: string | null;
+  progress: number | null;
+  error: string | null;
+  checkedAt: number | null;
+}
+
 export interface Status {
   version: string;
+  /** null — сервер без приложения (`fsfy serve`): обновлять нечего. */
+  update: UpdateInfo | null;
   titles: number;
   files: number;
   size: number;

@@ -74,6 +74,9 @@ pub fn scan(db: &Db, images: &Images) -> anyhow::Result<ScanStats> {
             _ => None,
         };
         let mut new_files: Vec<(PathBuf, u64, i64)> = Vec::new();
+        // Папка, в которую ещё грузят файлы (`*.part`), — подождёт: иначе первая серия
+        // успела бы стать «фильмом» до прихода остальных.
+        let mut busy: HashMap<PathBuf, bool> = HashMap::new();
         let walker = walkdir::WalkDir::new(&root)
             .follow_links(true)
             .into_iter()
@@ -85,6 +88,12 @@ pub fn scan(db: &Db, images: &Images) -> anyhow::Result<ScanStats> {
             }
             let Ok(meta) = entry.metadata() else { continue };
             let size = meta.len();
+            if let Some(dir) = path.parent() {
+                let uploading = *busy.entry(dir.to_path_buf()).or_insert_with(|| has_part(dir));
+                if uploading && !existing.contains_key(path.to_str().unwrap_or_default()) {
+                    continue;
+                }
+            }
             if is_sample(path, size) {
                 continue;
             }
@@ -140,6 +149,23 @@ pub fn scan(db: &Db, images: &Images) -> anyhow::Result<ScanStats> {
     Ok(stats)
 }
 
+fn has_part(dir: &Path) -> bool {
+    std::fs::read_dir(dir)
+        .is_ok_and(|rd| rd.flatten().any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("part"))))
+}
+
+/// Папка сериала без папок сезонов: в ней не меньше двух видео с номером серии в имени.
+fn numbered_dir(dir: &Path) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else { return false };
+    rd.flatten()
+        .map(|e| e.path())
+        .filter(|p| is_video(p))
+        .filter(|p| p.file_stem().and_then(|s| s.to_str()).is_some_and(super::parse::numbered))
+        .take(2)
+        .count()
+        >= 2
+}
+
 fn add_files(
     db: &Db,
     images: &Images,
@@ -150,9 +176,17 @@ fn add_files(
 ) -> anyhow::Result<()> {
     let now = now_ms();
     let mut art_dirs: Vec<(i64, PathBuf)> = Vec::new();
+    let mut series_dirs: HashMap<PathBuf, bool> = HashMap::new();
     db.tx(|tx| {
         for (path, size, mtime) in &files {
             let rel = path.strip_prefix(root).unwrap_or(path);
+            let force = match (force, path.parent()) {
+                (None, Some(dir)) if dir != root => {
+                    let yes = *series_dirs.entry(dir.to_path_buf()).or_insert_with(|| numbered_dir(dir));
+                    yes.then_some(true)
+                }
+                _ => force,
+            };
             let p = parse(rel, force);
             let kind = if p.is_episode() { "series" } else { "movie" };
             let key = title_key(kind, &p.title, p.year);
@@ -262,5 +296,37 @@ mod tests {
         scan(&db, &images).unwrap();
         let missing: i64 = db.with(|c| c.query_row("SELECT SUM(missing) FROM files", [], |r| r.get(0))).unwrap();
         assert_eq!(missing, 0);
+    }
+
+    #[test]
+    fn numbered_folder_is_a_series_and_waits_for_upload() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("media");
+        let show = root.join("Вольтрон");
+        fs::create_dir_all(&show).unwrap();
+        fs::write(show.join("01. The Rise of Voltron.mkv"), b"x").unwrap();
+        fs::write(show.join("02. The Rise of Voltron Part 2.mkv"), b"x").unwrap();
+        fs::write(show.join("03. Return of the Gladiator.mkv.part"), b"x").unwrap();
+        fs::write(root.join("21 Jump Street.mkv"), b"x").unwrap();
+
+        let db = Db::memory().unwrap();
+        let images = Images::new(dir.path().join("img")).unwrap();
+        lib(&db, &root, "auto");
+        let s = scan(&db, &images).unwrap();
+        assert_eq!(s.added, 1, "папку ещё грузят — ждём");
+
+        fs::rename(show.join("03. Return of the Gladiator.mkv.part"), show.join("03. Return of the Gladiator.mkv"))
+            .unwrap();
+        scan(&db, &images).unwrap();
+        let rows: Vec<(String, String, i64)> = db
+            .with(|c| {
+                let mut st = c.prepare(
+                    "SELECT t.kind, t.title, COUNT(f.id) FROM titles t JOIN files f ON f.title_id = t.id GROUP BY t.id ORDER BY t.title",
+                )?;
+                let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+                r.collect()
+            })
+            .unwrap();
+        assert_eq!(rows, vec![("movie".into(), "21 Jump Street".into(), 1), ("series".into(), "Вольтрон".into(), 3)]);
     }
 }

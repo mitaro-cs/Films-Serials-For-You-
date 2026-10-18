@@ -16,12 +16,19 @@
   - `meta/` — `imdb` (по умолчанию, без ключа: подсказки + GraphQL сайта IMDb, неофициально),
     `tmdb`, `kp`; `apply` скачивает картинки и пишет описание; `worker` — очередь `pending`.
   - `stream` — Range, перепаковка ffmpeg в фрагментированный MP4 (`?t=` — с места), субтитры
-    в WebVTT (cp1251 → UTF-8).
+    в WebVTT (cp1251 → UTF-8); одинаковые подписи дорожек — «Русский 2» (`distinct`).
+  - `copy` (0.5) — «Оригинал» для не-MP4 (H.264 8 бит, HEVC): одна копия ffmpeg `-c:v copy` в
+    HLS из fMP4 (`cache/copy`, ~50–100× быстрее просмотра), `GET /api/files/{id}/copy/{audio}/…`.
+    Не возвращать потоковую перепаковку в плеер: Safari (окно на Mac) ходит по Range, и на каждый
+    запрос стартовал новый ffmpeg — видео обрывалось «Видео не воспроизводится» (0.4).
   - `auth` — Argon2id, сессии (в базе — SHA-256 токена), `Viewer`/`Manager`, `Limiter`.
-    У `Viewer` всегда есть `profile` (сессия помнит выбранный, `sessions.profile_id`); прогресс,
-    `my_list`, `ratings` — по `profile_id`. Детский профиль — `api::visible(kids)` (`KIDS`:
-    `titles.age_min` ≤ 12 или жанры мультфильмов).
+    У `Viewer` всегда есть `profile` — с 0.5 один на аккаунт (`profile_for`: первый по id;
+    миграция 5 удалила лишние). Прогресс, `my_list`, `ratings`, общение — по `profile_id`;
+    имя профиля = имя аккаунта (`PATCH /api/me` меняет оба). `kids` и `api::visible(kids)`
+    остались в коде, но включить детский режим больше нечем.
   - `taste` — вкус профиля: веса жанров → `match_pct`, «не для меня», `age_min()`.
+  - Фоновый ffmpeg — `probe::background` (nice / «ниже среднего»), кадры перемотки — только у
+    начатого, `-threads 1`; перекодирование HLS — `-threads 4`. Иначе Mac хоста гудит часами.
   - `hls` — адаптивный поток: плейлист заранее (кусочки по 6 с), ffmpeg с `-ss`,
     `-force_key_frames` на границах и `-output_ts_offset`; задача на (файл, высота, дорожка),
     `janitor` останавливает убежавшие вперёд и брошенные.
@@ -30,10 +37,11 @@
   - `web.rs` — встроенный интерфейс (rust-embed из `web/build`) и заголовки.
 - `web/` — SvelteKit 2 + Svelte 5 (руны), adapter-static, SPA. `lib/api.ts`, `session.svelte.ts`,
   `ui/` (компоненты), `player/`, `admin/`. Иконки — свои пути в `ui/icons.ts`, без библиотек.
-  - Главная `/` — каталог-билеты по макету (0.3): `?tab=movies|series|new`, `?status=want|watching|watched`,
-    данные — `GET /api/library` (все карточки вкладки, фильтр и поиск — на клиенте, `lib/library.ts`).
-    Карточка — `ui/Ticket.svelte` (низ — `titles.accent`, вырезы — кружки цвета страницы, белый билет —
-    `status = watched`), меню статуса — одно на страницу (`ui/StatusMenu.svelte`, `cards.svelte.ts`).
+  - Главная `/` — как у Apple TV (0.5): `ui/Hero.svelte` (карусель `featured()`, 8 с, свайп,
+    точки), ряды `ui/Shelf.svelte` из `shelves()` (`lib/library.ts`), карточка `ui/Wide.svelte`
+    (кадр 16:9 `backdropSmall` = `titles.backdrop_sm` 640 px, подпись `caption()`).
+    `?tab=movies|series` — тот же вид + фильтр `?status=` и сетка. Каталог — один запрос
+    `GET /api/library` на все вкладки, держится в `lib/catalog.svelte.ts` (обновляется не чаще 15 с).
   - Статусы: «Хочу» = `my_list`; «Смотрю» — есть прогресс; «Просмотрено» — таблица `watched`
     (вручную `PUT /api/titles/{id}/watched` или само: `catalog::mark_if_finished` после досмотра
     всех файлов). Снять «Просмотрено» — стирает прогресс. `Card.resume` — где остановился (только у «Смотрю»).
@@ -47,19 +55,24 @@
     (`account::REGISTRATION_DEFAULT`, `signup_limit` 5 за 10 мин с адреса).
   - Фронт: `lib/social/` (отзывы, звёзды, дружба, чаты, значки — опрос `/api/badges` раз в 30 с),
     страницы `/people`, `/people/[id]`, `/chats`, `/chats/[id]` (опрос `?after=` раз в 3 с).
+  - Совместные списки (0.5, `api/lists.rs`): `lists`, `list_members`, `list_items` (миграция 5),
+    звать — только друзей, менять — всем участникам, удаляет создатель (участник — выходит).
+    Фронт — `/lists`, `/lists/[id]`, `social/ListPicker` («В общий список» на странице фильма).
   - Добавление фильмов (0.4, `library/inbox.rs`): своя папка (`settings media.inbox`, у приложения —
     `Host::media_dir()`), `import()` для перетаскивания в окно (папки — библиотекой, файлы — копия
-    через `*.part`), `PUT /api/admin/upload` потоком, `watch_worker` (notify, тишина 3 с → скан).
+    через `*.part`), `PUT /api/admin/upload` потоком (`folder` — с вложенными, `more=1` — скан
+    после последнего файла), `watch_worker` (notify, тишина 3 с → скан). Скан пропускает папку,
+    где есть `*.part`; папка с ≥2 видео «01. …»/«Серия 5» — сериал (`scan::numbered_dir`).
 - `desktop/src-tauri` — Tauri 2: сервер работает в процессе приложения, окно открывает
   `http://127.0.0.1:<порт окна>/api/host/enter?t=…`, трей, `DesktopHost` (выбор папки).
   `update.rs` — автообновление (tauri-plugin-updater, `latest.json` выпуска, подпись — секрет
   `TAURI_SIGNING_PRIVATE_KEY`, открытый ключ — в tauri.conf.json; без секрета `release.yml`
-  собирает с `no-updater.conf.json`). Перед установкой — `stop_server`.
+  собирает с `no-updater.conf.json`). Перед установкой — `stop_server`. Из окна: «Управление →
+  Версия» (`admin/Version.svelte`) → `POST /api/admin/update/check|install` → `Host::update_*` →
+  `update::from_page` (без системных окон, ход — `UpdateInfo` в `/api/admin/status`).
 - `access` — `cloudpub` (рекомендуемый, `cloudpub.rs`: клиент `clo` по SHA-256, `register` один
   раз → постоянный адрес, `run`; вход почтой/паролем или ключом API, пароль не хранится),
   `fxtunnel`, `custom`, `lan`.
-- Значок — пиксельная хлопушка: `python3 scripts/icon.py png` (SVG/PNG для сайта и `icon-src`),
-  затем `npm run icons` в `desktop/`.
 
 ## Соглашения
 
@@ -74,6 +87,10 @@
 - Права: `Viewer` — вошёл, `Manager` — хост или администратор; назначать администраторов — хост.
 - Никаких `confirm()/alert()`: в окне приложения на Mac (WKWebView) они не показываются —
   `ui/dialogs.svelte.ts`.
+- Esc: `+layout.svelte` всегда `preventDefault` (иначе окно на Mac выходит из полноэкранного
+  режима) и сам закрывает верхний `<dialog>`; в плеере Esc — меню, иначе назад к фильму.
+- Логотип — `web/static/logo.svg` (белый знак, вектор с фото владельца); значки —
+  `node scripts/icons.mjs`, затем `npm run icons` в `desktop/`.
 - Имена файлов не должны совпадать без учёта регистра (`x.svelte.ts` и `X.svelte` — тоже):
   на Mac и Windows импорт находит не тот файл (сборка 0.1.0 так упала). Ловит
   `web/src/lib/paths.test.ts`.
@@ -88,7 +105,8 @@
 - Коммиты — Conventional Commits (`feat:`, `fix:`, …).
 - Ветка `miaro` — основная; владелец поручил Claude вести её самому: работа — в своей ветке →
   PR в `miaro` → зелёная CI (server, web, e2e, desktop) → Claude сливает PR сам (merge commit).
-  Прямо в `miaro` не пушить. Теги выпусков — только по слову владельца.
+  Прямо в `miaro` не пушить. Выпуски (с 0.5) Claude собирает сам: после слияния — тег `vX.Y.Z`
+  на слитый коммит `miaro`, затем проследить `release.yml` до опубликованного выпуска.
 
 ## Проверки перед пушем
 
@@ -105,6 +123,7 @@
 - «Ничего не дёргается»: `e2e/smooth.spec.ts` — CLS < 0,02 на главных страницах. Не показывать
   то, что вырастет после загрузки (числа в капсулах, отзывы — грузить вместе со страницей),
   `main` — не ниже экрана. Анимации — только `transform`/`opacity`.
-- Навигация: ≥1000 px — капсула в шапке, уже — нижняя панель (`--tabbar` — отступ под неё).
+- Навигация: ≥1000 px — капсула в шапке (Главная, Фильмы, Сериалы, Вместе, Люди, Чаты, поиск),
+  уже — нижняя панель (`--tabbar` — отступ под неё) и капсула вкладок поверх героя главной.
 - e2e, которые меняют дружбу или статусы, заводят своего человека (`stranger()`) или
   сбрасывают состояние (`resetStatuses`): проекты phone/tablet/desktop идут подряд на одних данных.

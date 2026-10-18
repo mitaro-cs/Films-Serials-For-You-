@@ -18,6 +18,7 @@ e2e: build      ## Playwright: вёрстка, статусы, скорость 
 
 screenshots: build  ## картинки для README из демо-данных
 	cd web && SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts
+	cd docs/screenshots && python3 -c "import glob,os;from PIL import Image;[(Image.open(p).save(p[:-4]+'.webp',quality=80),os.remove(p)) for p in glob.glob('*.png')]"
 
 lint:
 	cargo fmt --all --check

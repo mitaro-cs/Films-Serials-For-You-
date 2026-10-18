@@ -55,6 +55,7 @@ pub async fn status(State(app): State<Arc<App>>, _m: Manager) -> Out {
     let tools = app.tools.read().clone();
     Ok(Json(json!({
         "version": crate::VERSION,
+        "update": app.host.update_info(),
         "ports": {"public": app.ports.0, "window": app.ports.1},
         "titles": titles, "files": files, "size": size,
         "metaPending": pending, "unprobed": unprobed,
@@ -88,6 +89,9 @@ pub async fn reveal_inbox(State(app): State<Arc<App>>, m: Manager) -> Out {
 pub struct UploadQuery {
     name: String,
     folder: Option<String>,
+    /// Впереди ещё файлы этой загрузки: обход библиотеки — после последнего.
+    #[serde(default)]
+    more: u8,
 }
 
 /// Загрузка файла из браузера в свою папку: потоком на диск (`*.part`), в конце — переименование.
@@ -119,8 +123,26 @@ pub async fn upload(
         return Err(ApiError::bad("upload_failed", format!("Не загрузилось: {e}")));
     }
     tokio::fs::rename(&part, &dst).await?;
-    app.scan_kick.notify_one();
+    if q.more == 0 {
+        app.scan_kick.notify_one();
+    }
     Ok(Json(json!({"ok": true, "size": size, "path": dst.display().to_string()})))
+}
+
+/// «Проверить обновления» и «Обновить» из окна приложения: только хост и только в приложении.
+pub async fn update(State(app): State<Arc<App>>, m: Manager, Path(what): Path<String>) -> Out {
+    if m.0.role != "host" {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "host_only", "Обновляет только хост"));
+    }
+    if app.host.update_info().is_none() {
+        return Err(ApiError::bad("no_updater", "Сервер запущен без приложения — обновите его вручную"));
+    }
+    match what.as_str() {
+        "check" => app.host.update_check(),
+        "install" => app.host.update_install(),
+        _ => return Err(ApiError::not_found()),
+    }
+    Ok(Json(json!({"ok": true, "update": app.host.update_info()})))
 }
 
 pub async fn settings(State(app): State<Arc<App>>, _m: Manager) -> Out {
@@ -563,7 +585,7 @@ pub async fn upload_image(
         .map_err(|e| ApiError::bad("bad_image", e.to_string()))?;
     app.db.with(|c| {
         c.execute(
-            &format!("UPDATE titles SET {col} = ?, poster_sm = CASE WHEN '{col}' = 'poster' THEN NULL ELSE poster_sm END, locked = 1, updated_at = ? WHERE id = ?"),
+            &format!("UPDATE titles SET {col} = ?, poster_sm = CASE WHEN '{col}' = 'poster' THEN NULL ELSE poster_sm END, backdrop_sm = CASE WHEN '{col}' = 'backdrop' THEN NULL ELSE backdrop_sm END, locked = 1, updated_at = ? WHERE id = ?"),
             params![name, now_ms(), id],
         )
     })?;
@@ -693,6 +715,7 @@ pub async fn edit_user(State(app): State<Arc<App>>, m: Manager, Path(id): Path<i
     app.db.tx(|tx| {
         if let Some(n) = &name {
             tx.execute("UPDATE users SET name = ? WHERE id = ?", params![n, id])?;
+            tx.execute("UPDATE profiles SET name = ? WHERE user_id = ?", params![n, id])?;
         }
         if let Some(r) = &b.role {
             tx.execute("UPDATE users SET role = ? WHERE id = ?", params![r, id])?;

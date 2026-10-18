@@ -4,7 +4,7 @@
   import { api } from '$lib/api';
   import type { Card } from '$lib/types';
   import Icon from '$lib/ui/Icon.svelte';
-  import Ticket from '$lib/ui/Ticket.svelte';
+  import Wide from '$lib/ui/Wide.svelte';
 
   const q = $derived(page.url.searchParams.get('q') ?? '');
   let items = $state<Card[] | null>(null);
@@ -42,7 +42,7 @@
   </form>
   {#if items?.length}
     <div class="grid">
-      {#each items as card (card.id)}<Ticket {card} />{/each}
+      {#each items as card (card.id)}<Wide {card} />{/each}
     </div>
   {:else if items}
     <div class="empty"><Icon name="search" size={40} /> По запросу «{q}» ничего нет</div>

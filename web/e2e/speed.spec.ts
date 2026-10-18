@@ -21,16 +21,16 @@ test('главная: код меньше бюджета, без hls.js', async 
   expect(scripts.some((s) => /hls/i.test(s.url))).toBe(false);
 });
 
-test('постеры лёгкие и с ленивой загрузкой', async ({ page }) => {
+test('карточки лёгкие и с ленивой загрузкой', async ({ page }) => {
   await page.goto(url('/'));
-  const imgs = page.locator('article.ticket .art > img');
+  const imgs = page.locator('a.wide .art > img:not(.mark)');
   await expect(imgs.first()).toBeVisible();
   const n = await imgs.count();
-  for (let i = 0; i < n; i++) {
-    const loading = await imgs.nth(i).getAttribute('loading');
-    expect(i < 8 ? loading === 'eager' : loading === 'lazy').toBe(true);
-  }
-  // Лёгкий постер (342 px), а не исходный.
+  let eager = 0;
+  for (let i = 0; i < n; i++) if ((await imgs.nth(i).getAttribute('loading')) === 'eager') eager++;
+  expect(eager, 'сразу грузятся только первые карточки').toBeLessThanOrEqual(10);
+  expect(n - eager, 'остальные — лениво').toBeGreaterThan(0);
+  // Лёгкий кадр, а не исходник: для карточки 640 px хватает.
   const w = await imgs.first().evaluate((i: HTMLImageElement) => i.naturalWidth);
-  expect(w).toBeLessThanOrEqual(342);
+  expect(w).toBeLessThanOrEqual(1280);
 });

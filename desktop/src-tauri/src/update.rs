@@ -2,7 +2,9 @@
 //! tauri.conf.json). Проверка через 20 с после запуска и раз в 6 часов; нашлась новая версия —
 //! пункт в трее и один раз за запуск вопрос «Обновить сейчас?». Перед установкой сайт
 //! выключается как положено (база закрыта), потом приложение перезапускается уже новым.
+//! То же из окна: «Управление → Версия» (состояние — `info`, без системных окон).
 
+use fsfy::host::UpdateInfo;
 use parking_lot::Mutex;
 use std::time::Duration;
 use tauri::menu::MenuItem;
@@ -19,11 +21,33 @@ pub struct Updates {
     item: Mutex<Option<MenuItem<Wry>>>,
     asked: Mutex<bool>,
     busy: Mutex<bool>,
+    info: Mutex<UpdateInfo>,
+}
+
+/// Кто спросил: проверка по расписанию (один раз — окно «Обновить?»), трей (окна всегда) или
+/// страница сайта (без окон: ответ — в `info`).
+#[derive(Clone, Copy, PartialEq)]
+pub enum From {
+    Auto,
+    Menu,
+    Page,
 }
 
 impl Updates {
     pub fn set_item(&self, item: MenuItem<Wry>) {
         *self.item.lock() = Some(item);
+    }
+
+    pub fn info(&self) -> UpdateInfo {
+        let mut i = self.info.lock().clone();
+        if i.state.is_empty() {
+            i.state = "idle".into();
+        }
+        i
+    }
+
+    fn set(&self, f: impl FnOnce(&mut UpdateInfo)) {
+        f(&mut self.info.lock());
     }
 
     fn label(&self, text: &str, enabled: bool) {
@@ -39,19 +63,24 @@ pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(FIRST).await;
         loop {
-            check(&app, false).await;
+            check(&app, From::Auto).await;
             tokio::time::sleep(EVERY).await;
         }
     });
 }
 
-/// `manual` — из меню трея: сообщить и «нет обновлений», и ошибку.
-pub async fn check(app: &AppHandle, manual: bool) {
+/// Из трея — сообщить и «нет обновлений», и ошибку; со страницы — только в `info`.
+pub async fn check(app: &AppHandle, from: From) {
     let u = app.state::<Updates>();
     if *u.busy.lock() {
         return;
     }
+    let manual = from == From::Menu;
     u.label("Проверяем обновления…", false);
+    u.set(|i| {
+        i.state = "checking".into();
+        i.error = None;
+    });
     let found = match app.updater() {
         Ok(up) => up.check().await,
         Err(e) => Err(e),
@@ -60,14 +89,24 @@ pub async fn check(app: &AppHandle, manual: bool) {
         Ok(Some(update)) => {
             let version = update.version.clone();
             u.label(&format!("Обновить до {version}"), true);
+            u.set(|i| {
+                i.state = "available".into();
+                i.latest = Some(version.clone());
+                i.checked_at = Some(fsfy::util::now_ms());
+            });
             *u.found.lock() = Some(update);
             let first = !std::mem::replace(&mut *u.asked.lock(), true);
-            if first || manual {
+            if from != From::Page && (first || manual) {
                 ask(app, &version);
             }
         }
         Ok(None) => {
             u.label("Проверить обновления", true);
+            u.set(|i| {
+                i.state = "latest".into();
+                i.latest = None;
+                i.checked_at = Some(fsfy::util::now_ms());
+            });
             if manual {
                 info(app, &format!("Установлена последняя версия — {}.", app.package_info().version));
             }
@@ -75,6 +114,11 @@ pub async fn check(app: &AppHandle, manual: bool) {
         Err(e) => {
             tracing::warn!(error = %e, "проверка обновлений");
             u.label("Проверить обновления", true);
+            u.set(|i| {
+                i.state = "error".into();
+                i.error = Some("Не удалось проверить — нет связи с GitHub. Попробуйте позже.".into());
+                i.checked_at = Some(fsfy::util::now_ms());
+            });
             if manual {
                 info(app, "Не удалось проверить обновления — нет связи с GitHub. Попробуем позже сами.");
             }
@@ -109,28 +153,66 @@ pub fn menu(app: &AppHandle) {
         if has {
             install(&h).await
         } else {
-            check(&h, true).await
+            check(&h, From::Menu).await
         }
     });
 }
 
-async fn install(app: &AppHandle) {
+/// Со страницы сайта: найдено — ставим, нет — сначала проверяем.
+pub fn from_page(app: &AppHandle, install_now: bool) {
+    let h = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if !install_now || h.state::<Updates>().found.lock().is_none() {
+            check(&h, From::Page).await;
+        }
+        if install_now {
+            install(&h).await;
+        }
+    });
+}
+
+pub async fn install(app: &AppHandle) {
     let u = app.state::<Updates>();
     let Some(update) = u.found.lock().take() else { return };
     *u.busy.lock() = true;
     u.label("Скачиваем обновление…", false);
-    let bytes = match update.download(|_, _| {}, || {}).await {
+    u.set(|i| {
+        i.state = "downloading".into();
+        i.progress = Some(0.0);
+    });
+    let done = std::sync::atomic::AtomicUsize::new(0);
+    let h = app.clone();
+    let bytes = match update
+        .download(
+            move |chunk, total| {
+                let got = done.fetch_add(chunk, std::sync::atomic::Ordering::Relaxed) + chunk;
+                if let Some(t) = total.filter(|t| *t > 0) {
+                    h.state::<Updates>().set(|i| i.progress = Some((got as f32 / t as f32).min(1.0)));
+                }
+            },
+            || {},
+        )
+        .await
+    {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(error = %e, "скачивание обновления");
             *u.busy.lock() = false;
             u.label(&format!("Обновить до {}", update.version), true);
             *u.found.lock() = Some(update);
-            info(app, "Не удалось скачать обновление — проверьте интернет и попробуйте ещё раз из меню.");
+            u.set(|i| {
+                i.state = "error".into();
+                i.progress = None;
+                i.error = Some("Не удалось скачать обновление — проверьте интернет и попробуйте ещё раз.".into());
+            });
             return;
         }
     };
     u.label("Устанавливаем…", false);
+    u.set(|i| {
+        i.state = "installing".into();
+        i.progress = Some(1.0);
+    });
     // Сайт — выключить аккуратно до замены файлов приложения.
     crate::stop_server(app).await;
     if let Err(e) = update.install(bytes) {

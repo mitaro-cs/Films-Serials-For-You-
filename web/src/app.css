@@ -297,10 +297,11 @@ select.input option {
   margin: 0 0 16px;
 }
 
+/* Сетка широких карточек (16:9), как у Apple TV. */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: 20px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 26px 18px;
 }
 @media (max-width: 560px) {
   .grid {

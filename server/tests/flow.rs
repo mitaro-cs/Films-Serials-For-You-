@@ -147,6 +147,19 @@ async fn host_adds_folder_and_viewer_watches() {
     let bytes = mp4.bytes().await.unwrap();
     assert!(bytes.len() > 1000 && &bytes[4..8] == b"ftyp", "фрагментированный MP4");
 
+    // Готовая копия (Safari, окно на Mac): HLS из fMP4 без перекодирования видео, звук — в AAC.
+    let list = viewer.get(&format!("/api/files/{ep}/copy/0/index.m3u8")).await;
+    assert_eq!(list.headers()["content-type"], "application/vnd.apple.mpegurl");
+    let list = list.text().await.unwrap();
+    assert!(list.contains("#EXT-X-START:TIME-OFFSET=0") && list.contains("#EXT-X-MAP:URI=\"init.mp4\""), "{list}");
+    let init = viewer.get(&format!("/api/files/{ep}/copy/0/init.mp4")).await.bytes().await.unwrap();
+    assert_eq!(&init[4..8], b"ftyp");
+    let seg = viewer.get(&format!("/api/files/{ep}/copy/0/s0.m4s")).await;
+    assert_eq!(seg.status(), 200);
+    assert!(seg.bytes().await.unwrap().len() > 500);
+    assert_eq!(viewer.get(&format!("/api/files/{ep}/copy/0/..%2Fx")).await.status(), 404);
+    assert_eq!(viewer.get(&format!("/api/files/{ep}/copy/0/s1x.m4s")).await.status(), 404);
+
     // Досмотрел первую серию — «Продолжить» предлагает вторую.
     let r = viewer.send("PUT", &format!("/api/progress/{ep}"), json!({"position": 3.9, "duration": 4.0})).await;
     assert!(r.status().is_success());

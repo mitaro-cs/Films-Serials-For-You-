@@ -5,6 +5,7 @@ pub mod access;
 pub mod api;
 pub mod auth;
 pub mod cloudpub;
+pub mod copy;
 pub mod db;
 pub mod error;
 pub mod hls;
@@ -57,6 +58,7 @@ pub struct App {
     pub transcode: Arc<Semaphore>,
     pub remux: Arc<Semaphore>,
     pub hls: hls::Hls,
+    pub copies: copy::Copies,
     pub inbox: library::inbox::Inbox,
 }
 
@@ -193,6 +195,7 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         transcode: Arc::new(Semaphore::new(2)),
         remux: Arc::new(Semaphore::new(8)),
         hls: hls::Hls::default(),
+        copies: copy::Copies::default(),
         inbox: library::inbox::Inbox::default(),
     });
     auth::ensure_host(&app)?;
@@ -205,6 +208,7 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
     tokio::spawn(meta::worker(app.clone()));
     tokio::spawn(cleanup(app.clone()));
     tokio::spawn(hls::janitor(app.clone()));
+    tokio::spawn(copy::janitor(app.clone()));
     access::Access::restart(&app);
 
     let router = api::router(app.clone());
