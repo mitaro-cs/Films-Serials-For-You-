@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-const HELP: &str = "Films & Serials For You — домашний кинотеатр
+const HELP: &str = "Nova — домашний кинотеатр
 
 Использование:
   fsfy serve [--data КАТАЛОГ] [--port ПОРТ] [--window-port ПОРТ]

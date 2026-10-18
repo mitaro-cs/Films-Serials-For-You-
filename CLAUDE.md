@@ -1,9 +1,10 @@
-# Films & Serials For You — заметки для Claude Code
+# Nova (бывший Films & Serials For You) — заметки для Claude Code
 
 Домашний кинотеатр: приложение хоста (Mac, Windows) раздаёт фильмы и сериалы со своего диска,
 зрители смотрят в браузере. Всё на русском: интерфейс, документация, ошибки API.
-Видимое имя — «Films & Serials For You»; внутреннее — `fsfy` (крейт, бинарник, `app.fsfy` —
-каталог данных, cookie `fsfy_*`, заголовок `X-Fsfy`). Внутренние имена не менять — сломаются данные.
+Видимое имя — «Nova» (с 0.6, выбор владельца; `productName` приложения — тоже, `identifier`
+остался `app.fsfy`); внутреннее — `fsfy` (крейт, бинарник, `app.fsfy` — каталог данных, cookie
+`fsfy_*`, заголовок `X-Fsfy`). Внутренние имена не менять — сломаются данные.
 
 ## Устройство
 
@@ -21,13 +22,17 @@
     HLS из fMP4 (`cache/copy`, ~50–100× быстрее просмотра), `GET /api/files/{id}/copy/{audio}/…`.
     Не возвращать потоковую перепаковку в плеер: Safari (окно на Mac) ходит по Range, и на каждый
     запрос стартовал новый ffmpeg — видео обрывалось «Видео не воспроизводится» (0.4).
+    Копия — только там, где HLS родной (Safari, WebKit); Chromium/WebView2 (Windows) играет
+    потоковую перепаковку `/play` — hls.js с копией на Windows падал «Видео не загружается» (0.6).
+    ffmpeg копии пишет относительные имена (`current_dir`) — пути Windows ломали плейлист.
   - `auth` — Argon2id, сессии (в базе — SHA-256 токена), `Viewer`/`Manager`, `Limiter`.
     У `Viewer` всегда есть `profile` — с 0.5 один на аккаунт (`profile_for`: первый по id;
     миграция 5 удалила лишние). Прогресс, `my_list`, `ratings`, общение — по `profile_id`;
     имя профиля = имя аккаунта (`PATCH /api/me` меняет оба). `kids` и `api::visible(kids)`
     остались в коде, но включить детский режим больше нечем.
   - `taste` — вкус профиля: веса жанров → `match_pct`, «не для меня», `age_min()`.
-  - Фоновый ffmpeg — `probe::background` (nice / «ниже среднего»), кадры перемотки — только у
+  - Фоновый ffmpeg — `probe::background` (nice 19 / IDLE на Windows; просмотр — `command()`,
+    nice 10 / «ниже среднего»), кадры перемотки — только у
     начатого, `-threads 1`; перекодирование HLS — `-threads 4`. Иначе Mac хоста гудит часами.
   - `hls` — адаптивный поток: плейлист заранее (кусочки по 6 с), ffmpeg с `-ss`,
     `-force_key_frames` на границах и `-output_ts_offset`; задача на (файл, высота, дорожка),
@@ -58,6 +63,23 @@
   - Совместные списки (0.5, `api/lists.rs`): `lists`, `list_members`, `list_items` (миграция 5),
     звать — только друзей, менять — всем участникам, удаляет создатель (участник — выходит).
     Фронт — `/lists`, `/lists/[id]`, `social/ListPicker` («В общий список» на странице фильма).
+    С 0.6 (миграция 6): фильмы из ленты — `list_ext`, группы — `list_groups` + `group_id`
+    (`PUT /api/lists/{id}/move`), `/lists` сверху — «Буду смотреть»/«Просмотрел» (`/api/me/marks`).
+  - Обзор (0.6, `discover.rs` + `api/discover.rs`): подборки IMDb (`CHARTS`, GraphQL
+    `chartTitles`, раз в 12 ч, `ext_titles` + `ext_charts`, постеры — к себе), поиск по IMDb
+    (`/api/discover/search`), отметки `ext_marks` (want|watched), просьбы хосту `wishes`
+    (`/api/admin/wishes`, значок `badges.wishes`; уходят сами, когда фильм с тем же `imdb_id`
+    появился). Фронт — `/discover`, `discover/Poster` (и для фильмов с сервиса: `local`),
+    `PosterRow`, `ExtSheet` (одна на приложение, `openExt`, `extSheet.version` — перезагрузить).
+  - Ссылки (0.6, `api/links.rs`): `links` у фильма (`title_id` или `ext_id`), `parse` —
+    rutube/vk/youtube → `embed` (iframe; домены — `frame-src` в CSP `web.rs`), прямые
+    .mp4/.webm/.m3u8 — наш `<video>` (hls.js лениво). Поиск: Rutube без ключа, VK —
+    `settings vk.token`. Страница `/watch/link/[id]`, окно `links/LinkFinder`.
+  - Профиль (0.6, `api/profile.rs`): `stats` (часы, фильмы, серии, жанры, 12 месяцев) и
+    оформление `profiles.cover|accent|bio|favorites` (`PATCH /api/me/profile`, `/api/me/cover`).
+    Фронт — `social/ProfileStats`, `profile/DecorEditor`.
+  - Обновление без `latest.json` (0.6, `release.rs`): последний выпуск через GitHub API,
+    установщик по ОС/архитектуре — `update.rs install_manual`.
   - Добавление фильмов (0.4, `library/inbox.rs`): своя папка (`settings media.inbox`, у приложения —
     `Host::media_dir()`), `import()` для перетаскивания в окно (папки — библиотекой, файлы — копия
     через `*.part`), `PUT /api/admin/upload` потоком (`folder` — с вложенными, `more=1` — скан
@@ -126,7 +148,10 @@
 - «Ничего не дёргается»: `e2e/smooth.spec.ts` — CLS < 0,02 на главных страницах. Не показывать
   то, что вырастет после загрузки (числа в капсулах, отзывы — грузить вместе со страницей),
   `main` — не ниже экрана. Анимации — только `transform`/`opacity`.
-- Навигация: ≥1000 px — капсула в шапке (Главная, Фильмы, Сериалы, Вместе, Люди, Чаты, поиск),
-  уже — нижняя панель (`--tabbar` — отступ под неё) и капсула вкладок поверх героя главной.
+- Навигация: ≥1000 px — капсула в шапке (Главная, Фильмы, Сериалы, Обзор, Списки, Люди, Чаты,
+  поиск), уже — нижняя панель (Главная, Обзор, Списки, Люди, Чаты; `--tabbar` — отступ под неё),
+  поиск и аватар — в шапке, и капсула вкладок поверх героя главной.
+- Дизайн (0.6): шрифт — только Inter (`static/fonts`, без курсива), без `backdrop-filter`
+  (грузил видеокарту хоста), пустые экраны — `.empty` по центру.
 - e2e, которые меняют дружбу или статусы, заводят своего человека (`stranger()`) или
   сбрасывают состояние (`resetStatuses`): проекты phone/tablet/desktop идут подряд на одних данных.

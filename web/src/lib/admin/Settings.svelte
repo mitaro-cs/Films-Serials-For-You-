@@ -10,6 +10,7 @@
     provider: 'imdb' | 'tmdb' | 'kinopoisk' | 'off';
     tmdbKeySet: boolean;
     kpKeySet: boolean;
+    vkTokenSet: boolean;
     tmdbApi: string;
     tmdbImages: string;
     ffmpegPath: string;
@@ -20,6 +21,7 @@
   let s = $state<S | null>(null);
   let tmdbKey = $state('');
   let kpKey = $state('');
+  let vkToken = $state('');
   let msg = $state('');
   let error = $state('');
 
@@ -106,6 +108,21 @@
       </form>
     {/if}
     <button class="btn sm" onclick={refreshAll}><Icon name="refresh" size={14} /> Обновить все описания</button>
+  </section>
+
+  <section class="card pane">
+    <h3>Видео по ссылке</h3>
+    <p class="muted">
+      Поиск на Rutube работает без ключа. Для поиска в VK Видео нужен сервисный ключ приложения VK
+      (vk.com/apps?act=manage → своё приложение → «Сервисный ключ доступа»).
+    </p>
+    <form class="line" onsubmit={(e) => (e.preventDefault(), save({ vkToken }, 'Ключ сохранён'), (vkToken = ''))}>
+      <label class="field grow">
+        <span>Ключ VK {s.vkTokenSet ? '· задан' : ''}</span>
+        <input class="input" bind:value={vkToken} placeholder={s.vkTokenSet ? '••••••••' : 'Сервисный ключ доступа'} autocomplete="off" />
+      </label>
+      <button class="btn">Сохранить</button>
+    </form>
   </section>
 
   <section class="card pane">

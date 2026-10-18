@@ -1,10 +1,12 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { api, errorText } from '$lib/api';
-  import { ago, count } from '$lib/fmt';
+  import { ago } from '$lib/fmt';
+  import Poster from '$lib/discover/Poster.svelte';
   import FriendButton from '$lib/social/FriendButton.svelte';
+  import ProfileStats from '$lib/social/ProfileStats.svelte';
   import StarsShow from '$lib/social/StarsShow.svelte';
-  import type { Card, MiniTitle, Person, Relation } from '$lib/types';
+  import type { Card, MiniTitle, Person, ProfileDecor, ProfileStats as Stats, Relation } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
@@ -13,7 +15,8 @@
     person: Person;
     me: boolean;
     relation: Relation | null;
-    stats: { watched: number; reviews: number };
+    stats: Stats;
+    decor: ProfileDecor;
     reviews: { id: number; stars: number | null; body: string; createdAt: number; title: MiniTitle }[];
     watched: Card[];
   }
@@ -34,20 +37,35 @@
   {#if error}
     <div class="empty"><Icon name="info" size={36} /> {error}</div>
   {:else if p}
+    <div class="cover" style:--acc={p.decor.accent ?? '#3a3a3c'}>
+      {#if p.decor.cover}<img src={p.decor.cover} alt="" decoding="async" />{/if}
+    </div>
     <header class="head">
-      <Avatar avatar={p.person.avatar} photo={p.person.photo} size={112} />
+      <span class="ring" style:--acc={p.decor.accent ?? 'transparent'}><Avatar avatar={p.person.avatar} photo={p.person.photo} size={112} /></span>
       <div class="who">
         <h1>{p.person.name}</h1>
-        <p class="muted">
-          {count(p.stats.watched, 'фильм просмотрен', 'фильма просмотрено', 'фильмов просмотрено')} · {count(p.stats.reviews, 'отзыв', 'отзыва', 'отзывов')}
-        </p>
+        {#if p.decor.bio}<p class="bio">{p.decor.bio}</p>{/if}
         {#if p.me}
-          <a class="btn sm" href="/profile"><Icon name="edit" size={14} /> Изменить фото и имя</a>
+          <a class="btn sm" href="/profile"><Icon name="edit" size={14} /> Оформить профиль</a>
         {:else if p.relation}
           <FriendButton id={p.person.id} bind:relation={p.relation} />
         {/if}
       </div>
     </header>
+
+    {#if p.decor.favorites.length}
+      <section aria-labelledby="f">
+        <h2 id="f">Любимое</h2>
+        <div class="favs">
+          {#each p.decor.favorites as f (f.key)}<Poster card={f.ext} local={f.card ?? null} />{/each}
+        </div>
+      </section>
+    {/if}
+
+    <section aria-labelledby="st">
+      <h2 id="st">Статистика</h2>
+      <ProfileStats stats={p.stats} accent={p.decor.accent} />
+    </section>
 
     {#if p.watched.length}
       <section aria-labelledby="w">
@@ -98,13 +116,60 @@
     max-width: 880px;
     margin: 0 auto;
   }
+  /* Обложка: своя картинка или мягкий градиент своего цвета; аватар заходит на её край. */
+  .cover {
+    position: relative;
+    height: clamp(140px, 22vw, 220px);
+    margin: -8px 0 0;
+    border-radius: 20px;
+    overflow: hidden;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--acc) 80%, transparent), transparent 60%),
+      linear-gradient(135deg, color-mix(in srgb, var(--acc) 45%, #111), #111);
+  }
+  .cover img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
   .head {
     display: flex;
-    align-items: center;
+    align-items: flex-end;
     flex-wrap: wrap;
-    gap: 20px 26px;
-    margin: 8px 0 34px;
+    gap: 16px 24px;
+    margin: -56px 0 30px;
+    padding: 0 20px;
+    position: relative;
     animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .ring {
+    display: block;
+    padding: 4px;
+    border-radius: 50%;
+    background: var(--bg);
+    box-shadow: 0 0 0 3px var(--acc);
+  }
+  .bio {
+    color: var(--muted);
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    max-width: 60ch;
+  }
+  .favs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 14px;
+  }
+  @media (max-width: 640px) {
+    .head {
+      padding: 0 8px;
+    }
+    .favs {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
   }
   .who {
     display: grid;

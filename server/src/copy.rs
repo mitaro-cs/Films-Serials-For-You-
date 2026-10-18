@@ -51,7 +51,7 @@ fn dir_of(app: &App, k: &Key) -> PathBuf {
     app.data.join("cache/copy").join(format!("{}_{}", k.file, k.audio))
 }
 
-pub fn args(input: &Path, dir: &Path, audio: usize, hevc: bool, copy_audio: bool) -> Vec<String> {
+pub fn args(input: &Path, audio: usize, hevc: bool, copy_audio: bool) -> Vec<String> {
     let mut a: Vec<String> = ["-hide_banner", "-loglevel", "error", "-nostdin", "-i"].map(String::from).to_vec();
     a.push(input.to_string_lossy().into_owned());
     a.extend(["-map".into(), "0:v:0".into(), "-map".into(), format!("0:a:{audio}?")]);
@@ -87,8 +87,9 @@ pub fn args(input: &Path, dir: &Path, audio: usize, hevc: bool, copy_audio: bool
         ]
         .map(String::from),
     );
-    a.push(dir.join("s%d.m4s").to_string_lossy().into_owned());
-    a.push(dir.join("index.m3u8").to_string_lossy().into_owned());
+    // Имена — относительно папки копии (ffmpeg запускается в ней): в плейлисте только имена
+    // кусочков, без путей с диска (на Windows ffmpeg иначе мог записать `C:\…`).
+    a.extend(["s%d.m4s", "index.m3u8"].map(String::from));
     a
 }
 
@@ -149,7 +150,8 @@ impl Copies {
                 self.limit(app, &k);
                 std::fs::create_dir_all(&dir)?;
                 let child = crate::library::probe::command(ffmpeg)
-                    .args(args(src.input, &dir, k.audio, src.hevc, src.copy_audio))
+                    .args(args(src.input, k.audio, src.hevc, src.copy_audio))
+                    .current_dir(&dir)
                     .stdout(Stdio::null())
                     .stderr(Stdio::null())
                     .spawn()?;
@@ -231,8 +233,9 @@ mod tests {
         assert_eq!(progress(p), (10.5, false));
         assert!(progress(&format!("{p}#EXT-X-ENDLIST\n")).1);
         assert!(for_player(p).starts_with("#EXTM3U\n#EXT-X-START:TIME-OFFSET=0"));
-        let a = args(Path::new("/m/a.mkv"), Path::new("/c"), 1, true, false);
+        let a = args(Path::new("/m/a.mkv"), 1, true, false);
         assert!(a.windows(2).any(|w| w == ["-tag:v", "hvc1"]) && a.windows(2).any(|w| w == ["-c:a", "aac"]));
         assert!(a.contains(&"0:a:1?".to_string()));
+        assert!(a.ends_with(&["s%d.m4s".to_string(), "index.m3u8".to_string()]), "без путей с диска");
     }
 }

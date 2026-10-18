@@ -1,33 +1,58 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { api, errorText } from '$lib/api';
+  import PosterRow from '$lib/discover/PosterRow.svelte';
+  import { extSheet } from '$lib/discover/sheet.svelte';
   import NewList from '$lib/social/NewList.svelte';
-  import type { SharedList } from '$lib/types';
+  import type { MarkItem, SharedList } from '$lib/types';
   import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
 
-  // Совместные списки: с кем и что смотрим вместе.
+  // Мои списки: «Буду смотреть» и «Просмотрел» (с сервиса и из ленты IMDb), ниже — общие
+  // списки с друзьями.
   let lists = $state<SharedList[] | null>(null);
+  let marks = $state<{ want: MarkItem[]; watched: MarkItem[] } | null>(null);
   let error = $state('');
   let creating = $state(false);
 
   $effect(() => {
-    api<SharedList[]>('/api/lists').then((r) => (lists = r), (e) => (error = errorText(e)));
+    void extSheet.version;
+    // Вместе: иначе общие списки сдвигались бы, когда приходят «Буду смотреть» (CLS).
+    Promise.all([
+      api<SharedList[]>('/api/lists'),
+      api<{ want: MarkItem[]; watched: MarkItem[] }>('/api/me/marks').catch(() => ({ want: [], watched: [] })),
+    ]).then(
+      ([l, m]) => {
+        marks = m;
+        lists = l;
+      },
+      (e) => (error = errorText(e)),
+    );
   });
 </script>
 
 <div class="page">
+  <h1 class="top">Списки</h1>
+  {#if error}
+    <div class="empty"><Icon name="info" size={36} /> {error}</div>
+  {:else if marks === null || lists === null}
+    <div class="ph-row skeleton"></div>
+  {:else}
+    {#if marks.want.length}<PosterRow title="Буду смотреть" items={marks.want} />{/if}
+    {#if marks.watched.length}<PosterRow title="Просмотрел" items={marks.watched} />{/if}
+    {#if !marks.want.length && !marks.watched.length}
+      <p class="muted hint">
+        Отмечайте фильмы «Буду смотреть» и «Просмотрел» — на странице фильма или в <a href="/discover">Обзоре</a>, они соберутся здесь.
+      </p>
+    {/if}
+
   <div class="head">
-    <h1>Смотрим вместе</h1>
+    <h2>Смотрим вместе</h2>
     <button class="btn primary" onclick={() => (creating = true)}><Icon name="plus" size={16} /> Новый список</button>
   </div>
   <p class="muted lead">Общие списки с друзьями: добавляйте фильмы и отмечайте, что уже посмотрели вместе.</p>
 
-  {#if error}
-    <div class="empty"><Icon name="info" size={36} /> {error}</div>
-  {:else if lists === null}
-    <div class="grid">{#each Array(3) as _, i (i)}<div class="ph skeleton"></div>{/each}</div>
-  {:else if lists.length === 0}
+  {#if lists.length === 0}
     <div class="empty"><Icon name="users" size={40} /> Пока нет ни одного списка — создайте первый и позовите друга.</div>
   {:else}
     <div class="grid">
@@ -48,6 +73,7 @@
       {/each}
     </div>
   {/if}
+  {/if}
 </div>
 <NewList bind:open={creating} oncreated={(id) => goto(`/lists/${id}`)} />
 
@@ -63,12 +89,26 @@
     font-size: clamp(28px, 4vw, 40px);
     font-weight: 800;
   }
+  .top {
+    margin-bottom: 20px;
+  }
+  h2 {
+    font-size: clamp(19px, 1.6vw, 24px);
+    font-weight: 700;
+  }
+  .hint {
+    margin: 0 0 32px;
+  }
+  .hint a {
+    text-decoration: underline;
+  }
+  .ph-row {
+    height: 280px;
+    border-radius: 12px;
+    margin-bottom: 30px;
+  }
   .lead {
     margin: 6px 0 24px;
-  }
-  .ph {
-    aspect-ratio: 16 / 9;
-    border-radius: 12px;
   }
   .list {
     display: grid;

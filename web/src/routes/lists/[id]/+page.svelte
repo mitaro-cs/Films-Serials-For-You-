@@ -9,9 +9,11 @@
   import Icon from '$lib/ui/Icon.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { toast } from '$lib/ui/toast.svelte';
-  import Wide from '$lib/ui/Wide.svelte';
+  import Poster from '$lib/discover/Poster.svelte';
+  import { extSheet } from '$lib/discover/sheet.svelte';
 
-  // Совместный список: участники, фильмы, «посмотрели вместе». Меняют все участники.
+  // Совместный список: участники, фильмы (с сервиса и из ленты IMDb) по группам, «посмотрели
+  // вместе». Меняют все участники.
   const id = $derived(Number(page.params.id));
   let l = $state<SharedListFull | null>(null);
   let error = $state('');
@@ -23,17 +25,28 @@
   }
   $effect(() => {
     void id;
+    void extSheet.version;
     load();
   });
 
-  const left = $derived(l ? l.items.filter((i) => !i.watchedAt) : []);
-  const done = $derived(l ? l.items.filter((i) => i.watchedAt) : []);
+  const key = (i: SharedItem) => (i.ext ? i.ext.id : `t${i.card!.id}`);
+  const path = (i: SharedItem) => (i.ext ? `/api/lists/${id}/ext/${i.ext.id}` : `/api/lists/${id}/items/${i.card!.id}`);
+  // Группы по порядку, «Без группы» — последней (или единственной, если групп нет).
+  // Внутри — сначала то, что ещё не смотрели.
+  const sections = $derived.by(() => {
+    if (!l) return [];
+    const order = (a: SharedItem, b: SharedItem) => Number(!!a.watchedAt) - Number(!!b.watchedAt);
+    const out = l.groups.map((g) => ({ id: g.id as number | null, name: g.name, items: l!.items.filter((i) => i.groupId === g.id).sort(order) }));
+    const rest = l.items.filter((i) => !l!.groups.some((g) => g.id === i.groupId)).sort(order);
+    if (rest.length || !out.length) out.push({ id: null, name: l.groups.length ? 'Без группы' : '', items: rest });
+    return out;
+  });
 
   async function watched(i: SharedItem) {
     const before = i.watchedAt;
     i.watchedAt = before ? null : Date.now();
     try {
-      await put(`/api/lists/${id}/items/${i.card.id}/watched`, { value: !before });
+      await put(`${path(i)}/watched`, { value: !before });
     } catch {
       i.watchedAt = before;
     }
@@ -42,7 +55,42 @@
   async function remove(i: SharedItem) {
     if (!l) return;
     l.items = l.items.filter((x) => x !== i);
-    await put(`/api/lists/${id}/items/${i.card.id}`, { value: false }).catch(load);
+    await put(path(i), { value: false }).catch(load);
+  }
+
+  async function move(i: SharedItem, value: string) {
+    const group = value ? Number(value) : null;
+    const before = i.groupId;
+    i.groupId = group;
+    try {
+      await put(`/api/lists/${id}/move`, { titleId: i.card?.id ?? null, extId: i.ext?.id ?? null, group });
+    } catch (x) {
+      i.groupId = before;
+      toast(errorText(x));
+    }
+  }
+
+  let grouping = $state<{ id: number | null; name: string } | null>(null);
+  let groupOpen = $state(false);
+  const editGroup = (g: { id: number | null; name: string }) => ((grouping = g), (groupOpen = true));
+  async function saveGroup(e: SubmitEvent) {
+    e.preventDefault();
+    const g = grouping;
+    if (!g || !g.name.trim()) return;
+    try {
+      if (g.id) await patch(`/api/lists/${id}/groups/${g.id}`, { name: g.name });
+      else await post(`/api/lists/${id}/groups`, { name: g.name });
+      groupOpen = false;
+      load();
+    } catch (x) {
+      toast(errorText(x));
+    }
+  }
+
+  async function dropGroup(g: { id: number | null; name: string }) {
+    if (!g.id || !(await ask(`Удалить группу «${g.name}»? Фильмы останутся в списке.`, 'Удалить', true))) return;
+    await del(`/api/lists/${id}/groups/${g.id}`).catch((x) => toast(errorText(x)));
+    load();
   }
 
   let renaming = $state(false);
@@ -110,33 +158,52 @@
     {#if !l.items.length}
       <div class="empty">
         <Icon name="film" size={40} />
-        Список пуст. Откройте фильм и нажмите «В общий список».
-        <a class="btn sm" href="/">К фильмам</a>
+        <p>Список пуст. Откройте фильм здесь или в «Обзоре» и добавьте его в список.</p>
+        <a class="btn sm" href="/discover">Открыть обзор</a>
       </div>
     {/if}
-    {#each [{ key: 'left', title: 'Посмотреть', items: left }, { key: 'done', title: 'Посмотрели вместе', items: done }] as g (g.key)}
-      {#if g.items.length}
-        <section aria-label={g.title}>
-          <h2>{g.title} <span class="faint">{g.items.length}</span></h2>
-          <div class="grid">
-            {#each g.items as i (i.card.id)}
-              <div class="item">
-                <Wide card={i.card} />
-                <div class="foot">
-                  <small class="muted">
-                    {#if i.watchedAt}Посмотрели {day(i.watchedAt)}{:else if i.addedBy}Добавил(а) {i.addedBy.name}{/if}
+    {#each sections as g (g.id ?? 'rest')}
+      {#if g.items.length || g.id}
+        <section aria-label={g.name || 'Фильмы'}>
+          {#if g.name}
+            <div class="ghead">
+              <h2>{g.name} <span class="faint">{g.items.length}</span></h2>
+              {#if g.id}
+                <button class="mini" aria-label="Переименовать группу" title="Переименовать" onclick={() => editGroup({ id: g.id, name: g.name })}><Icon name="edit" size={14} /></button>
+                <button class="mini" aria-label="Удалить группу" title="Удалить группу" onclick={() => dropGroup(g)}><Icon name="trash" size={14} /></button>
+              {/if}
+            </div>
+          {/if}
+          {#if g.items.length}
+            <div class="tiles">
+              {#each g.items as i (key(i))}
+                <div class="item" class:done={!!i.watchedAt}>
+                  <Poster card={i.ext} local={i.card ?? null} />
+                  <small class="muted who">
+                    {#if i.watchedAt}Посмотрели {day(i.watchedAt)}{:else if i.addedBy}Добавил(а) {i.addedBy.name}{:else}&nbsp;{/if}
                   </small>
-                  <button class="mini" class:on={!!i.watchedAt} aria-label={i.watchedAt ? 'Не смотрели' : 'Посмотрели вместе'} title={i.watchedAt ? 'Снять отметку' : 'Посмотрели вместе'} onclick={() => watched(i)}>
-                    <Icon name="check" size={15} stroke={2.6} />
-                  </button>
-                  <button class="mini" aria-label="Убрать из списка" title="Убрать из списка" onclick={() => remove(i)}><Icon name="close" size={15} /></button>
+                  <div class="foot">
+                    <button class="mini" class:on={!!i.watchedAt} aria-label={i.watchedAt ? 'Не смотрели' : 'Посмотрели вместе'} title={i.watchedAt ? 'Снять отметку' : 'Посмотрели вместе'} onclick={() => watched(i)}>
+                      <Icon name="check" size={15} stroke={2.6} />
+                    </button>
+                    {#if l.groups.length}
+                      <select class="move" aria-label="Группа" value={i.groupId ?? ''} onchange={(e) => move(i, e.currentTarget.value)}>
+                        <option value="">Без группы</option>
+                        {#each l.groups as x (x.id)}<option value={x.id}>{x.name}</option>{/each}
+                      </select>
+                    {/if}
+                    <button class="mini" aria-label="Убрать из списка" title="Убрать из списка" onclick={() => remove(i)}><Icon name="close" size={15} /></button>
+                  </div>
                 </div>
-              </div>
-            {/each}
-          </div>
+              {/each}
+            </div>
+          {:else}
+            <p class="faint none">Пусто — переложите сюда фильмы выбором группы под постером.</p>
+          {/if}
         </section>
       {/if}
     {/each}
+    <button class="btn sm ghost" onclick={() => editGroup({ id: null, name: '' })}><Icon name="plus" size={14} /> Новая группа</button>
   {/if}
 </div>
 
@@ -145,6 +212,15 @@
     <input class="input" bind:value={newName} maxlength="60" required aria-label="Название" />
     <button class="btn primary">Сохранить</button>
   </form>
+</Modal>
+
+<Modal bind:open={groupOpen} title={grouping?.id ? 'Группа' : 'Новая группа'}>
+  {#if grouping}
+    <form class="rename" onsubmit={saveGroup}>
+      <input class="input" bind:value={grouping.name} maxlength="60" required placeholder="Например: Марвел, На выходные" aria-label="Название группы" />
+      <button class="btn primary">{grouping.id ? 'Сохранить' : 'Создать'}</button>
+    </form>
+  {/if}
 </Modal>
 
 <Modal bind:open={inviting} title="Позвать друга">
@@ -209,7 +285,50 @@
   }
   h2 {
     font-size: 20px;
+  }
+  .ghead {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin-bottom: 14px;
+  }
+  .ghead h2 {
+    margin-right: 6px;
+  }
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+    gap: 22px 16px;
+  }
+  @media (max-width: 640px) {
+    .tiles {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px 10px;
+    }
+  }
+  .item.done :global(.art) {
+    opacity: 0.55;
+  }
+  .who {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+  .move {
+    flex: 1;
+    min-width: 0;
+    height: 30px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+    font-size: 12px;
+  }
+  .none {
+    font-size: 14px;
   }
   section {
     margin-bottom: 32px;
@@ -225,12 +344,8 @@
     gap: 6px;
     min-width: 0;
   }
-  .foot small {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .foot {
+    justify-content: space-between;
   }
   .mini {
     display: grid;

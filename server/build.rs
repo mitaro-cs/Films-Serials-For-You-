@@ -6,7 +6,7 @@ fn main() {
         std::fs::create_dir_all(&build).expect("web/build");
         std::fs::write(
             build.join("index.html"),
-            "<!doctype html><meta charset=utf-8><title>Films &amp; Serials For You</title><p>Интерфейс не собран: <code>cd web &amp;&amp; npm run build</code>",
+            "<!doctype html><meta charset=utf-8><title>Nova</title><p>Интерфейс не собран: <code>cd web &amp;&amp; npm run build</code>",
         )
         .expect("заглушка");
     }

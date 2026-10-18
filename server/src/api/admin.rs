@@ -155,6 +155,7 @@ pub async fn settings(State(app): State<Arc<App>>, _m: Manager) -> Out {
         "provider": db.setting_or("meta.provider", "imdb"),
         "tmdbKeySet": !db.setting_or("meta.tmdb.key", "").is_empty(),
         "kpKeySet": !db.setting_or("meta.kp.key", "").is_empty(),
+        "vkTokenSet": !db.setting_or("vk.token", "").is_empty(),
         "tmdbApi": db.setting_or("meta.tmdb.api", ""),
         "tmdbImages": db.setting_or("meta.tmdb.images", ""),
         "ffmpegPath": db.setting_or("tools.ffmpeg", ""),
@@ -175,6 +176,7 @@ pub struct SettingsBody {
     tmdb_api: Option<String>,
     tmdb_images: Option<String>,
     ffmpeg_path: Option<String>,
+    vk_token: Option<String>,
 }
 
 fn url_or_empty(s: &str) -> ApiResult<String> {
@@ -229,6 +231,9 @@ pub async fn save_settings(State(app): State<Arc<App>>, _m: Manager, Json(b): Js
         db.with(|c| c.execute("UPDATE titles SET meta_status = 'pending' WHERE meta_status = 'none'", []))?;
         app.meta_state.lock().error = None;
         app.meta_kick.notify_one();
+    }
+    if let Some(t) = b.vk_token {
+        db.set_setting("vk.token", t.trim())?;
     }
     if let Some(p) = b.ffmpeg_path {
         db.set_setting("tools.ffmpeg", p.trim())?;

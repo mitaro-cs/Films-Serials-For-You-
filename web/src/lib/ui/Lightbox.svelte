@@ -50,7 +50,6 @@
     inset: 0;
     border: 0;
     background: rgba(5, 4, 14, 0.92);
-    backdrop-filter: blur(6px);
   }
   img {
     position: relative;

@@ -37,8 +37,13 @@ pub async fn spa(uri: Uri) -> Response {
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
-const CSP: &str = "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; \
-script-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+/// Внешнее — только для видео по ссылкам: плееры Rutube, VK и YouTube во фрейме, прямые
+/// mp4/m3u8 с других сайтов. Всё остальное интерфейс берёт только у нас.
+const CSP: &str =
+    "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob: https:; style-src 'self' 'unsafe-inline'; \
+script-src 'self' 'unsafe-inline'; connect-src 'self' https:; font-src 'self'; \
+frame-src https://rutube.ru https://vkvideo.ru https://vk.com https://www.youtube-nocookie.com; \
+frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
 /// Заголовки на все ответы. `X-Fsfy: 1` — метка «ответил наш сервер», а не страница туннеля:
 /// без неё интерфейс считает, что компьютер хоста выключен.

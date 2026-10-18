@@ -1,6 +1,6 @@
 [package]
 name = "fsfy-desktop"
-description = "Films & Serials For You — приложение хоста"
+description = "Nova — приложение хоста"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

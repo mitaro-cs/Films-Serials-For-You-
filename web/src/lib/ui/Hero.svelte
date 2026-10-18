@@ -236,8 +236,6 @@
     padding: 0 30px;
     border-radius: 10px;
     background: color-mix(in srgb, var(--tint) 30%, rgba(255, 255, 255, 0.34));
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
     color: #fff;
     font-size: 16px;
     font-weight: 600;
@@ -261,8 +259,6 @@
     border-radius: 50%;
     border: 0;
     background: rgba(255, 255, 255, 0.18);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
     color: #fff;
     cursor: pointer;
     transition: transform 0.2s;
