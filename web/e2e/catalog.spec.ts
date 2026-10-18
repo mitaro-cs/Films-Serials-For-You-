@@ -106,7 +106,7 @@ test('видео по ссылке: в плеере Nova, Esc — назад', a
   await d.getByLabel('Ссылка или название').fill(`https://example.com/amelie-${test.info().project.name}.mp4`);
   await d.getByRole('button', { name: 'Смотреть' }).click();
   await expect(page).toHaveURL(/\/watch\/link\/\d+/);
-  await expect(page.getByRole('button', { name: 'Назад' })).toBeVisible();
+  await expect(page.getByTitle('Назад (Esc)')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(new RegExp(`/title/${id}`));
   await expect(page.getByRole('region', { name: 'Видео по ссылке' }).getByRole('link').first()).toBeVisible();
