@@ -170,5 +170,10 @@
 - Вкладки «Фильмы»/«Сериалы» (0.6.2): «Эксклюзив на Nova» (своё), «Буду смотреть» (`/api/me/marks`),
   ряды IMDb (`/api/discover`, ключи `*_movies`/`*_series`), сетка «Эксклюзив — все …»
   (`region «Вся коллекция»` — для e2e).
+- Профиль (0.6.2, миграция 8): любимые фильмы — до 5 (`profile::MAX_FAVORITES`, `PUT
+  /api/me/favorites {key, value}`, ключи в `/api/me` → `session.me.favorites`, фронт —
+  `social/favorites.ts`), режиссёры — `profiles.directors` (до 5, подсказки — `stats.directors`),
+  обложка `profiles.cover_kind`: `ribbon` — `social/PosterRibbon` из `decor.ribbon` (постеры
+  просмотренного), `image` — своя. Убрать оценку — `DELETE /api/titles/{id}/stars`.
 - e2e, которые меняют дружбу или статусы, заводят своего человека (`stranger()`) или
   сбрасывают состояние (`resetStatuses`): проекты phone/tablet/desktop идут подряд на одних данных.

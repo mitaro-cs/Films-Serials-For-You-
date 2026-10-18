@@ -165,6 +165,34 @@ async fn feed_marks_wishes_groups_links() {
     assert_eq!(page["decor"]["favorites"].as_array().unwrap().len(), 1, "повтор и мусор отброшены");
     assert_eq!(page["decor"]["favorites"][0]["ext"]["title"], "Во все тяжкие");
     assert_eq!(page["stats"]["outside"], 1, "просмотренное не с сервиса считается");
+
+    // Любимые — как на IMDb, не больше пяти; с карточки фильма — по одному.
+    let r: Value =
+        anna.send("PUT", "/api/me/favorites", json!({"key": "x:tt0111161", "value": true})).await.json().await.unwrap();
+    assert_eq!(r["favorites"], json!(["x:tt0903747", "x:tt0111161"]));
+    assert_eq!(anna.json("/api/me").await["favorites"], json!(["x:tt0903747", "x:tt0111161"]));
+    for i in 0..3 {
+        let r = anna.send("PUT", "/api/me/favorites", json!({"key": format!("t:{}", 100 + i), "value": true})).await;
+        assert!(r.status().is_success());
+    }
+    let sixth = anna.send("PUT", "/api/me/favorites", json!({"key": "t:200", "value": true})).await;
+    assert_eq!(sixth.status(), 400, "шестой — нельзя");
+    let r: Value =
+        anna.send("PUT", "/api/me/favorites", json!({"key": "t:100", "value": false})).await.json().await.unwrap();
+    assert_eq!(r["favorites"].as_array().unwrap().len(), 4);
+    assert_eq!(anna.send("PUT", "/api/me/favorites", json!({"key": "zz", "value": true})).await.status(), 400);
+
+    // Любимые режиссёры и лента просмотренного на обложке.
+    let r = anna
+        .send("PATCH", "/api/me/profile", json!({"directors": [" Нолан ", "нолан", "Финчер"], "coverKind": "ribbon"}))
+        .await;
+    assert!(r.status().is_success());
+    app.db.with(|c| c.execute("UPDATE ext_titles SET poster = ? WHERE id = 'tt0903747'", [&poster])).unwrap();
+    let page = host.json(&format!("/api/members/{pa}")).await;
+    assert_eq!(page["decor"]["directors"], json!(["Нолан", "Финчер"]));
+    assert_eq!(page["decor"]["coverKind"], "ribbon");
+    assert_eq!(page["decor"]["ribbon"], json!([format!("/img/{poster}")]));
+    assert_eq!(anna.send("PATCH", "/api/me/profile", json!({"coverKind": "video"})).await.status(), 400);
     assert_eq!(page["stats"]["months"].as_array().unwrap().len(), 12);
     drop(running);
 }

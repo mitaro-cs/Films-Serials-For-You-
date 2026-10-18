@@ -6,6 +6,7 @@
   import LinkCard from '$lib/links/LinkCard.svelte';
   import LinkFinder from '$lib/links/LinkFinder.svelte';
   import NewList from '$lib/social/NewList.svelte';
+  import { isFavorite, toggleFavorite } from '$lib/social/favorites';
   import type { ExtDetail, FoundVideo } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
@@ -172,6 +173,9 @@
             <Icon name="check" size={16} /> Просмотрел
           </button>
           <button class="btn" aria-expanded={lists} disabled={!d} onclick={() => (lists = !lists)}><Icon name="plus" size={16} /> В список</button>
+          <button class="btn" class:on={isFavorite(`x:${c.id}`)} aria-pressed={isFavorite(`x:${c.id}`)} disabled={!d} onclick={() => toggleFavorite(`x:${c.id}`)}>
+            <Icon name="star" size={16} /> Любимый
+          </button>
           {#if canWish || c.wished}
             <button class="btn" class:on={c.wished} aria-pressed={c.wished} disabled={!d} onclick={wish}>
               <Icon name="mail" size={16} /> {c.wished ? 'Попросили хоста' : 'Хочу на Nova'}

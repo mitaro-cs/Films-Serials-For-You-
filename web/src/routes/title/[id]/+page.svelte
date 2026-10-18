@@ -12,6 +12,7 @@
   import ListPicker from '$lib/social/ListPicker.svelte';
   import ShareTitle from '$lib/social/ShareTitle.svelte';
   import StarInput from '$lib/social/StarInput.svelte';
+  import { isFavorite, toggleFavorite } from '$lib/social/favorites';
   import LinkCard from '$lib/links/LinkCard.svelte';
   import LinkFinder from '$lib/links/LinkFinder.svelte';
   import type { FileItem, Person, Review, Reviews as ReviewsData, TitleDetail, VideoLink } from '$lib/types';
@@ -85,7 +86,11 @@
     try {
       if (mine && v) Object.assign(mine, await patch<Review>(`/api/reviews/${mine.id}`, { body: mine.body, stars: v }));
       else if (v) rv.items = [await post<Review>(`/api/titles/${id}/reviews`, { stars: v }), ...rv.items];
-      else return;
+      else if (mine) {
+        // Убрать оценку: отзывы из одних звёзд исчезают, у отзывов с текстом пропадают звёзды.
+        await del(`/api/titles/${id}/stars`);
+        rv.items = rv.items.filter((r) => !(r.mine && !r.body)).map((r) => (r.mine ? { ...r, stars: null } : r));
+      } else return;
       const last = new Map<number, number>();
       for (const r of [...rv.items].reverse()) if (r.stars) last.set(r.author.id, r.stars);
       const all = [...last.values()];
@@ -215,10 +220,14 @@
           >
             <Icon name="bookmark" size={22} /><span>Хочу</span>
           </button>
+          <button class:on={isFavorite(`t:${c.id}`)} aria-pressed={isFavorite(`t:${c.id}`)} onclick={() => toggleFavorite(`t:${c.id}`)}>
+            <Icon name="star" size={22} /><span>Любимый</span>
+          </button>
         </div>
         <div class="rate">
           <small>Оценка</small>
           <StarInput value={mine?.stars ?? null} onchange={setStars} size={24} label="Ваша оценка" />
+          <button class="unrate" class:hidden={!mine} disabled={!mine} onclick={() => setStars(null)}>Убрать оценку</button>
         </div>
         <button class="btn block" onclick={() => (picking = true)}><Icon name="users" size={15} /> В общий список</button>
         <button class="btn block" onclick={() => (sharing = true)}><Icon name="share" size={15} /> Обсудить с другом</button>
@@ -597,7 +606,7 @@
   }
   .acts {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 4px;
   }
   .acts button {
@@ -653,6 +662,23 @@
   .rate small {
     color: var(--muted);
     font-size: 11px;
+  }
+  /* Место под кнопку занято всегда — оценку поставили или сняли, панель не прыгает. */
+  .unrate {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 12px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .unrate:hover {
+    color: var(--text);
+  }
+  .unrate.hidden {
+    visibility: hidden;
   }
   .panel .btn {
     height: 38px;

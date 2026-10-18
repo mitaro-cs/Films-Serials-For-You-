@@ -201,6 +201,8 @@ export interface User {
 
 export interface Me {
   user: User;
+  /** Любимые фильмы (до 5): «t:12» или «x:tt…». */
+  favorites?: string[];
   hasPassword: boolean;
   manage: boolean;
   window: boolean;
@@ -361,10 +363,17 @@ export interface ProfileStats {
   watched: number;
   genres: { genre: string; count: number }[];
   months: number[];
+  /** Режиссёры того, что смотрел, — чаще всего первыми. */
+  directors: { name: string; count: number }[];
 }
 
 export interface ProfileDecor {
   cover: string | null;
+  /** Обложка: лента просмотренного или своя картинка. */
+  coverKind: 'ribbon' | 'image';
+  directors: string[];
+  /** Постеры просмотренного — для ленты на обложке. */
+  ribbon: string[];
   accent: string | null;
   bio: string | null;
   favorites: { key: string; card?: Card; ext?: ExtCard }[];

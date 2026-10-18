@@ -1,6 +1,9 @@
 <script lang="ts">
   import { api, del, errorText, patch } from '$lib/api';
   import Poster from '$lib/discover/Poster.svelte';
+  import { MAX_FAVORITES as MAX } from '$lib/social/favorites';
+  import PosterRibbon from '$lib/social/PosterRibbon.svelte';
+  import { session } from '$lib/session.svelte';
   import type { MarkItem, ProfileDecor } from '$lib/types';
   import Icon from '$lib/ui/Icon.svelte';
   import { toast } from '$lib/ui/toast.svelte';
@@ -10,20 +13,22 @@
   let { profileId }: { profileId: number } = $props();
 
   const COLORS = ['#f5f5f7', '#ff453a', '#ff9f0a', '#ffd60a', '#30d158', '#64d2ff', '#0a84ff', '#5e5ce6', '#bf5af2', '#ff375f'];
-  const MAX = 6;
 
   let decor = $state<ProfileDecor | null>(null);
   let pool = $state<MarkItem[]>([]);
   let bio = $state('');
+  let suggest = $state<string[]>([]);
+  let director = $state('');
   let busy = $state(false);
 
   const keyOf = (i: { card?: { id: number }; ext?: { id: string } }) => (i.card ? `t:${i.card.id}` : `x:${i.ext!.id}`);
   const favKeys = $derived(decor?.favorites.map((f) => f.key) ?? []);
 
   function load() {
-    api<{ decor: ProfileDecor }>(`/api/members/${profileId}`).then((r) => {
+    api<{ decor: ProfileDecor; stats: { directors: { name: string }[] } }>(`/api/members/${profileId}`).then((r) => {
       decor = r.decor;
       bio = r.decor.bio ?? '';
+      suggest = r.stats.directors.map((d) => d.name);
     }, () => {});
     api<{ want: MarkItem[]; watched: MarkItem[] }>('/api/me/marks').then((m) => {
       const seen = new Set<string>();
@@ -54,7 +59,30 @@
     if (favKeys.includes(k)) decor.favorites = decor.favorites.filter((f) => f.key !== k);
     else if (decor.favorites.length >= MAX) return void toast(`Любимых — не больше ${MAX}`);
     else decor.favorites = [...decor.favorites, { key: k, card: i.card, ext: i.ext }];
-    save({ favorites: decor.favorites.map((f) => f.key) });
+    const keys = decor.favorites.map((f) => f.key);
+    save({ favorites: keys });
+    if (session.me) session.me.favorites = keys;
+  }
+
+  // Любимые режиссёры: из тех, чьи фильмы смотрел, или любое имя вручную.
+  function setDirectors(list: string[]) {
+    if (!decor) return;
+    if (list.length > MAX) return void toast(`Любимых режиссёров — не больше ${MAX}`);
+    decor.directors = list;
+    save({ directors: list });
+  }
+  function addDirector(e?: SubmitEvent) {
+    e?.preventDefault();
+    const n = director.trim();
+    if (!decor || !n) return;
+    if (!decor.directors.some((d) => d.toLowerCase() === n.toLowerCase())) setDirectors([...decor.directors, n]);
+    director = '';
+  }
+
+  function setKind(k: 'ribbon' | 'image') {
+    if (!decor) return;
+    decor.coverKind = k;
+    save({ coverKind: k });
   }
 
   async function pickCover(e: Event) {
@@ -67,6 +95,7 @@
     try {
       const r = await api<{ cover: string }>('/api/me/cover', { method: 'PUT', body: f });
       decor.cover = r.cover;
+      decor.coverKind = 'image';
     } catch (x) {
       toast(errorText(x));
     } finally {
@@ -77,6 +106,7 @@
   async function dropCover() {
     if (!decor) return;
     decor.cover = null;
+    decor.coverKind = 'ribbon';
     await del('/api/me/cover').catch(load);
   }
 </script>
@@ -84,8 +114,12 @@
 <section class="card pane" aria-labelledby="decor">
   <h2 id="decor">Оформление страницы</h2>
   {#if decor}
+    <div class="kinds" role="radiogroup" aria-label="Обложка">
+      <button class="chip" role="radio" aria-checked={decor.coverKind === 'ribbon'} class:on={decor.coverKind === 'ribbon'} onclick={() => setKind('ribbon')}>Лента просмотренного</button>
+      <button class="chip" role="radio" aria-checked={decor.coverKind === 'image'} class:on={decor.coverKind === 'image'} disabled={!decor.cover} onclick={() => setKind('image')}>Своя картинка</button>
+    </div>
     <div class="cover" style:--acc={decor.accent ?? '#3a3a3c'}>
-      {#if decor.cover}<img src={decor.cover} alt="" decoding="async" />{/if}
+      {#if decor.coverKind === 'image' && decor.cover}<img src={decor.cover} alt="" decoding="async" />{:else}<PosterRibbon posters={decor.ribbon} accent={decor.accent} />{/if}
       <div class="cover-acts">
         <label class="btn sm" class:busy>
           <Icon name="image" size={14} />
@@ -113,6 +147,29 @@
       </label>
       <button class="btn">Сохранить</button>
     </form>
+
+    <div class="field">
+      <span>Любимые режиссёры <small class="faint">{decor.directors.length}/{MAX}</small></span>
+      {#if decor.directors.length}
+        <div class="tags">
+          {#each decor.directors as d (d)}
+            <span class="tag">{d}<button aria-label="Убрать {d}" onclick={() => setDirectors(decor!.directors.filter((x) => x !== d))}><Icon name="close" size={12} /></button></span>
+          {/each}
+        </div>
+      {/if}
+      <form class="line" onsubmit={addDirector}>
+        <input class="input" bind:value={director} maxlength="80" placeholder="Имя режиссёра" aria-label="Режиссёр" />
+        <button class="btn" disabled={!director.trim() || decor.directors.length >= MAX}>Добавить</button>
+      </form>
+      {#if suggest.filter((n) => !decor!.directors.includes(n)).length}
+        <div class="tags">
+          <small class="muted">Из того, что смотрели:</small>
+          {#each suggest.filter((n) => !decor!.directors.includes(n)).slice(0, 8) as n (n)}
+            <button class="chip" disabled={decor.directors.length >= MAX} onclick={() => setDirectors([...decor!.directors, n])}>+ {n}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
 
     <div class="field">
       <span>Любимое <small class="faint">{decor.favorites.length}/{MAX}</small></span>
@@ -161,6 +218,48 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+  .kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 12px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    font-size: 13px;
+    font-weight: 600;
+    animation: rise-in 0.3s ease-out both;
+  }
+  .tag button {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .line {
+    display: flex;
+    gap: 8px;
+  }
+  .line .input {
+    flex: 1;
+    min-width: 0;
   }
   .cover-acts {
     position: absolute;

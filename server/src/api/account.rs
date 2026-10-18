@@ -238,8 +238,11 @@ pub async fn enter(
 pub async fn me(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
     let has_pass: bool =
         app.db.with(|c| c.query_row("SELECT pass IS NOT NULL FROM users WHERE id = ?", [v.id], |r| r.get(0)))?;
+    let favorites: String =
+        app.db.with(|c| c.query_row("SELECT favorites FROM profiles WHERE id = ?", [v.profile.id], |r| r.get(0)))?;
     Ok(Json(json!({
         "user": v,
+        "favorites": super::json_list(Some(favorites)),
         "hasPassword": has_pass,
         "manage": v.manages(),
         "window": v.local,

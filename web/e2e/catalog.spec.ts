@@ -132,3 +132,19 @@ test('обзор и профиль: поиск IMDb открывается, оф
   await page.goto(url('/profile'));
   await page.getByRole('radiogroup', { name: 'Цвет профиля' }).getByRole('radio', { name: 'Без цвета' }).click();
 });
+
+test('оценку можно убрать, любимый фильм — на своей странице', async ({ page }) => {
+  await page.goto(url(`/title/${env().ids['Амели']}`));
+  const stars = page.getByRole('slider', { name: 'Ваша оценка' });
+  await stars.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(stars).toHaveAttribute('aria-valuenow', '0.5');
+  await page.getByRole('button', { name: 'Убрать оценку' }).click();
+  await expect(stars).toHaveAttribute('aria-valuenow', '0');
+
+  const fav = page.getByRole('button', { name: 'Любимый' });
+  if ((await fav.getAttribute('aria-pressed')) !== 'true') await fav.click();
+  await expect(fav).toHaveAttribute('aria-pressed', 'true');
+  await page.goto(url(`/people/${env().people.me}`));
+  await expect(page.getByRole('region', { name: 'Любимые фильмы' }).getByRole('link', { name: /Амели/ })).toBeVisible();
+});

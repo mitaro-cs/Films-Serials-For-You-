@@ -380,6 +380,12 @@ ALTER TABLE profiles ADD COLUMN favorites TEXT NOT NULL DEFAULT '[]';
     r#"
 ALTER TABLE titles ADD COLUMN backdrop_md TEXT;
 "#,
+    // 8 (0.6.2): любимые режиссёры (до 5) и вид обложки профиля: «ribbon» — лента просмотренного
+    // (по умолчанию), «image» — своя картинка.
+    r#"
+ALTER TABLE profiles ADD COLUMN directors TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE profiles ADD COLUMN cover_kind TEXT NOT NULL DEFAULT 'ribbon' CHECK (cover_kind IN ('ribbon','image'));
+"#,
 ];
 
 impl Db {
