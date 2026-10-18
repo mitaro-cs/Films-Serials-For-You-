@@ -222,6 +222,21 @@ pub async fn edit_review(
     Ok(Json(review))
 }
 
+/// Убрать свою оценку фильму: у отзывов с текстом — только звёзды, отзывы из одних звёзд — целиком.
+pub async fn clear_stars(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
+    adult(&v)?;
+    let me = v.profile.id;
+    app.db.tx(|tx| {
+        tx.execute("DELETE FROM reviews WHERE title_id = ? AND profile_id = ? AND body = ''", params![id, me])?;
+        tx.execute(
+            "UPDATE reviews SET stars = NULL WHERE title_id = ? AND profile_id = ? AND stars IS NOT NULL",
+            params![id, me],
+        )?;
+        Ok(())
+    })?;
+    Ok(Json(json!({"ok": true})))
+}
+
 pub async fn delete_review(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
     own_review(&app, &v, id, true)?;
     app.db.with(|c| c.execute("DELETE FROM reviews WHERE id = ?", [id]))?;

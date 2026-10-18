@@ -1,7 +1,11 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
+  import { api } from '$lib/api';
   import { catalog, loadCatalog } from '$lib/catalog.svelte';
+  import PosterRow from '$lib/discover/PosterRow.svelte';
+  import { extSheet } from '$lib/discover/sheet.svelte';
+  import type { ExtCard, MarkItem } from '$lib/types';
   import { counts, featured, filter, ofTab, shelves, STATUSES, statusOf, TABS, tabOf, type Status } from '$lib/library';
   import { session } from '$lib/session.svelte';
   import Hero from '$lib/ui/Hero.svelte';
@@ -9,8 +13,9 @@
   import Shelf from '$lib/ui/Shelf.svelte';
   import Wide from '$lib/ui/Wide.svelte';
 
-  // Главная как у Apple TV: герой-карусель и ряды широких карточек. Фильмы и Сериалы — тот же
-  // вид плюс фильтр по статусу и вся коллекция сеткой. Каталог — один запрос на все вкладки.
+  // Главная как у Apple TV: герой-карусель и ряды широких карточек. Фильмы и Сериалы — герой,
+  // «Продолжить», «Эксклюзив на Nova» (что хост добавил сам), «Буду смотреть» (с сервиса и из
+  // Обзора), популярное и топ-250 IMDb, а внизу — весь эксклюзив сеткой с фильтром по статусу.
   const tab = $derived(tabOf(page.url.searchParams));
   const status = $derived(statusOf(page.url.searchParams));
 
@@ -23,6 +28,28 @@
   const rows = $derived(items ? shelves(items, catalog.recent, tab) : []);
   const n = $derived(items ? counts(items) : null);
   const shown = $derived(items && tab !== 'home' ? filter(items, status) : []);
+
+  // Ряды IMDb и «Буду смотреть» — только во вкладках; пока грузятся, низ страницы не рисуем
+  // (иначе сетка ниже сдвигалась бы).
+  type Feed = { rows: { key: string; title: string; items: ExtCard[] }[] };
+  let feed = $state<Feed | null>(null);
+  let marks = $state<{ want: MarkItem[]; watched: MarkItem[] } | null>(null);
+  $effect(() => {
+    if (tab === 'home') return;
+    void extSheet.version;
+    Promise.all([
+      api<Feed>('/api/discover').catch(() => ({ rows: [] }) as Feed),
+      api<{ want: MarkItem[]; watched: MarkItem[] }>('/api/me/marks').catch(() => ({ want: [], watched: [] })),
+    ]).then(([f, m]) => {
+      feed = f;
+      marks = m;
+    });
+  });
+  const kind = $derived(tab === 'series' ? 'series' : 'movie');
+  const imdb = $derived(feed ? feed.rows.filter((r) => r.key.endsWith(tab === 'series' ? '_series' : '_movies')) : []);
+  const want = $derived(marks ? marks.want.filter((m) => (m.card ?? m.ext)?.kind === kind) : []);
+  const exclusive = $derived(items ? [...items].sort((a, b) => b.addedAt - a.addedAt).slice(0, 24) : []);
+  const ready = $derived(feed !== null && marks !== null);
 
   // Сетка всей коллекции рисуется частями: сотни карточек разом подтормаживали прокрутку
   // и открытие вкладки. Следующие 48 — когда до конца остаётся экран.
@@ -76,14 +103,10 @@
         </div>
       {/each}
     </div>
-  {:else if items.length === 0}
+  {:else if items.length === 0 && tab === 'home'}
     <div class="page empty">
-      <Icon name={tab === 'series' ? 'tv' : 'film'} size={40} />
-      {#if catalog.items?.length}
-        <!-- Во вкладке пусто, а в каталоге что-то есть — не пугаем «ничего нет». -->
-        <p>{tab === 'series' ? 'Сериалов пока нет' : 'Фильмов пока нет'} — загляните в другие разделы.</p>
-        <a class="btn sm" href={tab === 'series' ? '/?tab=movies' : '/?tab=series'}>{tab === 'series' ? 'К фильмам' : 'К сериалам'}</a>
-      {:else if session.me?.manage}
+      <Icon name="film" size={40} />
+      {#if session.me?.manage}
         <p>Здесь пока пусто.</p>
         <a class="btn primary sm" href="/admin?tab=folders">Добавить фильмы</a>
       {:else}
@@ -95,12 +118,25 @@
 
     <div class="rows">
       {#if tab === 'home'}
-        {#each rows as row, i (row.key)}<Shelf title={row.title} items={row.items} eager={i < 2} />{/each}
+        {#each rows as row, i (row.key)}<Shelf title={row.title} items={row.items} eager={i < 2} {i} />{/each}
       {:else}
         {#each rows.filter((r) => r.key === 'continue') as row (row.key)}<Shelf title={row.title} items={row.items} eager />{/each}
-        <section aria-label="Вся коллекция">
+        {#if !ready}
+          {#each Array(2) as _, r (r)}
+            <div class="ph-row">
+              <span class="ph-title skeleton"></span>
+              <div class="ph-cards">{#each Array(6) as _, i (i)}<span class="ph-card skeleton"></span>{/each}</div>
+            </div>
+          {/each}
+        {:else}
+        {#if exclusive.length}<Shelf title="Эксклюзив на Nova" items={exclusive} i={1} />{/if}
+        {#if want.length}<PosterRow title="Буду смотреть" items={want} i={2} />{/if}
+        {#each imdb as row, j (row.key)}
+          <PosterRow title={row.title} items={row.items} href="/discover?chart={row.key}" ranked={row.key.startsWith('top')} i={j + 3} />
+        {/each}
+        <section aria-label="Вся коллекция" class="rise" style:--i={5}>
           <div class="head">
-            <h2>{tab === 'movies' ? 'Все фильмы' : 'Все сериалы'}</h2>
+            <h2>Эксклюзив — {tab === 'movies' ? 'все фильмы' : 'все сериалы'}</h2>
             <div class="chips" role="tablist" aria-label="Статус">
               {#each STATUSES as s (s.id)}
                 <button class="chip" class:on={status === s.id} role="tab" aria-selected={status === s.id} onclick={() => setStatus(s.id)}>
@@ -112,13 +148,23 @@
           </div>
           {#if shown.length}
             <div class="grid">
-              {#each shown.slice(0, limit) as card, i (card.id)}<Wide {card} eager={i < 8} />{/each}
+              {#each shown.slice(0, limit) as card, i (card.id)}<Wide {card} eager={i < 8} i={i % STEP} />{/each}
             </div>
             {#if shown.length > limit}<div bind:this={more} class="more" aria-hidden="true"></div>{/if}
+          {:else if !items.length}
+            <div class="empty">
+              {#if session.me?.manage}
+                <p>{tab === 'series' ? 'Своих сериалов пока нет' : 'Своих фильмов пока нет'} — добавьте их с компьютера.</p>
+                <a class="btn primary sm" href="/admin?tab=folders">Добавить</a>
+              {:else}
+                <p>{tab === 'series' ? 'Сериалов' : 'Фильмов'} от хоста пока нет — посмотрите популярное выше.</p>
+              {/if}
+            </div>
           {:else}
             <div class="empty">{EMPTY[status]}</div>
           {/if}
         </section>
+        {/if}
       {/if}
     </div>
   {/if}

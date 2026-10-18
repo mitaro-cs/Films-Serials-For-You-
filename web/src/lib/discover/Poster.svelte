@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import type { Card, ExtCard } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
@@ -6,7 +7,12 @@
 
   // Постер 2:3: название, год и оценка. Из ленты IMDb — открывает карточку поверх страницы
   // («Есть у нас» — смотреть прямо здесь), с сервиса (`local`) — ссылка на страницу фильма.
-  let { card, local = null, rank = null }: { card?: ExtCard; local?: Card | null; rank?: number | null } = $props();
+  let {
+    card,
+    local = null,
+    rank = null,
+    i = null,
+  }: { card?: ExtCard; local?: Card | null; rank?: number | null; i?: number | null } = $props();
 
   const c = $derived(
     local
@@ -17,7 +23,7 @@
 
 {#snippet body()}
   <span class="art" style:background={c.poster ? undefined : placeholder(c.title)}>
-    {#if c.poster}<img src={c.poster} alt="" loading="lazy" decoding="async" width="342" height="513" />{:else}<span class="ph">{c.title}</span>{/if}
+    {#if c.poster}<img use:fadeIn src={c.poster} alt="" loading="lazy" decoding="async" width="342" height="513" />{:else}<span class="ph">{c.title}</span>{/if}
     {#if rank}<span class="rank">{rank}</span>{/if}
     {#if c.here}<span class="here">Есть у нас</span>{/if}
     {#if c.mark}<span class="mark" title={c.mark === 'watched' ? 'Просмотрено' : 'Буду смотреть'}><Icon name={c.mark === 'watched' ? 'check' : 'bookmark'} size={13} stroke={2.6} /></span>{/if}
@@ -29,9 +35,9 @@
 {/snippet}
 
 {#if local}
-  <a class="poster" href="/title/{local.id}" aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</a>
+  <a class="poster" class:rise={i !== null} style:--i={i} href="/title/{local.id}" aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</a>
 {:else}
-  <button class="poster" onclick={() => openExt(card!)} aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</button>
+  <button class="poster" class:rise={i !== null} style:--i={i} onclick={() => openExt(card!)} aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</button>
 {/if}
 
 <style>

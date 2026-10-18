@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import { goto } from '$app/navigation';
   import { api, del, errorText, post, put } from '$lib/api';
   import { clock } from '$lib/fmt';
   import LinkCard from '$lib/links/LinkCard.svelte';
   import LinkFinder from '$lib/links/LinkFinder.svelte';
   import NewList from '$lib/social/NewList.svelte';
+  import { isFavorite, toggleFavorite } from '$lib/social/favorites';
   import type { ExtDetail, FoundVideo } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
@@ -146,7 +148,7 @@
   {:else if c}
     <div class="top">
       <div class="poster" style:background={c.poster ? undefined : placeholder(c.title)}>
-        {#if c.poster}<img src={c.poster} alt="" width="342" height="513" />{/if}
+        {#if c.poster}<img use:fadeIn src={c.poster} alt="" width="342" height="513" />{/if}
       </div>
       <div class="info">
         <h3>{c.title}</h3>
@@ -171,6 +173,9 @@
             <Icon name="check" size={16} /> Просмотрел
           </button>
           <button class="btn" aria-expanded={lists} disabled={!d} onclick={() => (lists = !lists)}><Icon name="plus" size={16} /> В список</button>
+          <button class="btn" class:on={isFavorite(`x:${c.id}`)} aria-pressed={isFavorite(`x:${c.id}`)} disabled={!d} onclick={() => toggleFavorite(`x:${c.id}`)}>
+            <Icon name="star" size={16} /> Любимый
+          </button>
           {#if canWish || c.wished}
             <button class="btn" class:on={c.wished} aria-pressed={c.wished} disabled={!d} onclick={wish}>
               <Icon name="mail" size={16} /> {c.wished ? 'Попросили хоста' : 'Хочу на Nova'}
@@ -205,7 +210,7 @@
             <li>
               <button onclick={() => playFound(f)} aria-label="Смотреть: {f.label}">
                 <span class="art">
-                  {#if f.thumb}<img src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
+                  {#if f.thumb}<img use:fadeIn src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
                   <span class="site">{f.site === 'vk' ? 'VK Видео' : 'Rutube'}</span>
                   {#if f.duration}<span class="dur">{clock(f.duration)}</span>{/if}
                 </span>

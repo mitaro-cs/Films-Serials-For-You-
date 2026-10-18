@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import { page } from '$app/state';
   import { api, errorText } from '$lib/api';
   import { ago } from '$lib/fmt';
   import Poster from '$lib/discover/Poster.svelte';
   import FriendButton from '$lib/social/FriendButton.svelte';
+  import PosterRibbon from '$lib/social/PosterRibbon.svelte';
   import ProfileStats from '$lib/social/ProfileStats.svelte';
   import StarsShow from '$lib/social/StarsShow.svelte';
   import type { Card, MiniTitle, Person, ProfileDecor, ProfileStats as Stats, Relation } from '$lib/types';
@@ -38,7 +40,11 @@
     <div class="empty"><Icon name="info" size={36} /> {error}</div>
   {:else if p}
     <div class="cover" style:--acc={p.decor.accent ?? '#3a3a3c'}>
-      {#if p.decor.cover}<img src={p.decor.cover} alt="" decoding="async" />{/if}
+      {#if p.decor.coverKind === 'image' && p.decor.cover}
+        <img use:fadeIn src={p.decor.cover} alt="" decoding="async" />
+      {:else}
+        <PosterRibbon posters={p.decor.ribbon} accent={p.decor.accent} />
+      {/if}
     </div>
     <header class="head">
       <span class="ring" style:--acc={p.decor.accent ?? 'transparent'}><Avatar avatar={p.person.avatar} photo={p.person.photo} size={112} /></span>
@@ -55,10 +61,23 @@
 
     {#if p.decor.favorites.length}
       <section aria-labelledby="f">
-        <h2 id="f">Любимое</h2>
-        <div class="favs">
-          {#each p.decor.favorites as f (f.key)}<Poster card={f.ext} local={f.card ?? null} />{/each}
-        </div>
+        <h2 id="f">Любимые фильмы</h2>
+        <ol class="favs">
+          {#each p.decor.favorites as f, i (f.key)}
+            <li class="rise" style:--i={i}><span class="num">{i + 1}</span><Poster card={f.ext} local={f.card ?? null} /></li>
+          {/each}
+        </ol>
+      </section>
+    {/if}
+
+    {#if p.decor.directors.length}
+      <section aria-labelledby="d">
+        <h2 id="d">Любимые режиссёры</h2>
+        <ul class="dirs">
+          {#each p.decor.directors as d, i (d)}
+            <li class="rise" style:--i={i}><a href="/search?q={encodeURIComponent(d)}">{d}</a></li>
+          {/each}
+        </ul>
       </section>
     {/if}
 
@@ -74,7 +93,7 @@
           {#each p.watched as c (c.id)}
             <li>
               <a href="/title/{c.id}" title={c.title} style:background={c.poster ? undefined : placeholder(c.title)}>
-                {#if c.poster}<img src={c.poster} alt={c.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{c.title}</span>{/if}
+                {#if c.poster}<img use:fadeIn src={c.poster} alt={c.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{c.title}</span>{/if}
               </a>
             </li>
           {/each}
@@ -89,7 +108,7 @@
           {#each p.reviews as r (r.id)}
             <li class="rv">
               <a class="mini" href="/title/{r.title.id}" style:background={r.title.poster ? undefined : placeholder(r.title.title)}>
-                {#if r.title.poster}<img src={r.title.poster} alt="" loading="lazy" decoding="async" width="56" height="84" />{/if}
+                {#if r.title.poster}<img use:fadeIn src={r.title.poster} alt="" loading="lazy" decoding="async" width="56" height="84" />{/if}
               </a>
               <div class="body">
                 <a href="/title/{r.title.id}"><b>{r.title.title}</b>{#if r.title.year} <span class="faint">{r.title.year}</span>{/if}</a>
@@ -158,9 +177,49 @@
     max-width: 60ch;
   }
   .favs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 14px;
+  }
+  .favs li {
+    position: relative;
+    min-width: 0;
+  }
+  /* Номер, как в «Топ-5» на IMDb: крупная цифра поверх угла постера. */
+  .num {
+    position: absolute;
+    z-index: 1;
+    left: 8px;
+    top: 4px;
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 1;
+    color: #fff;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85);
+    pointer-events: none;
+  }
+  .dirs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .dirs a {
+    display: inline-block;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: var(--surface);
+    font-weight: 600;
+    font-size: 14px;
+    transition: background 0.2s;
+  }
+  .dirs a:hover {
+    background: var(--surface-2);
   }
   @media (max-width: 640px) {
     .head {

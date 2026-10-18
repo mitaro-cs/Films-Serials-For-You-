@@ -5,7 +5,7 @@
 
   // Ряд главной: заголовок и лента широких карточек; на компьютере — стрелки у краёв
   // (появляются при наведении, место не занимают).
-  let { title, items, eager = false }: { title: string; items: Card[]; eager?: boolean } = $props();
+  let { title, items, eager = false, i = 0 }: { title: string; items: Card[]; eager?: boolean; i?: number } = $props();
 
   let strip = $state<HTMLDivElement>();
   let start = $state(true);
@@ -26,7 +26,7 @@
   }
 </script>
 
-<section class="shelf" aria-label={title}>
+<section class="rise shelf" aria-label={title} style:--i={i}>
   <h2>{title}</h2>
   <div class="wrap">
     <div class="strip" bind:this={strip} onscroll={edges}>

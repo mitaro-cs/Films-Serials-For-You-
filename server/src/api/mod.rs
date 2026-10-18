@@ -25,6 +25,8 @@ pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/api/health", get(account::health))
         .route("/api/site", get(account::site))
+        .route("/api/site/wall", get(discover::wall))
+        .route("/api/site/wall/{name}", get(discover::wall_image))
         .route("/api/auth/login", post(account::login))
         .route("/api/auth/logout", post(account::logout))
         .route("/api/auth/register", post(account::register))
@@ -45,6 +47,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/img/{name}", get(catalog::image))
         // люди
         .route("/api/titles/{id}/reviews", get(social::reviews).post(social::add_review))
+        .route("/api/titles/{id}/stars", delete(social::clear_stars))
         .route("/api/titles/{id}/lists", get(lists::of_title))
         .route("/api/lists", get(lists::lists).post(lists::create))
         .route("/api/lists/{id}/ext/{ext}", put(lists::ext_item))
@@ -61,6 +64,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/discover/title/{id}/lists", get(lists::ext_lists))
         .route("/api/me/marks", get(discover::my_marks))
         .route("/api/me/profile", patch(profile::set_decor))
+        .route("/api/me/favorites", put(profile::set_favorite))
         .route(
             "/api/me/cover",
             put(profile::set_cover)

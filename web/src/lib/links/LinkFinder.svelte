@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import { goto } from '$app/navigation';
   import { untrack } from 'svelte';
   import { api, errorText, post } from '$lib/api';
@@ -101,7 +102,7 @@
           <li>
             <button class="hit" onclick={() => save(f.url, f, true)} disabled={busy}>
               <span class="art">
-                {#if f.thumb}<img src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
+                {#if f.thumb}<img use:fadeIn src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
                 <span class="site">{f.site === 'vk' ? 'VK Видео' : 'Rutube'}</span>
                 {#if f.duration}<span class="dur">{clock(f.duration)}</span>{/if}
               </span>

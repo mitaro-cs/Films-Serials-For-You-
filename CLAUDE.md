@@ -161,5 +161,19 @@
   кадре (`.rows` с отрицательным отступом); `--hero-tint` на `<html>` красит капсулу разделов.
 - Обзор (0.6.1): `ExtSheet` сам ищет фильм на Rutube/VK (`/api/links/search?min=` — от 40 мин,
   у сериала от 15, название совпадает); нашёлся или есть ссылки — «Хочу на Nova» не показываем.
+- Движение (0.6.2): `.page`/`.home` — `page-in`, `main.leaving` — гаснет 120 мс в `onNavigate`
+  (+layout), `.rise` + `--i` — лесенка рядов и карточек (`Shelf`/`PosterRow`/`Wide`/`Poster` с `i`),
+  картинки — `use:fadeIn` (`ui/fade.ts`), `Modal` закрывается анимацией (`closing`, Esc — через
+  `cancel`). В reduced motion бесконечные анимации не крутятся (`animation-iteration-count: 1`).
+- Вход (0.6.2): `AuthShell` — стена постеров из `/api/site/wall` (без входа, только постеры
+  подборок IMDb; картинка — `/api/site/wall/{name}`, чужие имена — 404).
+- Вкладки «Фильмы»/«Сериалы» (0.6.2): «Эксклюзив на Nova» (своё), «Буду смотреть» (`/api/me/marks`),
+  ряды IMDb (`/api/discover`, ключи `*_movies`/`*_series`), сетка «Эксклюзив — все …»
+  (`region «Вся коллекция»` — для e2e).
+- Профиль (0.6.2, миграция 8): любимые фильмы — до 5 (`profile::MAX_FAVORITES`, `PUT
+  /api/me/favorites {key, value}`, ключи в `/api/me` → `session.me.favorites`, фронт —
+  `social/favorites.ts`), режиссёры — `profiles.directors` (до 5, подсказки — `stats.directors`),
+  обложка `profiles.cover_kind`: `ribbon` — `social/PosterRibbon` из `decor.ribbon` (постеры
+  просмотренного), `image` — своя. Убрать оценку — `DELETE /api/titles/{id}/stars`.
 - e2e, которые меняют дружбу или статусы, заводят своего человека (`stranger()`) или
   сбрасывают состояние (`resetStatuses`): проекты phone/tablet/desktop идут подряд на одних данных.

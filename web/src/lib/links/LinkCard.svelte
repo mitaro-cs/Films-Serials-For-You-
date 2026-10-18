@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import { clock } from '$lib/fmt';
   import type { VideoLink } from '$lib/types';
   import Icon from '$lib/ui/Icon.svelte';
@@ -10,7 +11,7 @@
 
 <div class="lc">
   <a class="art" href="/watch/link/{link.id}" aria-label="Смотреть: {link.label}">
-    {#if link.thumb}<img src={link.thumb} alt="" loading="lazy" decoding="async" />{/if}
+    {#if link.thumb}<img use:fadeIn src={link.thumb} alt="" loading="lazy" decoding="async" />{/if}
     <span class="play"><Icon name="play" size={18} /></span>
     <span class="site">{SITE[link.kind]}</span>
     {#if link.duration}<span class="dur">{clock(link.duration)}</span>{/if}

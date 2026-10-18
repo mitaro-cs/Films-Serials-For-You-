@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { fadeIn } from '$lib/ui/fade';
   import { caption, percent } from '$lib/library';
   import type { Card } from '$lib/types';
   import { placeholder } from './art';
@@ -6,19 +7,19 @@
 
   // Широкая карточка как у Apple TV: кадр 16:9 со скруглением, под ним — название и подпись
   // («Недавно добавлено», где остановился, статус). Размер задан заранее — ничего не прыгает.
-  let { card, eager = false }: { card: Card; eager?: boolean } = $props();
+  let { card, eager = false, i = null }: { card: Card; eager?: boolean; i?: number | null } = $props();
 
   const src = $derived(card.backdropSmall ?? card.backdrop ?? card.poster);
   const r = $derived(card.status === 'watching' ? card.resume : null);
 </script>
 
-<a class="wide" href="/title/{card.id}" style:--tint={card.accent ?? '#2c2c2e'}>
+<a class="wide" class:rise={i !== null} style:--i={i} href="/title/{card.id}" style:--tint={card.accent ?? '#2c2c2e'}>
   <span class="art" style:background={src ? undefined : placeholder(card.title)}>
     {#if src}
-      <img {src} alt="" loading={eager ? 'eager' : 'lazy'} decoding="async" width="640" height="360" class:poster={!card.backdropSmall && !card.backdrop} />
+      <img use:fadeIn {src} alt="" loading={eager ? 'eager' : 'lazy'} decoding="async" width="640" height="360" class:poster={!card.backdropSmall && !card.backdrop} />
     {/if}
     {#if card.logo}
-      <img class="mark" src={card.logo} alt="" loading="lazy" decoding="async" />
+      <img use:fadeIn class="mark" src={card.logo} alt="" loading="lazy" decoding="async" />
     {:else if !src}
       <span class="ph">{card.title}</span>
     {/if}

@@ -80,6 +80,15 @@ async fn reviews_friends_chat_photo() {
     assert!(host.send("DELETE", &format!("/api/reviews/{boris_comment}"), json!({})).await.status().is_success());
     assert_eq!(anna.json(&format!("/api/titles/{dune}/reviews")).await["total"], 2);
 
+    // Убрать свою оценку: отзыв из одних звёзд исчезает, у отзыва с текстом остаётся текст.
+    boris.send("POST", &format!("/api/titles/{dune}/reviews"), json!({"stars": 8})).await;
+    assert_eq!(anna.json(&format!("/api/titles/{dune}/reviews")).await["votes"], 2);
+    assert!(boris.send("DELETE", &format!("/api/titles/{dune}/stars"), json!({})).await.status().is_success());
+    let list = anna.json(&format!("/api/titles/{dune}/reviews")).await;
+    assert_eq!((list["total"].as_i64(), list["votes"].as_i64()), (Some(2), Some(1)));
+    let long = list["items"].as_array().unwrap().iter().find(|r| r["body"] == "Долго").unwrap();
+    assert_eq!(long["stars"], Value::Null);
+
     // ---------- участники и друзья ----------
     let m = anna.json("/api/members").await;
     let b = m.as_array().unwrap().iter().find(|x| x["id"] == pb).unwrap();

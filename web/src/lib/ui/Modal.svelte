@@ -5,16 +5,38 @@
   let { open = $bindable(false), title, wide = false, children }: { open: boolean; title: string; wide?: boolean; children: Snippet } =
     $props();
   let dialog: HTMLDialogElement | undefined = $state();
+  // Закрывается плавно: сначала анимация, потом close(); содержимое живёт до конца анимации.
+  let closing = $state(false);
+  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   $effect(() => {
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
+    if (open && !dialog.open) {
+      closing = false;
+      dialog.showModal();
+    }
+    if (!open && dialog.open && !closing) {
+      closing = true;
+      const d = dialog;
+      setTimeout(
+        () => {
+          if (!open) d.close();
+          closing = false;
+        },
+        still ? 0 : 180,
+      );
+    }
   });
+
+  // Esc и клик по затемнению — тоже через анимацию (слой Esc в +layout видит отмену и не закрывает).
+  function cancel(e: Event) {
+    e.preventDefault();
+    open = false;
+  }
 </script>
 
-<dialog bind:this={dialog} class:wide onclose={() => (open = false)} aria-label={title}>
-  {#if open}
+<dialog bind:this={dialog} class:wide class:closing onclose={() => (open = false)} oncancel={cancel} aria-label={title}>
+  {#if open || closing}
     <header>
       <h2>{title}</h2>
       <button class="btn ghost sm icon" aria-label="Закрыть" onclick={() => (open = false)}><Icon name="close" size={18} /></button>
@@ -41,6 +63,23 @@
   }
   dialog[open]::backdrop {
     animation: fade 0.2s ease-out;
+  }
+  dialog.closing {
+    animation: pop-out 0.18s ease-in forwards;
+  }
+  dialog.closing::backdrop {
+    animation: fade-out 0.18s ease-in forwards;
+  }
+  @keyframes pop-out {
+    to {
+      opacity: 0;
+      transform: translateY(6px) scale(0.97);
+    }
+  }
+  @keyframes fade-out {
+    to {
+      opacity: 0;
+    }
   }
   @keyframes pop {
     from {

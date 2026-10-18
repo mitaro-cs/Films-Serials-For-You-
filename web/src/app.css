@@ -357,11 +357,46 @@ select.input option {
   }
 }
 
+/* ---------- движение: только transform и opacity (видеокарте легко, вёрстка не прыгает) ---------- */
+
+/* Страница появляется мягко — при каждом переходе. */
+.page,
+.home {
+  animation: page-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+/* Ряды и карточки — лесенкой, сверху вниз и слева направо (--i — номер). */
+.rise {
+  animation: rise-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 40ms);
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+/* Значок пустого экрана чуть покачивается. */
+.empty > svg:first-child {
+  animation: bob 3.2s ease-in-out infinite;
+}
+@keyframes bob {
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

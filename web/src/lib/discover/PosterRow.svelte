@@ -9,7 +9,8 @@
     items,
     href = null,
     ranked = false,
-  }: { title: string; items: { ext?: ExtCard; card?: Card }[] | ExtCard[]; href?: string | null; ranked?: boolean } = $props();
+    i = 0,
+  }: { title: string; items: { ext?: ExtCard; card?: Card }[] | ExtCard[]; href?: string | null; ranked?: boolean; i?: number } = $props();
 
   // Элемент — карточка ленты или {ext | card} из «Буду смотреть» и списков.
   const tiles = $derived(items.map((i) => ('id' in i ? { ext: i as ExtCard, card: undefined } : i)));
@@ -34,14 +35,14 @@
   }
 </script>
 
-<section class="row" aria-label={title}>
+<section class="rise row" aria-label={title} style:--i={i}>
   <div class="head">
     <h2>{title}</h2>
     {#if href}<a class="all" {href}>Все <Icon name="right" size={16} /></a>{/if}
   </div>
   <div class="wrap">
     <div class="strip" bind:this={strip} onscroll={edges}>
-      {#each tiles as t, i (key(t))}<Poster card={t.ext} local={t.card ?? null} rank={ranked ? i + 1 : null} />{/each}
+      {#each tiles as t, n (key(t))}<Poster card={t.ext} local={t.card ?? null} rank={ranked ? n + 1 : null} />{/each}
     </div>
     {#if !start}<button class="arrow l" aria-label="Назад" onclick={() => page(-1)}><Icon name="back" size={22} /></button>{/if}
     {#if !end}<button class="arrow r" aria-label="Дальше" onclick={() => page(1)}><Icon name="right" size={22} /></button>{/if}
