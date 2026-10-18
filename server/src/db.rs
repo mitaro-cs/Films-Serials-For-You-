@@ -386,6 +386,12 @@ ALTER TABLE titles ADD COLUMN backdrop_md TEXT;
 ALTER TABLE profiles ADD COLUMN directors TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE profiles ADD COLUMN cover_kind TEXT NOT NULL DEFAULT 'ribbon' CHECK (cover_kind IN ('ribbon','image'));
 "#,
+    // 9 (0.6.4): у фильма из ленты — своя страница: большой кадр (`backdrop`) и остальное
+    // (слоган, актёры, кадры, похожие — JSON в `extra`). `detailed` = 2 — описание в этом виде.
+    r#"
+ALTER TABLE ext_titles ADD COLUMN backdrop TEXT;
+ALTER TABLE ext_titles ADD COLUMN extra TEXT;
+"#,
 ];
 
 impl Db {

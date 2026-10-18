@@ -1,15 +1,20 @@
+import { goto } from '$app/navigation';
 import type { ExtCard } from '$lib/types';
 
-// Карточка фильма из ленты открывается поверх любой страницы — одна на приложение.
-export const extSheet = $state<{ id: string | null; seed: ExtCard | null; version: number }>({
-  id: null,
+// Фильм из ленты IMDb открывается своей страницей `/ext/<id>`. Карточку, по которой нажали,
+// помним: страница сразу показывает постер и название, остальное приходит следом.
+export const extSheet = $state<{ seed: ExtCard | null; version: number }>({
   seed: null,
   version: 0,
 });
 
-export function openExt(card: ExtCard) {
+export function remember(card: ExtCard) {
   extSheet.seed = card;
-  extSheet.id = card.id;
+}
+
+export function openExt(card: ExtCard) {
+  remember(card);
+  goto(`/ext/${card.id}`);
 }
 
 /** Что-то поменялось (отметка, список) — страницы, которые показывают карточки, обновятся. */
