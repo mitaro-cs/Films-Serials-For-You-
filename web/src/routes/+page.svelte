@@ -24,6 +24,23 @@
   const n = $derived(items ? counts(items) : null);
   const shown = $derived(items && tab !== 'home' ? filter(items, status) : []);
 
+  // Сетка всей коллекции рисуется частями: сотни карточек разом подтормаживали прокрутку
+  // и открытие вкладки. Следующие 48 — когда до конца остаётся экран.
+  const STEP = 48;
+  let limit = $state(STEP);
+  let more = $state<HTMLElement>();
+  $effect(() => {
+    void tab;
+    void status;
+    limit = STEP;
+  });
+  $effect(() => {
+    if (!more) return;
+    const io = new IntersectionObserver((e) => e[0].isIntersecting && (limit += STEP), { rootMargin: '100% 0px' });
+    io.observe(more);
+    return () => io.disconnect();
+  });
+
   function setStatus(s: Status) {
     const u = new URL(page.url);
     if (s === 'all') u.searchParams.delete('status');
@@ -95,8 +112,9 @@
           </div>
           {#if shown.length}
             <div class="grid">
-              {#each shown as card, i (card.id)}<Wide {card} eager={i < 8} />{/each}
+              {#each shown.slice(0, limit) as card, i (card.id)}<Wide {card} eager={i < 8} />{/each}
             </div>
+            {#if shown.length > limit}<div bind:this={more} class="more" aria-hidden="true"></div>{/if}
           {:else}
             <div class="empty">{EMPTY[status]}</div>
           {/if}
@@ -107,7 +125,9 @@
 </div>
 
 <style>
+  /* --row — высота первого ряда: он лежит на нижней части кадра героя, как у Apple TV. */
   .home {
+    --row: clamp(240px, 31vh, 330px);
     min-height: 100dvh;
     padding-bottom: calc(48px + var(--tabbar));
   }
@@ -125,7 +145,8 @@
       gap: 2px;
       padding: 4px;
       border-radius: 999px;
-      background: rgba(40, 37, 35, 0.9);
+      background: color-mix(in srgb, var(--hero-tint, #2a2724) 45%, rgba(20, 20, 20, 0.84));
+      transition: background 0.5s;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     }
     .kinds a {
@@ -157,7 +178,7 @@
   .rows {
     position: relative;
     z-index: 1;
-    margin-top: clamp(-150px, -15vh, -96px);
+    margin-top: calc(-1 * var(--row));
     padding: 0 var(--gutter);
   }
   .flat .rows {
@@ -170,8 +191,8 @@
     }
   }
   @media (max-width: 640px) {
-    .rows {
-      margin-top: -64px;
+    .home {
+      --row: 200px;
     }
   }
   .head {
@@ -193,12 +214,12 @@
     overflow-x: auto;
   }
   .ph-hero {
-    height: clamp(460px, 78vh, 860px);
+    height: clamp(560px, 100svh, 1200px);
     border-radius: 0;
   }
   @media (max-width: 640px) {
     .ph-hero {
-      height: clamp(440px, 74vh, 640px);
+      height: clamp(520px, 86svh, 760px);
     }
   }
   .ph-row {
@@ -227,6 +248,9 @@
       grid-auto-columns: calc((100% - 12px) / 1.75);
       gap: 12px;
     }
+  }
+  .more {
+    height: 1px;
   }
   .empty :global(.btn) {
     margin-top: 6px;

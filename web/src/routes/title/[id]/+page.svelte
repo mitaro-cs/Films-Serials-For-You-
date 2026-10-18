@@ -164,7 +164,7 @@
     {/if}
     <div class="wrap">
       <div class="poster-col">
-        <div class="poster" style:view-transition-name="poster-{c.id}" style:background={c.posterLarge ? undefined : placeholder(c.title)}>
+        <div class="poster" style:background={c.posterLarge ? undefined : placeholder(c.title)}>
           {#if c.posterLarge}<img src={c.posterLarge} alt={c.title} width="460" height="690" decoding="async" />{:else}<span>{c.title}</span>{/if}
         </div>
         {#if t.next}
@@ -443,7 +443,7 @@
     object-fit: cover;
     object-position: center 25%;
     /* Кадр проявляется один раз — без долгой анимации (она нагружала видеокарту). */
-    animation: kenburns 0.6s ease-out both;
+    animation: kenburns 0.3s ease-out both;
   }
   .bg::after {
     content: '';
@@ -469,7 +469,7 @@
   .poster-col {
     display: grid;
     gap: 14px;
-    animation: rise 0.6s 0.1s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
   .poster {
     aspect-ratio: 2 / 3;
@@ -497,7 +497,7 @@
     gap: 10px;
     align-content: end;
     min-width: 0;
-    animation: rise 0.6s 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.3s 0.04s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
   h1 {
     font-size: clamp(30px, 4.6vw, 52px);
@@ -592,7 +592,7 @@
     border-radius: 16px;
     background: rgba(28, 28, 30, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    animation: rise 0.6s 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.3s 0.08s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
   .acts {
     display: grid;

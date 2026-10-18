@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "fsfy-desktop"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "fsfy-server",
  "keepawake",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "fsfy-server"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "argon2",

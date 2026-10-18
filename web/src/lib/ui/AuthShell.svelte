@@ -33,16 +33,16 @@
     width: 60vmax;
     height: 60vmax;
     border-radius: 50%;
-    filter: blur(90px);
     opacity: 0.35;
   }
+  /* Мягкое пятно — градиентом, не filter: blur (тот грузил видеокарту на весь экран). */
   .a {
-    background: #3a3a3c;
+    background: radial-gradient(closest-side, #3a3a3c, transparent);
     top: -30vmax;
     right: -20vmax;
   }
   .b {
-    background: #52525b;
+    background: radial-gradient(closest-side, #52525b, transparent);
     bottom: -35vmax;
     left: -25vmax;
     opacity: 0.22;

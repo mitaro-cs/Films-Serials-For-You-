@@ -121,7 +121,6 @@
     box-sizing: content-box;
     /* Над героем — только мягкая тень сверху, чтобы капсула читалась на светлом кадре. */
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent);
-    view-transition-name: site-header;
   }
   header::before {
     content: '';
@@ -148,10 +147,12 @@
     gap: 2px;
     padding: 5px;
     border-radius: 999px;
-    background: rgba(40, 37, 35, 0.9);
+    /* Над кадром героя — в его цвет, как у Apple TV (коричневая капсула над оранжевым кадром). */
+    background: color-mix(in srgb, var(--hero-tint, #2a2724) 45%, rgba(20, 20, 20, 0.84));
     box-shadow:
       inset 0 0 0 1px rgba(255, 255, 255, 0.08),
       0 8px 30px -10px rgba(0, 0, 0, 0.6);
+    transition: background 0.5s;
   }
   .pill a {
     position: relative;
@@ -329,7 +330,6 @@
       padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
       background: rgba(8, 8, 10, 0.96);
       border-top: 1px solid var(--line);
-      view-transition-name: site-tabs;
     }
     .tabs a {
       display: grid;

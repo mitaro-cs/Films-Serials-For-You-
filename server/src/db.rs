@@ -375,6 +375,11 @@ ALTER TABLE profiles ADD COLUMN accent TEXT;
 ALTER TABLE profiles ADD COLUMN bio TEXT;
 ALTER TABLE profiles ADD COLUMN favorites TEXT NOT NULL DEFAULT '[]';
 "#,
+    // 7 (0.7): большой кадр героя и страницы фильма — 1920 px вместо оригинала (бывает 4K и
+    // несколько мегабайт: через туннель главная открывалась секундами).
+    r#"
+ALTER TABLE titles ADD COLUMN backdrop_md TEXT;
+"#,
 ];
 
 impl Db {

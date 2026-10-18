@@ -1,6 +1,6 @@
 <script lang="ts">
   import '../app.css';
-  import { goto, onNavigate } from '$app/navigation';
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import ExtSheet from '$lib/discover/ExtSheet.svelte';
   import Ask from '$lib/ui/Ask.svelte';
@@ -48,19 +48,6 @@
     };
     window.addEventListener('keydown', hold);
     return () => window.removeEventListener('keydown', hold);
-  });
-
-  // Плавная смена страниц (View Transitions): старая растворяется, новая чуть всплывает;
-  // постер карточки «перелетает» на страницу фильма. Только transform и opacity — без сдвигов.
-  onNavigate((nav) => {
-    if (!document.startViewTransition || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    if (nav.from?.url.pathname === nav.to?.url.pathname) return;
-    return new Promise((resolve) => {
-      document.startViewTransition(async () => {
-        resolve();
-        await nav.complete;
-      });
-    });
   });
 
   // Окно приложения хоста: перетаскивают файлы — подсказка, бросили — что сделано.
