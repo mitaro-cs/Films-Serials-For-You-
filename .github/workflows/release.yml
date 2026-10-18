@@ -1,14 +1,59 @@
 name: Release
-# Тег v1.2.3 → выпуск с установщиками: .dmg (Apple Silicon и Intel) и .exe для Windows.
+# Выпуск с установщиками: .dmg (Apple Silicon и Intel) и .exe для Windows. Собирается сам:
+# в `miaro` пришла новая версия (`version` в tauri.conf.json, тега v<версия> ещё нет) — тег и
+# выпуск появляются после сборки. Тег v1.2.3, отправленный вручную, тоже собирает выпуск.
 on:
   push:
+    branches: [miaro]
     tags: ["v*"]
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      go: ${{ steps.v.outputs.go }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Новая ли версия
+        id: v
+        shell: bash
+        run: |
+          tag="v$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            [ "$GITHUB_REF_NAME" = "$tag" ] || { echo "::error::Тег $GITHUB_REF_NAME, а версия приложения ${tag#v} — нужен тег $tag"; exit 1; }
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "Выпуск $tag уже есть — собирать нечего"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Новая версия $tag — собираем выпуск"
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Выпуск (и тег на этом коммите) — заранее, один раз: три сборки только выгружают файлы.
+      - name: Выпуск
+        if: steps.v.outputs.go == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" \
+            --title "Films & Serials For You $TAG" \
+            --notes "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md." \
+            $([[ "$TAG" == *-* ]] && echo --prerelease)
+
   build:
+    needs: version
+    if: needs.version.outputs.go == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -27,11 +72,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - name: Тег = версия приложения
-        shell: bash
-        run: |
-          want=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
-          [ "${GITHUB_REF_NAME#v}" = "$want" ] || { echo "::error::Тег $GITHUB_REF_NAME, а версия приложения $want — нужен тег v$want"; exit 1; }
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: "${{ matrix.target }}" }
       - uses: Swatinem/rust-cache@v2
@@ -67,11 +107,12 @@ jobs:
           # С `npm run tauri --` получалось `tauri build -- --target …`: цель уходила в cargo,
           # а упаковщик искал программу в target/release (выпуск 0.1.1 упал так).
           args: --target ${{ matrix.target }} ${{ steps.sign.outputs.extra }}
-          tagName: ${{ github.ref_name }}
-          releaseName: "Films & Serials For You ${{ github.ref_name }}"
+          tagName: ${{ needs.version.outputs.tag }}
+          releaseName: "Films & Serials For You ${{ needs.version.outputs.tag }}"
+          releaseCommitish: ${{ github.sha }}
           releaseBody: "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md."
           releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
       # Mac: подпись бандла цела — иначе «приложение повреждено» (0.3.0). Шаг после выгрузки:
       # не прячет выпуск, но красный выпуск сразу видно.
       - name: Проверка подписи (Mac)
