@@ -2,7 +2,7 @@
   import { api, del, errorText, patch } from '$lib/api';
   import Poster from '$lib/discover/Poster.svelte';
   import { MAX_FAVORITES as MAX } from '$lib/social/favorites';
-  import PosterRibbon from '$lib/social/PosterRibbon.svelte';
+  import PosterWall from '$lib/social/PosterWall.svelte';
   import { session } from '$lib/session.svelte';
   import type { MarkItem, ProfileDecor } from '$lib/types';
   import Icon from '$lib/ui/Icon.svelte';
@@ -115,11 +115,11 @@
   <h2 id="decor">Оформление страницы</h2>
   {#if decor}
     <div class="kinds" role="radiogroup" aria-label="Обложка">
-      <button class="chip" role="radio" aria-checked={decor.coverKind === 'ribbon'} class:on={decor.coverKind === 'ribbon'} onclick={() => setKind('ribbon')}>Лента просмотренного</button>
+      <button class="chip" role="radio" aria-checked={decor.coverKind === 'ribbon'} class:on={decor.coverKind === 'ribbon'} onclick={() => setKind('ribbon')}>Фон из просмотренного</button>
       <button class="chip" role="radio" aria-checked={decor.coverKind === 'image'} class:on={decor.coverKind === 'image'} disabled={!decor.cover} onclick={() => setKind('image')}>Своя картинка</button>
     </div>
     <div class="cover" style:--acc={decor.accent ?? '#3a3a3c'}>
-      {#if decor.coverKind === 'image' && decor.cover}<img src={decor.cover} alt="" decoding="async" />{:else}<PosterRibbon posters={decor.ribbon} accent={decor.accent} />{/if}
+      {#if decor.coverKind === 'image' && decor.cover}<img src={decor.cover} alt="" decoding="async" />{:else}<PosterWall posters={decor.ribbon} accent={decor.accent} />{/if}
       <div class="cover-acts">
         <label class="btn sm" class:busy>
           <Icon name="image" size={14} />

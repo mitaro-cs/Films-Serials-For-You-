@@ -3,6 +3,7 @@
   import { api, del, errorText, patch, post, put } from '$lib/api';
   import { loadMe, session } from '$lib/session.svelte';
   import DecorEditor from '$lib/profile/DecorEditor.svelte';
+  import { motionOn, setMotion } from '$lib/motion';
   import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import { toast } from '$lib/ui/toast.svelte';
@@ -16,6 +17,7 @@
   let fresh = $state('');
   let err = $state('');
   let uploading = $state(false);
+  let motion = $state(motionOn());
 
   $effect(() => {
     name = session.me?.user.name ?? '';
@@ -122,6 +124,14 @@
       </section>
     {/if}
 
+    <section class="card pane">
+      <h2>Анимации</h2>
+      <label class="switch">
+        <input type="checkbox" bind:checked={motion} onchange={() => setMotion(motion)} />
+        <span>Плавные переходы, всплывающие ряды, плывущие постеры. Выключите, если компьютер слабый.</span>
+      </label>
+    </section>
+
     <form class="card pane" onsubmit={saveName}>
       <h2>Имя</h2>
       <label class="field"><span>Как вас видят другие</span><input class="input" bind:value={name} maxlength="60" /></label>
@@ -217,6 +227,21 @@
   }
   .avatars .on {
     border-color: var(--text);
+  }
+  .switch {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .switch input {
+    margin-top: 3px;
+    width: 18px;
+    height: 18px;
+    accent-color: #fff;
+    flex: none;
   }
   .small {
     font-size: 13px;

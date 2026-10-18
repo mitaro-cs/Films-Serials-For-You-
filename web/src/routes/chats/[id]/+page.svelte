@@ -400,9 +400,7 @@
       display: inline-flex;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .msg {
-      animation: none;
-    }
+  :global(.no-motion) .msg {
+    animation: none;
   }
 </style>

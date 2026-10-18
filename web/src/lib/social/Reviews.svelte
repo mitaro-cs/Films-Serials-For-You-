@@ -279,9 +279,7 @@
   .none {
     margin: 0;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .review {
-      animation: none;
-    }
+  :global(.no-motion) .review {
+    animation: none;
   }
 </style>

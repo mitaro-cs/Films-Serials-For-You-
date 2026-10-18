@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { motionOn } from '$lib/motion';
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
@@ -7,7 +8,7 @@
   let dialog: HTMLDialogElement | undefined = $state();
   // Закрывается плавно: сначала анимация, потом close(); содержимое живёт до конца анимации.
   let closing = $state(false);
-  const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const still = typeof localStorage !== 'undefined' && !motionOn();
 
   $effect(() => {
     if (!dialog) return;

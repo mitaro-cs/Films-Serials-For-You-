@@ -205,6 +205,7 @@
       </div>
 
       <aside class="panel" aria-label="Действия">
+        <div class="box">
         <div class="acts">
           <button class:on={c.status === 'watched'} aria-pressed={c.status === 'watched'} onclick={() => toggleWatched(c)}>
             <Icon name="eye" size={22} /><span>{c.status === 'watched' ? 'Просмотрено' : 'Смотрел'}</span>
@@ -228,6 +229,7 @@
           <small>Оценка</small>
           <StarInput value={mine?.stars ?? null} onchange={setStars} size={24} label="Ваша оценка" />
           <button class="unrate" class:hidden={!mine} disabled={!mine} onclick={() => setStars(null)}>Убрать оценку</button>
+        </div>
         </div>
         <button class="btn block" onclick={() => (picking = true)}><Icon name="users" size={15} /> В общий список</button>
         <button class="btn block" onclick={() => (sharing = true)}><Icon name="share" size={15} /> Обсудить с другом</button>
@@ -452,8 +454,8 @@
     height: 100%;
     object-fit: cover;
     object-position: center 25%;
-    /* Кадр проявляется один раз — без долгой анимации (она нагружала видеокарту). */
-    animation: kenburns 0.3s ease-out both;
+    /* Кадр проявляется и медленно «отъезжает» (только transform/opacity). */
+    animation: kenburns 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
   .bg::after {
     content: '';
@@ -466,6 +468,7 @@
   @keyframes kenburns {
     from {
       opacity: 0;
+      transform: scale(1.06);
     }
   }
   .wrap {
@@ -479,7 +482,7 @@
   .poster-col {
     display: grid;
     gap: 14px;
-    animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
   .poster {
     aspect-ratio: 2 / 3;
@@ -494,6 +497,12 @@
     height: 100%;
     object-fit: cover;
   }
+  .poster {
+    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .poster:hover {
+    transform: translateY(-4px) scale(1.02);
+  }
   .poster span {
     padding: 16px;
     font-weight: 800;
@@ -507,13 +516,20 @@
     gap: 10px;
     align-content: end;
     min-width: 0;
-    animation: rise 0.3s 0.04s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: rise 0.45s 0.06s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
+  /* Название как у Rewind: крупно, но не во весь экран — длинное в две строки, без переносов в три. */
   h1 {
-    font-size: clamp(30px, 4.6vw, 52px);
+    font-size: clamp(28px, 3.2vw, 44px);
+    line-height: 1.08;
     font-weight: 800;
     letter-spacing: -0.03em;
     overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .meta {
     display: flex;
@@ -594,15 +610,20 @@
     transform: translateY(-1px);
   }
 
-  /* Панель действий справа — стекло, как на референсе. */
+  /* Панель действий справа, как у Rewind: карточка «Смотрел / Нравится / Хочу / Любимый» и
+     оценка, под ней — отдельные кнопки-капсулы. */
   .panel {
     display: grid;
-    gap: 10px;
-    padding: 14px;
+    gap: 8px;
+    animation: rise 0.45s 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .box {
+    display: grid;
+    gap: 6px;
+    padding: 10px 10px 4px;
     border-radius: 16px;
-    background: rgba(28, 28, 30, 0.72);
+    background: rgba(28, 28, 30, 0.78);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    animation: rise 0.3s 0.08s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
   .acts {
     display: grid;
@@ -655,9 +676,8 @@
     display: grid;
     justify-items: center;
     gap: 4px;
-    padding: 8px 0 10px;
+    padding: 8px 0 6px;
     border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
   }
   .rate small {
     color: var(--muted);
@@ -680,9 +700,21 @@
   .unrate.hidden {
     visibility: hidden;
   }
+  /* padding — явно: класс .block у разделов листа совпадает с .btn.block. */
   .panel .btn {
-    height: 38px;
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 999px;
+    background: rgba(40, 40, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     font-size: 13px;
+    transition:
+      background 0.2s,
+      transform 0.2s;
+  }
+  .panel .btn:hover {
+    background: rgba(70, 70, 74, 0.95);
+    transform: translateY(-1px);
   }
   .stub {
     margin: 0;
@@ -1125,13 +1157,7 @@
       height: 60px;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .bg img,
-    .bg .ph,
-    .poster-col,
-    .info,
-    .panel {
-      animation: none;
-    }
+  :global(.no-motion) :is(.bg img, .bg .ph, .poster-col, .info, .panel) {
+    animation: none;
   }
 </style>
