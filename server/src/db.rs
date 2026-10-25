@@ -392,6 +392,13 @@ ALTER TABLE profiles ADD COLUMN cover_kind TEXT NOT NULL DEFAULT 'ribbon' CHECK 
 ALTER TABLE ext_titles ADD COLUMN backdrop TEXT;
 ALTER TABLE ext_titles ADD COLUMN extra TEXT;
 "#,
+    // 10 (0.6.4): индексы ленты IMDb — «есть у нас» (titles.imdb_id) и место в подборке. Без них
+    // подборка искала перебором (38 мс на 2000 фильмов), а выборка постеров, которая под общим
+    // замком базы идёт раз в 300 мс, — 234 мс; с ними — 0,4 и 2 мс.
+    r#"
+CREATE INDEX titles_imdb ON titles(imdb_id);
+CREATE INDEX ext_charts_ext ON ext_charts(ext_id);
+"#,
 ];
 
 impl Db {

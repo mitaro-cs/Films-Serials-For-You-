@@ -210,6 +210,7 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
     library::inbox::ensure_on_start(&app);
 
     tokio::spawn(library::jobs::scan_worker(app.clone()));
+    tokio::task::spawn_blocking(web::warm);
     tokio::spawn(library::jobs::probe_worker(app.clone()));
     tokio::spawn(library::inbox::watch_worker(app.clone()));
     tokio::spawn(meta::worker(app.clone()));

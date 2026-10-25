@@ -33,13 +33,15 @@ serde_json = "1"
 sha2 = "0.11"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
-tower-http = { version = "0.7", features = ["compression-gzip", "set-header"] }
+tower-http = { version = "0.7", features = ["compression-gzip", "compression-br", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2"
 notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 flate2 = "1"
+brotli = "9"
+bytes = "1"
 tar = "0.4"
 
 [dev-dependencies]
