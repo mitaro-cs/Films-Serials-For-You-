@@ -1,22 +1,24 @@
 <script lang="ts">
+  import { localized } from '$lib/localized.svelte';
   import { motionOn } from '$lib/motion';
   import { fade, fly } from 'svelte/transition';
   import type { Card } from '$lib/types';
   import Icon from './Icon.svelte';
 
   // Герой как у Apple TV: кадр на весь экран, слева крупное название, жанр, возраст, описание
-  // и одна кнопка «К фильму»; первый ряд лежит на нижней части кадра, точки — над ним. Листается
-  // сам раз в 8 с (пауза под мышью, в фоне и при «меньше движения»), пальцем — свайпом. Высота
+  // и одна кнопка «К фильму»; первый ряд лежит на нижней части кадра, точки - над ним. Листается
+  // сам раз в 8 с (пауза под мышью, в фоне и при «меньше движения»), пальцем - свайпом. Высота
   // задана заранее: ничего не сдвигается. Цвет кадра красит капсулу разделов в шапке.
   let { items }: { items: Card[] } = $props();
 
   let at = $state(0);
   let paused = $state(false);
+  let manual = $state(false);
   const cur = $derived(items[Math.min(at, items.length - 1)]);
   const still = typeof localStorage !== 'undefined' && !motionOn();
 
   $effect(() => {
-    if (items.length < 2 || paused || still) return;
+    if (items.length < 2 || paused || manual || still) return;
     const t = setInterval(() => {
       if (document.visibilityState === 'visible') at = (at + 1) % items.length;
     }, 8000);
@@ -28,18 +30,20 @@
     return () => document.documentElement.style.removeProperty('--hero-tint');
   });
 
-  // Следующий кадр — заранее, чтобы смена была без вспышки.
+  // Следующий кадр - заранее, чтобы смена была без вспышки.
   $effect(() => {
     const next = items[(at + 1) % items.length];
     if (next?.backdrop) new Image().src = next.backdrop;
   });
 
   function go(d: number) {
+    manual = true;
     at = (at + d + items.length) % items.length;
   }
 
   let x0 = 0;
   function down(e: PointerEvent) {
+    manual = true;
     if (e.pointerType === 'touch') x0 = e.clientX;
   }
   function up(e: PointerEvent) {
@@ -91,7 +95,7 @@
         {#if cur.genres[0]}<span>{cur.genres[0]}</span>{/if}
         {#if cur.age}<span class="age">{cur.age}</span>{/if}
       </p>
-      {#if cur.overview}<p class="text">{cur.overview}</p>{/if}
+      {#if cur.overview}<p class="text">{localized(cur.overview, 'Описание на русском пока недоступно')}</p>{/if}
       <div class="acts">
         {#if cur.status === 'watching' && cur.resume}
           <a class="go" href="/watch/{cur.resume.fileId}"><Icon name="play" size={18} /> Продолжить</a>
@@ -105,7 +109,7 @@
   {#if items.length > 1}
     <div class="dots" role="tablist" aria-label="Кадры">
       {#each items as c, i (c.id)}
-        <button role="tab" aria-selected={i === at} aria-label={c.title} class:on={i === at} onclick={() => (at = i)}></button>
+        <button role="tab" aria-selected={i === at} aria-label={c.title} class:on={i === at} onclick={() => { manual = true; at = i; }}></button>
       {/each}
     </div>
   {/if}
@@ -179,11 +183,11 @@
   h1.long {
     font-size: clamp(30px, 3.4vw, 52px);
   }
-  /* Короткое название — широко вразрядку, как «S I L O». */
+  /* Короткое название - широко вразрядку, как «S I L O». */
   h1.short {
     letter-spacing: 0.32em;
   }
-  /* Высота логотипа задана заранее — после загрузки картинки текст ниже не сдвинется. */
+  /* Высота логотипа задана заранее - после загрузки картинки текст ниже не сдвинется. */
   h1.logo {
     height: clamp(80px, 11vw, 150px);
   }

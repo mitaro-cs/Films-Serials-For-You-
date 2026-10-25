@@ -2,11 +2,11 @@ import { put } from './api';
 import type { Card } from './types';
 
 // Действия с карточкой отовсюду (каталог, поиск, страница фильма): меняем сам
-// объект — все места, где он показан, обновятся сразу; сервер — следом.
+// объект - все места, где он показан, обновятся сразу; сервер - следом.
 
 type Mark = Pick<Card, 'id' | 'inList' | 'status' | 'watchedAt' | 'resume'>;
 
-/** «Хочу посмотреть» — это «Мой список»; статус «Смотрю» и «Просмотрено» главнее. */
+/** «Хочу посмотреть» - это «Мой список»; статус «Смотрю» и «Просмотрено» главнее. */
 export async function toggleList(card: Pick<Card, 'id' | 'inList'> & Partial<Pick<Card, 'status'>>) {
   const before = { inList: card.inList, status: card.status };
   card.inList = !card.inList;
@@ -18,7 +18,7 @@ export async function toggleList(card: Pick<Card, 'id' | 'inList'> & Partial<Pic
   }
 }
 
-/** «Просмотрено» — белый билет с датой; снять — и прогресс с начала. */
+/** «Просмотрено» - белый билет с датой; снять - и прогресс с начала. */
 export async function toggleWatched(card: Mark) {
   const before = { inList: card.inList, status: card.status, watchedAt: card.watchedAt, resume: card.resume };
   const on = card.status !== 'watched';

@@ -5,7 +5,7 @@
   import Icon from '$lib/ui/Icon.svelte';
   import Modal from '$lib/ui/Modal.svelte';
 
-  // «Обсудить с другом»: выбрать друга — фильм уходит ему в переписку карточкой.
+  // «Обсудить с другом»: выбрать друга - фильм уходит ему в переписку карточкой.
   let { open = $bindable(false), titleId, title }: { open: boolean; titleId: number; title: string } = $props();
 
   let friends = $state<{ person: Person }[] | null>(null);
@@ -37,7 +37,7 @@
     {#if friends === null}
       <p class="muted">Загружаем друзей…</p>
     {:else if friends.length === 0}
-      <p class="muted">Друзей пока нет. <a href="/people" onclick={() => (open = false)}>Найдите их в «Людях»</a> — переписка только с друзьями.</p>
+      <p class="muted">Друзей пока нет. <a href="/people" onclick={() => (open = false)}>Найдите их в «Людях»</a> - переписка только с друзьями.</p>
     {:else}
       <ul>
         {#each friends as f (f.person.id)}

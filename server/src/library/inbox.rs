@@ -1,5 +1,5 @@
 //! Добавить фильмы без лишних шагов:
-//! - **своя папка** «Films & Serials» (в «Фильмах»/«Видео» хоста) создаётся и подключается сама —
+//! - **своя папка** «Films & Serials» (в «Фильмах»/«Видео» хоста) создаётся и подключается сама -
 //!   достаточно положить туда файлы;
 //! - **перетащить** в окно приложения: папка подключается как есть (без копирования), отдельные
 //!   файлы копируются в свою папку (с прогрессом);
@@ -59,7 +59,7 @@ pub fn safe_name(name: &str) -> Option<String> {
     (!clean.is_empty() && clean.chars().count() <= 200).then_some(clean)
 }
 
-/// Своя папка: из настроек; нет — «Фильмы» хоста или `<данные>/media`. Создаётся и
+/// Своя папка: из настроек; нет - «Фильмы» хоста или `<данные>/media`. Создаётся и
 /// подключается к библиотеке, если ещё нет.
 pub fn folder(app: &App) -> anyhow::Result<PathBuf> {
     let dir = match app.db.setting("media.inbox").map(PathBuf::from) {
@@ -79,7 +79,7 @@ pub fn folder(app: &App) -> anyhow::Result<PathBuf> {
     Ok(dir)
 }
 
-/// При запуске в приложении хоста: своя папка есть всегда (в `fsfy serve` — только по запросу).
+/// При запуске в приложении хоста: своя папка есть всегда (в `fsfy serve` - только по запросу).
 pub fn ensure_on_start(app: &App) {
     if app.host.media_dir().is_some() || app.db.setting("media.inbox").is_some() {
         if let Err(e) = folder(app) {
@@ -99,7 +99,7 @@ pub struct Dropped {
     pub skipped: usize,
 }
 
-/// Перетащили в окно: папки — в библиотеку, файлы — копировать в свою папку.
+/// Перетащили в окно: папки - в библиотеку, файлы - копировать в свою папку.
 pub fn import(app: &Arc<App>, paths: Vec<PathBuf>) -> Dropped {
     let mut out = Dropped::default();
     let libraries: Vec<PathBuf> = app
@@ -153,8 +153,8 @@ pub fn import(app: &Arc<App>, paths: Vec<PathBuf>) -> Dropped {
     out
 }
 
-/// Копирует очередь в свою папку: сначала `*.part`, потом переименование — сканер не видит
-/// недокопированное. Файл с таким именем уже есть — не трогаем.
+/// Копирует очередь в свою папку: сначала `*.part`, потом переименование - сканер не видит
+/// недокопированное. Файл с таким именем уже есть - не трогаем.
 fn copy_queue(app: &Arc<App>) {
     let dir = match folder(app) {
         Ok(d) => d,
@@ -237,7 +237,7 @@ pub fn upload_target(app: &App, name: &str, subfolder: Option<&str>) -> Result<(
         return Err("Можно загрузить видео и субтитры".into());
     }
     let mut dir = folder(app).map_err(|e| e.to_string())?;
-    // Папка — с вложенными («Сериал/Сезон 1»), как её выбрали: каждая часть проверяется отдельно.
+    // Папка - с вложенными («Сериал/Сезон 1»), как её выбрали: каждая часть проверяется отдельно.
     if let Some(s) = subfolder.filter(|s| !s.trim().is_empty()) {
         let parts: Vec<&str> = s.split(['/', '\\']).filter(|p| !p.trim().is_empty()).collect();
         if parts.len() > 4 {
@@ -259,9 +259,10 @@ pub fn upload_target(app: &App, name: &str, subfolder: Option<&str>) -> Result<(
     Ok((part, dst))
 }
 
-/// Слежение за папками библиотеки: изменились — пересканировать через 3 с тишины. Список папок
-/// перечитывается раз в 5 с (добавили или убрали папку).
-/// Появилось, пропало, переименовано или изменилось содержимое — повод сканировать.
+/// Слежение за папками библиотеки: изменились - пересканировать через 3 с тишины. Список папок
+/// перечитывается раз в секунду (добавили или убрали папку); после смены - скан: что положили,
+/// пока слежение ещё не включилось, иначе не нашлось бы (так терялся файл сразу после подключения).
+/// Появилось, пропало, переименовано или изменилось содержимое - повод сканировать.
 fn changes_files(kind: &notify::EventKind) -> bool {
     use notify::event::{AccessKind, AccessMode, ModifyKind};
     use notify::EventKind;
@@ -276,7 +277,7 @@ fn changes_files(kind: &notify::EventKind) -> bool {
 pub async fn watch_worker(app: Arc<App>) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let mut watched: Vec<String> = Vec::new();
-    // Держим живым: удалили — слежение прекратилось.
+    // Держим живым: удалили - слежение прекратилось.
     let mut _watcher: Option<notify::RecommendedWatcher> = None;
     loop {
         let libs: Vec<String> = app
@@ -291,7 +292,7 @@ pub async fn watch_worker(app: Arc<App>) {
             let t = tx.clone();
             let mut w = notify::recommended_watcher(move |e: notify::Result<notify::Event>| {
                 if let Ok(e) = e {
-                    // Свои временные файлы (*.part) — не повод сканировать. Чтение и атрибуты —
+                    // Свои временные файлы (*.part) - не повод сканировать. Чтение и атрибуты -
                     // тоже: сам скан читает папку, и на Linux (inotify) сканы шли по кругу раз в 3 с.
                     if changes_files(&e.kind) && e.paths.iter().any(|p| p.extension().is_none_or(|x| x != "part")) {
                         let _ = t.send(());
@@ -308,6 +309,9 @@ pub async fn watch_worker(app: Arc<App>) {
                 }
             }
             _watcher = w;
+            if !libs.is_empty() {
+                app.scan_kick.notify_one();
+            }
             watched = libs;
         }
         tokio::select! {
@@ -317,7 +321,7 @@ pub async fn watch_worker(app: Arc<App>) {
                 while let Ok(Some(())) = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await {}
                 app.scan_kick.notify_one();
             }
-            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
         }
     }
 }

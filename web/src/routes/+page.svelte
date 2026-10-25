@@ -1,21 +1,26 @@
 <script lang="ts">
+  import { progressSync } from '$lib/progressSync.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api } from '$lib/api';
   import { catalog, loadCatalog } from '$lib/catalog.svelte';
   import PosterRow from '$lib/discover/PosterRow.svelte';
   import { extSheet } from '$lib/discover/sheet.svelte';
-  import type { ExtCard, MarkItem } from '$lib/types';
-  import { counts, featured, filter, ofTab, shelves, STATUSES, statusOf, TABS, tabOf, type Status } from '$lib/library';
+  import type { ExtCard, Marks, ResumeItem } from '$lib/types';
+  import ContinueRow from '$lib/ui/ContinueRow.svelte';
+  import Loading from '$lib/ui/Loading.svelte';
+  import BrowseGenres from '$lib/ui/BrowseGenres.svelte';
+  import { counts, featured, filter, isAnime, ofTab, shelves, STATUSES, statusOf, TABS, tabOf, type Status } from '$lib/library';
   import { session } from '$lib/session.svelte';
   import Hero from '$lib/ui/Hero.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Shelf from '$lib/ui/Shelf.svelte';
   import Wide from '$lib/ui/Wide.svelte';
+  import Showcase from '$lib/ui/Showcase.svelte';
 
-  // Главная как у Apple TV: герой-карусель и ряды широких карточек. Фильмы и Сериалы — герой,
+  // Главная как у Apple TV: герой-карусель и ряды широких карточек. Фильмы и Сериалы - герой,
   // «Продолжить», «Эксклюзив на Nova» (что хост добавил сам), «Буду смотреть» (с сервиса и из
-  // Обзора), популярное и топ-250 IMDb, а внизу — весь эксклюзив сеткой с фильтром по статусу.
+  // Обзора), популярное и топ-250 IMDb, а внизу - весь эксклюзив сеткой с фильтром по статусу.
   const tab = $derived(tabOf(page.url.searchParams));
   const status = $derived(statusOf(page.url.searchParams));
 
@@ -29,30 +34,61 @@
   const n = $derived(items ? counts(items) : null);
   const shown = $derived(items && tab !== 'home' ? filter(items, status) : []);
 
-  // Ряды IMDb и «Буду смотреть» — только во вкладках; пока грузятся, низ страницы не рисуем
+  // Ряды IMDb и «Буду смотреть» - только во вкладках; пока грузятся, низ страницы не рисуем
   // (иначе сетка ниже сдвигалась бы).
   type Feed = { rows: { key: string; title: string; items: ExtCard[] }[] };
   let feed = $state<Feed | null>(null);
-  let marks = $state<{ want: MarkItem[]; watched: MarkItem[] } | null>(null);
+  let marks = $state<Marks | null>(null);
+  let resumes = $state<ResumeItem[]>([]);
+  let resumeFailed = $state(false);
+  // Смотрели на другом устройстве - «Продолжить» и каталог (места в карточках) перечитываются.
   $effect(() => {
-    if (tab === 'home') return;
+    if (progressSync.stamp) loadCatalog(true);
+  });
+  $effect(() => {
     void extSheet.version;
+    void progressSync.stamp;
+    let live = true;
+    api<ResumeItem[]>('/api/continue').then((r) => { if (live) { resumes = r; resumeFailed = false; } }, () => { if (live) resumeFailed = true; });
+    return () => { live = false; };
+  });
+  const sectionResumes = $derived(resumes.filter((r) => tab === 'home' ? true : tab === 'anime' ? isAnime(r.card ?? r.ext!) : (r.card ?? r.ext)?.kind === (tab === 'series' ? 'series' : 'movie')));
+  let feedFailed = $state(false);
+  let generation = 0;
+  let refresh = $state(0);
+  $effect(() => {
+    void extSheet.version;
+    void refresh;
+    const request = ++generation;
     Promise.all([
-      api<Feed>('/api/discover').catch(() => ({ rows: [] }) as Feed),
-      api<{ want: MarkItem[]; watched: MarkItem[] }>('/api/me/marks').catch(() => ({ want: [], watched: [] })),
+      api<Feed>('/api/discover').then((f) => { feedFailed = false; return f; }, () => { feedFailed = true; return { rows: [] } as Feed; }),
+      api<Marks>('/api/me/marks').catch(() => ({ want: [], watching: [], watched: [] })),
     ]).then(([f, m]) => {
+      if (request !== generation) return;
       feed = f;
       marks = m;
     });
   });
   const kind = $derived(tab === 'series' ? 'series' : 'movie');
-  const imdb = $derived(feed ? feed.rows.filter((r) => r.key.endsWith(tab === 'series' ? '_series' : '_movies')) : []);
-  const want = $derived(marks ? marks.want.filter((m) => (m.card ?? m.ext)?.kind === kind) : []);
-  const exclusive = $derived(items ? [...items].sort((a, b) => b.addedAt - a.addedAt).slice(0, 24) : []);
+  const imdb = $derived(feed ? feed.rows.filter((r) => tab === 'home' ? !r.key.startsWith('anime_') : tab === 'anime' ? r.key.startsWith('anime_') : r.key.endsWith(tab === 'series' ? '_series' : '_movies')) : []);
+  const showcase = $derived.by(() => {
+    const local = hero.slice(0, 3).map((card) => ({ card }));
+    const saved = marks ? [...marks.watching, ...marks.want].flatMap((m) => m.ext ? [m.ext] : []) : [];
+    const external = [...new Map([...saved, ...imdb.flatMap((r) => r.items)].filter((e) => e.mark !== 'dropped' && !e.local).map((e) => [e.id, e])).values()].slice(0, 6).map((ext) => ({ ext }));
+    return [...local, ...external].slice(0, 6);
+  });
+  const animeIds = $derived(new Set(feed?.rows.filter((r) => r.key.startsWith('anime_')).flatMap((r) => r.items.map((c) => c.id)) ?? []));
+  const inSection = (m: Pick<Marks['want'][number], 'card' | 'ext'>) => tab === 'anime'
+    ? !!((m.card && isAnime(m.card)) || (m.ext && (isAnime(m.ext) || animeIds.has(m.ext.id))))
+    : tab === 'home' || (m.card ?? m.ext)?.kind === kind;
+  const want = $derived(marks ? marks.want.filter(inSection) : []);
+  // «Смотрю» из Обзора и отмеченное вручную (начатое с сервиса - уже в «Продолжить»).
+  const going = $derived(marks ? marks.watching.filter((m) => inSection(m) && !resumes.some((r) => r.key === (m.card ? `t:${m.card.id}` : `x:${m.ext?.id}`))) : []);
+  const favorites = $derived((marks?.favorites ?? []).filter(inSection));
   const ready = $derived(feed !== null && marks !== null);
 
   // Сетка всей коллекции рисуется частями: сотни карточек разом подтормаживали прокрутку
-  // и открытие вкладки. Следующие 48 — когда до конца остаётся экран.
+  // и открытие вкладки. Следующие 48 - когда до конца остаётся экран.
   const STEP = 48;
   let limit = $state(STEP);
   let more = $state<HTMLElement>();
@@ -77,24 +113,24 @@
 
   const EMPTY: Record<Status, string> = {
     all: 'Здесь пока пусто',
-    want: 'Отметьте «Хочу посмотреть» — кнопкой «+» на странице фильма',
-    watching: 'Начатого нет — всё досмотрено',
+    want: 'Отметьте «Хочу посмотреть» - кнопкой «+» на странице фильма',
+    watching: 'Начатого нет - всё досмотрено',
     watched: 'Досмотренное появится здесь',
   };
 </script>
 
-<div class="home" class:flat={items !== null && !hero.length}>
-  <!-- Ниже 1000 px капсулы в шапке нет — разделы каталога здесь, поверх кадра. -->
+<div class="home" class:flat={tab !== 'home' && items !== null && !hero.length} class:homepage={tab === 'home'}>
+  <!-- Ниже 1000 px капсулы в шапке нет - разделы каталога здесь, поверх кадра. -->
   <nav class="kinds" aria-label="Разделы каталога">
     {#each TABS as t (t.id)}
-      <a href={t.href} class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined}>{t.label}</a>
+      <a href={t.href} class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined}><Icon name={t.id === 'home' ? 'home' : t.id === 'movies' ? 'film' : t.id === 'series' ? 'tv' : 'sparkle'} size={13} />{t.label}</a>
     {/each}
   </nav>
 
   {#if catalog.failed}
-    <div class="page empty"><Icon name="offline" size={40} /> Не удалось загрузить — проверьте связь</div>
+    <div class="page empty"><Icon name="offline" size={40} /> Не удалось загрузить - проверьте связь</div>
   {:else if items === null}
-    <div class="ph-hero skeleton" aria-busy="true"></div>
+    <div class="ph-hero"><Loading label="Собираем ваш кинотеатр" /></div>
     <div class="rows">
       {#each Array(2) as _, r (r)}
         <div class="ph-row">
@@ -103,24 +139,36 @@
         </div>
       {/each}
     </div>
-  {:else if items.length === 0 && tab === 'home'}
-    <div class="page empty">
-      <Icon name="film" size={40} />
-      {#if session.me?.manage}
-        <p>Здесь пока пусто.</p>
-        <a class="btn primary sm" href="/admin?tab=folders">Добавить фильмы</a>
-      {:else}
-        <p>Здесь пока пусто — хост ещё не добавил фильмы.</p>
-      {/if}
-    </div>
   {:else}
-    {#if hero.length}<Hero items={hero} />{/if}
+    {#if tab === 'home'}
+      {#if showcase.length}<Showcase items={showcase} />{:else}
+        <section class="welcome">
+          <span class="eyebrow">ВАШ ДОМАШНИЙ КИНОТЕАТР</span>
+          <h1>Что посмотрим сегодня?</h1>
+          <p>Фильмы, сериалы и истории, к которым хочется возвращаться.</p>
+          <div class="welcome-actions"><a class="btn primary" href="/discover">Открыть обзор</a><a class="btn" href="/search">Найти фильм</a>{#if session.me?.manage}<a class="btn" href="/admin?tab=folders">Добавить с компьютера</a>{/if}</div>
+        </section>
+      {/if}
+    {:else if hero.length}<Hero items={hero} />{/if}
 
     <div class="rows">
       {#if tab === 'home'}
-        {#each rows as row, i (row.key)}<Shelf title={row.title} items={row.items} eager={i < 2} {i} />{/each}
+        {#if sectionResumes.length}<ContinueRow items={sectionResumes} />{:else if resumeFailed}{#each rows.filter((r) => r.key === 'continue') as row (row.key)}<Shelf title={row.title} items={row.items} eager droppable />{/each}{/if}
+        {#if going.length}<PosterRow title="Смотрю сейчас" items={going} />{/if}
+        {#if favorites.length}<PosterRow title="Избранное" items={favorites} />{/if}
+        {#if want.length}<PosterRow title="В планах на вечер" items={want} />{/if}
+        {#each rows.filter((r) => r.key !== 'continue' && r.key !== 'want').slice(0, 3) as row, i (row.key)}<PosterRow title={row.title} items={row.items.map((card) => ({ card }))} {i} />{/each}
+        {#if !ready}
+          <section class="feed-loading" aria-busy="true"><h2>Подбираем истории для вас</h2><div class="ph-cards">{#each Array(6) as _, i (i)}<span class="ph-card skeleton"></span>{/each}</div></section>
+        {:else}
+          {#each imdb.slice(0, 6) as row, i (row.key)}<PosterRow title={row.title} items={row.items} href="/discover?chart={row.key}" ranked={row.key.startsWith('top')} {i} />{/each}
+          <BrowseGenres />
+          {#if !imdb.some((r) => r.items.length)}
+            <section class="feed-empty"><h2>{feedFailed ? 'Подборки временно недоступны' : 'Выберите свою следующую историю'}</h2><p class="muted">{feedFailed ? 'Не удалось получить подборки. Ваша библиотека и поиск остаются под рукой.' : 'Находите фильмы через поиск и добавляйте их в планы на вечер.'}</p><div class="welcome-actions"><button class="btn" onclick={() => refresh++}>Обновить подборки</button><a class="btn" href="/search">Перейти к поиску</a></div></section>
+          {/if}
+        {/if}
       {:else}
-        {#each rows.filter((r) => r.key === 'continue') as row (row.key)}<Shelf title={row.title} items={row.items} eager />{/each}
+        {#if sectionResumes.length}<ContinueRow items={sectionResumes} />{:else if resumeFailed}{#each rows.filter((r) => r.key === 'continue') as row (row.key)}<Shelf title={row.title} items={row.items} eager droppable />{/each}{/if}
         {#if !ready}
           {#each Array(2) as _, r (r)}
             <div class="ph-row">
@@ -129,14 +177,15 @@
             </div>
           {/each}
         {:else}
-        {#if exclusive.length}<Shelf title="Эксклюзив на Nova" items={exclusive} i={1} />{/if}
+        {#if going.length}<PosterRow title="Смотрю" items={going} i={2} />{/if}
         {#if want.length}<PosterRow title="Буду смотреть" items={want} i={2} />{/if}
+        {#if favorites.length}<PosterRow title="Избранное" items={favorites} />{/if}
         {#each imdb as row, j (row.key)}
           <PosterRow title={row.title} items={row.items} href="/discover?chart={row.key}" ranked={row.key.startsWith('top')} i={j + 3} />
         {/each}
         <section aria-label="Вся коллекция" class="rise" style:--i={5}>
           <div class="head">
-            <h2>Эксклюзив — {tab === 'movies' ? 'все фильмы' : 'все сериалы'}</h2>
+            <h2>На Nova - {tab === 'anime' ? 'аниме' : tab === 'movies' ? 'все фильмы' : 'все сериалы'}</h2>
             <div class="chips" role="tablist" aria-label="Статус">
               {#each STATUSES as s (s.id)}
                 <button class="chip" class:on={status === s.id} role="tab" aria-selected={status === s.id} onclick={() => setStatus(s.id)}>
@@ -154,10 +203,10 @@
           {:else if !items.length}
             <div class="empty">
               {#if session.me?.manage}
-                <p>{tab === 'series' ? 'Своих сериалов пока нет' : 'Своих фильмов пока нет'} — добавьте их с компьютера.</p>
+                <p>{tab === 'anime' ? 'Своего аниме пока нет' : tab === 'series' ? 'Своих сериалов пока нет' : 'Своих фильмов пока нет'} - добавьте с компьютера.</p>
                 <a class="btn primary sm" href="/admin?tab=folders">Добавить</a>
               {:else}
-                <p>{tab === 'series' ? 'Сериалов' : 'Фильмов'} от хоста пока нет — посмотрите популярное выше.</p>
+                <p>{tab === 'anime' ? 'Аниме' : tab === 'series' ? 'Сериалов' : 'Фильмов'} от хоста пока нет - посмотрите подборки выше.</p>
               {/if}
             </div>
           {:else}
@@ -171,7 +220,20 @@
 </div>
 
 <style>
-  /* --row — высота первого ряда: он лежит на нижней части кадра героя, как у Apple TV. */
+  @media(max-width:380px) { .kinds { width: calc(100% - 32px) !important; gap: 0 !important; } .kinds a { flex: 1; min-width: 0; justify-content: center; padding-inline: 3px !important; font-size: 10px !important; gap: 3px !important; } }
+  .ph-hero { display: grid; place-items: center; background: #000; }
+  .kinds a { display: inline-flex; align-items: center; gap: 5px; }
+  .kinds a.on { background: #000; color: white; box-shadow: inset 0 0 0 1px #ffffff80; }
+  .homepage .rows { margin-top: 0; padding-top: 12px; }
+  .welcome { min-height: 430px; padding: calc(var(--header) + 80px) var(--gutter) 48px; background: radial-gradient(ellipse at 80% 20%, #37302566, transparent 65%); }
+  .welcome h1 { font-size: clamp(32px, 4vw, 64px); letter-spacing: -.04em; margin: 18px 0; }
+  .welcome p { color: var(--muted); font-size: 17px; }
+  .eyebrow { color: #f5c518; letter-spacing: .12em; font-size: 11px; font-weight: 800; }
+  .welcome-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+  .feed-empty { padding: 28px; border: 1px solid var(--line); border-radius: 18px; margin: 20px 0; }
+  .feed-loading { margin-bottom: 30px; }
+  .feed-loading h2 { margin-bottom: 16px; }
+  /* --row - высота первого ряда: он лежит на нижней части кадра героя, как у Apple TV. */
   .home {
     --row: clamp(240px, 31vh, 330px);
     min-height: 100dvh;
@@ -191,15 +253,15 @@
       gap: 2px;
       padding: 4px;
       border-radius: 999px;
-      background: color-mix(in srgb, var(--hero-tint, #2a2724) 45%, rgba(20, 20, 20, 0.84));
+      background: #000;
       transition: background 0.5s;
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     }
     .kinds a {
-      padding: 6px 16px;
+      padding: 6px clamp(8px, 2vw, 16px);
       border-radius: 999px;
       color: rgba(255, 255, 255, 0.82);
-      font-size: 14px;
+      font-size: clamp(12px, 3vw, 14px);
       font-weight: 600;
       white-space: nowrap;
       transition:
@@ -207,10 +269,10 @@
         color 0.2s;
     }
     .kinds a.on {
-      background: rgba(235, 235, 240, 0.92);
-      color: #111;
+      background: #000; box-shadow: inset 0 0 0 1px #ffffff80;
+      color: #fff;
     }
-    /* Без героя капсула — над содержимым. */
+    /* Без героя капсула - над содержимым. */
     .flat .kinds {
       position: relative;
       top: auto;
@@ -300,5 +362,23 @@
   }
   .empty :global(.btn) {
     margin-top: 6px;
+  }
+  /* Капсула разделов поверх кадра (телефон, планшет) - «жидкое стекло», как верхняя на ПК. */
+  @media (max-width: 1000px) {
+    .kinds {
+      background: rgba(255, 255, 255, 0.1);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+    backdrop-filter: blur(22px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.28),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+      0 10px 30px -12px rgba(0, 0, 0, 0.6);
+    }
+    .kinds a.on {
+      background: rgba(255, 255, 255, 0.92) !important;
+      color: #0a0a0a !important;
+      box-shadow: none !important;
+    }
   }
 </style>

@@ -2,7 +2,9 @@
   import { fadeIn } from '$lib/ui/fade';
   import { goto } from '$app/navigation';
   import { untrack } from 'svelte';
-  import { api, errorText, post } from '$lib/api';
+  import { errorText, post } from '$lib/api';
+  import { searchVideos, sourceName } from './search';
+  import type { VideoLink } from '$lib/types';
   import { clock } from '$lib/fmt';
   import type { FoundVideo } from '$lib/types';
   import Icon from '$lib/ui/Icon.svelte';
@@ -15,20 +17,25 @@
     query = '',
     titleId = null,
     extId = null,
+    season = null,
+    episode = null,
+    saved = [],
     onadded,
-  }: { open: boolean; query?: string; titleId?: number | null; extId?: string | null; onadded?: () => void } = $props();
+  }: { open: boolean; query?: string; titleId?: number | null; extId?: string | null; season?: number | null; episode?: number | null; saved?: VideoLink[]; onadded?: () => void } = $props();
 
   let text = $state('');
   let found = $state<FoundVideo[] | null>(null);
   let busy = $state(false);
   let searching = $state(false);
   let error = $state('');
+  let request = 0;
+  let controller: AbortController | null = null;
 
   const isUrl = $derived(/^https?:\/\//i.test(text.trim()));
 
   // Только при открытии: поиск читает `text`, и без untrack каждая буква сбрасывала поле.
   $effect(() => {
-    if (!open) return;
+    if (!open) {controller?.abort();return;}
     const q = query;
     untrack(() => {
       text = q;
@@ -38,20 +45,29 @@
     });
   });
 
-  // Поиск идёт до 8 с — вставленная за это время ссылка открывается, не дожидаясь его.
+  // Поиск идёт до 8 с - вставленная за это время ссылка открывается, не дожидаясь его.
   async function search() {
+    controller?.abort();controller=new AbortController();
+    const ticket = ++request;
     searching = true;
     error = '';
     try {
-      found = await api<FoundVideo[]>(`/api/links/search?q=${encodeURIComponent(text.trim())}`);
+      const params=new URLSearchParams({q:text.trim()});
+      if(titleId) params.set('titleId',String(titleId));
+      if(extId) params.set('extId',extId);
+      if(season!==null) {params.set('season',String(season));params.set('min','600');}
+      if(episode!==null) params.set('episode',String(episode));
+      const result = await searchVideos(params, items => {if(ticket === request)found=items},controller.signal);
+      if (ticket === request) found = result;
     } catch (x) {
-      error = errorText(x);
+      if (ticket === request) error = errorText(x);
     } finally {
-      searching = false;
+      if (ticket === request) searching = false;
     }
   }
 
-  async function save(url: string, extra: Partial<FoundVideo> = {}, play = false) {
+  /** together - своя приватная комната: смотреть это видео вместе с друзьями (позвать - из комнаты). */
+  async function save(url: string, extra: Partial<FoundVideo> = {}, play = false, together = false) {
     busy = true;
     error = '';
     try {
@@ -59,12 +75,18 @@
         url,
         titleId,
         extId,
+        season,
+        episode,
         label: extra.label ?? null,
         thumb: extra.thumbUrl ?? null,
         duration: extra.duration ?? null,
       });
       onadded?.();
-      if (play) {
+      if (together) {
+        const room = await post<{ id: string }>('/api/rooms', { linkId: r.id, position: 0 });
+        open = false;
+        goto(`/room/${room.id}`);
+      } else if (play) {
         open = false;
         goto(`/watch/link/${r.id}`);
       } else if (!extra.url) {
@@ -84,15 +106,26 @@
   }
 </script>
 
-<Modal bind:open title="Смотреть по ссылке" wide>
+<Modal bind:open title={episode !== null ? `${season} сезон · ${episode} серия` : 'Смотреть по ссылке'} wide>
+  {#if saved.length}
+    <div class="saved">
+      {#each saved.filter((l) => season === null || !l.label.toLowerCase().includes('(фильм')) as link (link.id)}
+        <a class="btn" href="/watch/link/{link.id}"><Icon name="play" size={16} />{link.progress && link.progress.position < link.progress.duration * 0.95 ? 'Продолжить' : 'Смотреть'} · {link.label}</a>
+      {/each}
+    </div>
+  {/if}
   <form class="bar" onsubmit={submit}>
     <input class="input" bind:value={text} placeholder="Ссылка (Rutube, VK Видео, YouTube, .mp4) или название" aria-label="Ссылка или название" />
-    <button class="btn primary" disabled={busy || (searching && !isUrl) || text.trim().length < 2}>
+    <button class="btn primary" disabled={busy || text.trim().length < 2}>
       <Icon name={isUrl ? 'play' : 'search'} size={16} /> {isUrl ? 'Смотреть' : 'Найти'}
     </button>
+    {#if isUrl}
+      <button type="button" class="btn" disabled={busy} onclick={() => save(text.trim(), {}, true, true)}><Icon name="party" size={16} /> Смотреть вместе</button>
+    {/if}
   </form>
-  <p class="muted hint">Вставьте ссылку — видео откроется в плеере Nova. Или напишите название: найдём на Rutube{#if found?.some((f) => f.site === 'vk')} и VK Видео{/if}.</p>
+  <p class="muted hint">Поиск по нескольким источникам. Для сериала проверяем название, сезон и серию; неподходящие фильмы и трейлеры исключаются.</p>
   {#if error}<p class="error">{error}</p>{/if}
+  {#if searching && found}<p class="muted small" role="status">Дополняем результаты из других источников…</p>{/if}
   {#if searching && !found}
     <div class="grid">{#each Array(6) as _, i (i)}<div class="ph skeleton"></div>{/each}</div>
   {:else if found}
@@ -103,7 +136,7 @@
             <button class="hit" onclick={() => save(f.url, f, true)} disabled={busy}>
               <span class="art">
                 {#if f.thumb}<img use:fadeIn src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
-                <span class="site">{f.site === 'vk' ? 'VK Видео' : 'Rutube'}</span>
+                <span class="site">{sourceName(f.site)}</span>
                 {#if f.duration}<span class="dur">{clock(f.duration)}</span>{/if}
               </span>
               <span class="name">{f.label}</span>
@@ -114,15 +147,27 @@
         {/each}
       </ul>
     {:else}
-      <p class="muted">Ничего не нашлось — попробуйте другое название или вставьте ссылку.</p>
+      <p class="muted">{searching ? 'Проверяем источники…' : 'Ничего не нашлось - попробуйте другое название или вставьте ссылку.'}</p>
     {/if}
   {/if}
 </Modal>
 
 <style>
+  .saved { display: grid; gap: 8px; margin-bottom: 20px; }
+  .saved a { height: auto; min-height: 44px; white-space: normal; justify-content: start; padding: 12px 16px; }
   .bar {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+  }
+  @media (max-width: 640px) {
+    .bar .input {
+      flex-basis: 100%;
+    }
+    .bar .btn {
+      flex: 1;
+      justify-content: center;
+    }
   }
   .bar .input {
     flex: 1;

@@ -11,3 +11,17 @@
 /desktop/src-tauri/resources/ffmpeg*
 /desktop/src-tauri/resources/ffprobe*
 /target-win
+/logs
+
+# Локально (не в репозиторий): JDK и SDK, сборка Java preview, логи проверок, скриншоты отчётов.
+/tools/
+/server-java/build/
+/server-java/lib/
+/docs/screenshots/
+*.log
+/web/e2e/.env.json
+/web/e2e/.state.json
+/.claude/launch.json
+/desktop/src-tauri/resources/night/*.dll
+/web/*.json.bak
+/web/beta6-npm-audit.json

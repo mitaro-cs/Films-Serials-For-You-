@@ -1,25 +1,37 @@
 import { api } from '$lib/api';
+import { noteWatchedAt } from '$lib/progressSync.svelte';
 
 // Значки в шапке: просьбы дружбы, непрочитанные сообщения, просьбы добавить фильм (хосту). Опрос раз в 30 с, пока вкладка
 // видна, и сразу при возвращении на неё.
 export const badges = $state({ requests: 0, unread: 0, wishes: 0 });
 
-let timer: ReturnType<typeof setInterval> | undefined;
+let pending: Promise<void> | undefined;
 
-export async function refreshBadges() {
+export function refreshBadges(): Promise<void> {
+  if (pending) return pending;
+  pending = loadBadges().finally(() => { pending = undefined; });
+  return pending;
+}
+
+async function loadBadges() {
   try {
-    Object.assign(badges, await api<{ requests: number; unread: number; wishes: number }>('/api/badges'));
+    const { watchedAt, ...counts } = await api<{ requests: number; unread: number; wishes: number; watchedAt?: number }>('/api/badges');
+    Object.assign(badges, counts);
+    noteWatchedAt(watchedAt);
   } catch {
-    /* сервер недоступен — значки подождут */
+    /* сервер недоступен - значки подождут */
   }
 }
 
 export function watchBadges(): () => void {
   refreshBadges();
   const tick = () => document.visibilityState === 'visible' && refreshBadges();
-  timer = setInterval(tick, 30_000);
+  const timer = setInterval(tick, 30_000 + Math.random() * 5000);
   document.addEventListener('visibilitychange', tick);
+  // Окно приложения могло быть видно, но без фокуса: вернулись к компьютеру - сразу сверить.
+  window.addEventListener('focus', tick);
   return () => {
+    window.removeEventListener('focus', tick);
     clearInterval(timer);
     document.removeEventListener('visibilitychange', tick);
   };

@@ -14,13 +14,13 @@ fn titles(v: &Value) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn library_statuses_resume_and_accent() {
     if !ffmpeg() {
-        eprintln!("нет ffmpeg — пропуск");
+        eprintln!("нет ffmpeg - пропуск");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
     let media = dir.path().join("media");
     make_video(&media.join("Красный (2020)/red.mp4"), "aac");
-    // Красный постер — карточка должна стать красноватой.
+    // Красный постер - карточка должна стать красноватой.
     assert!(Command::new("ffmpeg")
         .args(["-y", "-loglevel", "error", "-f", "lavfi", "-i", "color=c=0xC82818:s=300x450", "-frames:v", "1"])
         .arg(media.join("Красный (2020)/poster.jpg"))
@@ -61,7 +61,7 @@ async fn library_statuses_resume_and_accent() {
     };
     let (red, second, show) = (id(&all, "Красный"), id(&all, "Второй"), id(&all, "Шоу"));
 
-    // Страна и режиссёр — строка «[страна] режиссёр» на билете; хост может поправить сам.
+    // Страна и режиссёр - строка «[страна] режиссёр» на билете; хост может поправить сам.
     host.send(
         "PATCH",
         &format!("/api/admin/titles/{red}"),
@@ -75,11 +75,11 @@ async fn library_statuses_resume_and_accent() {
     host.send("PATCH", &format!("/api/admin/titles/{red}"), json!({"director": ""})).await;
     assert!(host.json(&format!("/api/titles/{red}")).await["card"]["director"].is_null());
 
-    // «Хочу посмотреть» — это «Мой список».
+    // «Хочу посмотреть» - это «Мой список».
     host.send("PUT", &format!("/api/list/{second}"), json!({"value": true})).await;
     assert_eq!(titles(&host.json("/api/library?status=want").await), ["Второй"]);
 
-    // Начали серию — «Смотрю», и видно, где остановились.
+    // Начали серию - «Смотрю», и видно, где остановились.
     let t = host.json(&format!("/api/titles/{show}")).await;
     let e1 = t["files"][0]["id"].as_i64().unwrap();
     let e2 = t["files"][1]["id"].as_i64().unwrap();
@@ -92,7 +92,7 @@ async fn library_statuses_resume_and_accent() {
     assert_eq!(w["items"][0]["resume"]["position"], 3.0);
     assert!(w["items"][0]["resume"]["label"].as_str().unwrap().contains("1 серия"));
 
-    // Досмотрели первую — «где остановился» переезжает на вторую серию.
+    // Досмотрели первую - «где остановился» переезжает на вторую серию.
     let r: Value = host
         .send("PUT", &format!("/api/progress/{e1}"), json!({"position": 9.9, "duration": 10.0}))
         .await
@@ -102,7 +102,7 @@ async fn library_statuses_resume_and_accent() {
     assert_eq!(r["watched"], false, "сериал досмотрен не весь");
     let w = host.json("/api/library?status=watching").await;
     assert_eq!(w["items"][0]["resume"]["fileId"], e2);
-    // Досмотрели последнюю — сериал сам становится «Просмотрено».
+    // Досмотрели последнюю - сериал сам становится «Просмотрено».
     let r: Value = host
         .send("PUT", &format!("/api/progress/{e2}"), json!({"position": 9.9, "duration": 10.0}))
         .await
@@ -111,20 +111,22 @@ async fn library_statuses_resume_and_accent() {
         .unwrap();
     assert_eq!(r["watched"], true);
 
-    // Вручную «Просмотрено» — белый билет с датой, из «Хочу» уходит.
+    // Вручную «Просмотрено» - белый билет с датой, из «Хочу» уходит. Пауза: в ту же миллисекунду
+    // порядок «позже - первым» не определён (на Windows тест так иногда падал).
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     host.send("PUT", &format!("/api/titles/{second}/watched"), json!({"value": true})).await;
     let done = host.json("/api/library?status=watched").await;
     assert_eq!(titles(&done), ["Второй", "Шоу"], "сначала отмеченное позже");
     assert!(done["items"][0]["watchedAt"].as_i64().unwrap() > 0);
     assert_eq!(host.json("/api/library").await["counts"], json!({"all": 3, "want": 0, "watching": 0, "watched": 2}));
 
-    // Снять отметку — и прогресс с начала.
+    // Снять отметку - и прогресс с начала.
     host.send("PUT", &format!("/api/titles/{show}/watched"), json!({"value": false})).await;
     let t = host.json(&format!("/api/titles/{show}")).await;
     assert!(t["card"]["status"].is_null());
     assert!(t["files"][0]["progress"].is_null());
 
-    // Чужой id и неверное тело — ошибки, а не падение.
+    // Чужой id и неверное тело - ошибки, а не падение.
     assert_eq!(host.send("PUT", "/api/titles/999999/watched", json!({"value": true})).await.status(), 404);
     assert_eq!(host.send("PUT", &format!("/api/titles/{red}/watched"), json!({"v": 1})).await.status(), 422);
     drop(running);

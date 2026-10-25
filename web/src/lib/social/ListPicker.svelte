@@ -43,7 +43,7 @@
     {#if lists === null}
       <div class="skeleton ph"></div>
     {:else if lists.length === 0}
-      <p class="muted">Списков пока нет. Создайте — и смотрите вместе с друзьями.</p>
+      <p class="muted">Списков пока нет. Создайте - и смотрите вместе с друзьями.</p>
     {:else}
       <ul>
         {#each lists as l (l.id)}

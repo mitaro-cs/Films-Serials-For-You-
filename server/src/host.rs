@@ -1,19 +1,19 @@
 //! Связь с оболочкой приложения (Tauri): выбор папки, адрес для трея.
-//! Без оболочки (`fsfy serve`) — заглушка: папки вводятся путём, события пишутся в лог.
+//! Без оболочки (`fsfy serve`) - заглушка: папки вводятся путём, события пишутся в лог.
 
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub enum HostEvent {
-    /// Адрес сайта для группы изменился (None — доступа из интернета нет).
+    /// Адрес сайта для группы изменился (None - доступа из интернета нет).
     Access { url: Option<String>, lan: Option<String> },
 }
 
-/// Обновление приложения хоста с GitHub — для «Управление → Версия».
+/// Обновление приложения хоста с GitHub - для «Управление → Версия».
 #[derive(Debug, Clone, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateInfo {
-    /// idle — не проверяли, checking, latest — последняя, available, downloading, installing, error.
+    /// idle - не проверяли, checking, latest - последняя, available, downloading, installing, error.
     pub state: String,
     /// Найденная новая версия.
     pub latest: Option<String>,
@@ -24,11 +24,18 @@ pub struct UpdateInfo {
 }
 
 pub trait Host: Send + Sync + 'static {
-    /// Обновление из приложения; None — сервер запущен сам по себе (`fsfy serve`), обновлять нечего.
+    fn night(&self, _action: &str, _lights: bool) -> serde_json::Value {
+        serde_json::json!({"ok":false,"error":"Откройте Nova на компьютере хоста"})
+    }
+    /// Настоящий полноэкранный режим окна приложения (скрывает панель задач).
+    fn fullscreen(&self, _enabled: bool) -> bool {
+        false
+    }
+    /// Обновление из приложения; None - сервер запущен сам по себе (`fsfy serve`), обновлять нечего.
     fn update_info(&self) -> Option<UpdateInfo> {
         None
     }
-    /// Проверить сейчас (без окон — ответ появится в `update_info`).
+    /// Проверить сейчас (без окон - ответ появится в `update_info`).
     fn update_check(&self) {}
     /// Скачать и поставить найденное: сайт выключится и приложение перезапустится.
     fn update_install(&self) {}
@@ -39,7 +46,7 @@ pub trait Host: Send + Sync + 'static {
     fn can_pick(&self) -> bool {
         false
     }
-    /// Где создать свою папку для фильмов («Фильмы»/«Видео» пользователя). None — не создавать.
+    /// Где создать свою папку для фильмов («Фильмы»/«Видео» пользователя). None - не создавать.
     fn media_dir(&self) -> Option<PathBuf> {
         None
     }

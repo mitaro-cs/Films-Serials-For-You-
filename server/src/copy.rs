@@ -1,11 +1,11 @@
 //! Готовая копия для браузера без перекодирования: видео H.264/HEVC из MKV, AVI и т. п.
-//! копируется как есть, звук при надобности — в AAC, на выходе HLS из кусочков fMP4.
+//! копируется как есть, звук при надобности - в AAC, на выходе HLS из кусочков fMP4.
 //!
 //! Раньше «Оригинал» отдавался одним потоком ffmpeg без Range. Safari (окно приложения на Mac,
-//! iPhone) запрашивает видео кусками по Range — на каждый запрос запускался новый ffmpeg с
+//! iPhone) запрашивает видео кусками по Range - на каждый запрос запускался новый ffmpeg с
 //! начала, и через минуту-другую плеер падал: «Видео не воспроизводится». Копия делается одним
-//! процессом примерно в 50–100 раз быстрее просмотра (процессор почти не нагружается), кусочки
-//! — обычные файлы, перемотка и докачка — как у любого HLS.
+//! процессом примерно в 50-100 раз быстрее просмотра (процессор почти не нагружается), кусочки
+//! - обычные файлы, перемотка и докачка - как у любого HLS.
 //!
 //! Копии живут в `cache/copy`, пока к ним обращаются: брошенная за 10 минут задача
 //! останавливается, копия без зрителей 3 часа удаляется; не больше `KEEP` копий сразу.
@@ -39,6 +39,7 @@ struct Entry {
 #[derive(Default)]
 pub struct Copies {
     jobs: Mutex<HashMap<Key, Entry>>,
+    start: Mutex<()>,
 }
 
 pub struct Source<'a> {
@@ -87,7 +88,7 @@ pub fn args(input: &Path, audio: usize, hevc: bool, copy_audio: bool) -> Vec<Str
         ]
         .map(String::from),
     );
-    // Имена — относительно папки копии (ffmpeg запускается в ней): в плейлисте только имена
+    // Имена - относительно папки копии (ffmpeg запускается в ней): в плейлисте только имена
     // кусочков, без путей с диска (на Windows ffmpeg иначе мог записать `C:\…`).
     a.extend(["s%d.m4s", "index.m3u8"].map(String::from));
     a
@@ -140,8 +141,24 @@ impl Copies {
                 return Ok(for_player(&text));
             }
             if !running {
+                let _start = self.start.lock();
+                // Another request may have started this copy since the check above.
+                if self
+                    .jobs
+                    .lock()
+                    .get_mut(&k)
+                    .and_then(|e| e.child.as_mut())
+                    .is_some_and(|c| c.try_wait().ok().flatten().is_none())
+                {
+                    continue;
+                }
+                // A short copy may already have completed while waiting for the lock.
+                let latest = std::fs::read_to_string(&index).unwrap_or_default();
+                if progress(&latest).1 {
+                    return Ok(for_player(&latest));
+                }
                 if !text.is_empty() && !done {
-                    // Прежняя задача оборвалась на середине — та копия негодна.
+                    // Прежняя задача оборвалась на середине - та копия негодна.
                     let _ = std::fs::remove_dir_all(&dir);
                     if self.jobs.lock().get(&k).is_some_and(|e| e.child.is_some()) {
                         return Err(ApiError::internal("копия видео оборвалась"));
@@ -194,7 +211,7 @@ impl Copies {
     }
 }
 
-/// Раз в 30 с: брошенные задачи останавливаются, старые копии удаляются. При запуске — чистый лист.
+/// Раз в 30 с: брошенные задачи останавливаются, старые копии удаляются. При запуске - чистый лист.
 pub async fn janitor(app: Arc<App>) {
     let _ = std::fs::remove_dir_all(app.data.join("cache/copy"));
     loop {

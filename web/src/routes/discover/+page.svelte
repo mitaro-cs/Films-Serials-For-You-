@@ -7,18 +7,25 @@
   import { extSheet } from '$lib/discover/sheet.svelte';
   import LinkFinder from '$lib/links/LinkFinder.svelte';
   import { session } from '$lib/session.svelte';
-  import type { ExtCard } from '$lib/types';
+  import type { ExtCard, NowItem } from '$lib/types';
   import Icon from '$lib/ui/Icon.svelte';
   import { toast } from '$lib/ui/toast.svelte';
+  import BrowseGenres from '$lib/ui/BrowseGenres.svelte';
+  import Loading from '$lib/ui/Loading.svelte';
 
-  // Обзор как на IMDb: популярное и топ-250 (не только то, что есть у нас), поиск по всему IMDb,
-  // видео по ссылке. У каждого фильма — своя страница `/ext/<id>`.
+  // Обзор как на IMDb: что смотрят друзья, «потому что вам понравилось», новинки, жанры, российское,
+  // аниме, популярное и топ-250 (не только то, что есть у нас), поиск по всему IMDb, видео по ссылке.
+  // У каждого фильма - своя страница `/ext/<id>`. Капсулы сверху - только фильмы или сериалы.
   type Row = { key: string; title: string; items: ExtCard[] };
 
   const q = $derived(page.url.searchParams.get('q') ?? '');
   const chart = $derived(page.url.searchParams.get('chart'));
 
   let feed = $state<{ rows: Row[]; updatedAt: number | null } | null>(null);
+  let friends = $state<NowItem[]>([]);
+  const kind = $derived(page.url.searchParams.get('kind'));
+  const rows = $derived((feed?.rows ?? []).filter((r) => !kind || r.key.endsWith(kind === 'series' ? '_series' : '_movies')));
+  const friendRows = $derived(friends.filter((f) => !kind || (f.card ?? f.ext)?.kind === (kind === 'series' ? 'series' : 'movie')));
   let full = $state<Row | null>(null);
   let found = $state<ExtCard[] | null>(null);
   let failed = $state('');
@@ -30,15 +37,19 @@
     text = q;
   });
 
-  // Пустая лента — сервер только начал загрузку: спрашиваем ещё раз, пока не появится.
+  // Пустая лента - сервер только начал загрузку: спрашиваем ещё раз, пока не появится.
   $effect(() => {
     void extSheet.version;
     if (chart) return;
     let timer = 0;
     let tries = 0;
     const load = () =>
-      api<{ rows: Row[]; updatedAt: number | null }>('/api/discover').then(
-        (r) => {
+      Promise.all([
+        api<{ rows: Row[]; updatedAt: number | null }>('/api/discover'),
+        api<NowItem[]>('/api/friends/activity').catch(() => [] as NowItem[]),
+      ]).then(
+        ([r, a]) => {
+          friends = a;
           feed = r;
           failed = '';
           if (!r.rows.length && ++tries < 10) timer = window.setTimeout(load, 4000);
@@ -135,6 +146,7 @@
   {:else if failed && !feed}
     <div class="empty tall"><Icon name="offline" size={40} /><p>{failed}</p></div>
   {:else if feed === null}
+    <Loading label="Собираем подборки" />
     {#each Array(2) as _, r (r)}
       <div class="ph-row">
         <span class="ph-title skeleton"></span>
@@ -142,8 +154,15 @@
       </div>
     {/each}
   {:else if feed.rows.length}
-    {#each feed.rows as row, i (row.key)}
-      <PosterRow title={row.title} items={row.items} href="/discover?chart={row.key}" ranked={row.key.startsWith('top')} {i} />
+    <BrowseGenres />
+    <nav class="kinds" aria-label="Что показывать">
+      <a class="chip" class:on={!kind} href="/discover">Всё</a>
+      <a class="chip" class:on={kind === 'movies'} href="/discover?kind=movies">Фильмы</a>
+      <a class="chip" class:on={kind === 'series'} href="/discover?kind=series">Сериалы</a>
+    </nav>
+    {#if friendRows.length}<PosterRow title="Друзья смотрят" items={friendRows} />{/if}
+    {#each rows as row, i (row.key)}
+      <PosterRow title={row.title} items={row.items} href={row.key.startsWith('because') ? null : `/discover?chart=${row.key}`} ranked={row.key.startsWith('top')} {i} />
     {/each}
     {#if session.me?.manage}
       <p class="foot muted">
@@ -154,7 +173,7 @@
   {:else}
     <div class="empty tall">
       <Icon name="globe" size={40} />
-      <p>Загружаем подборки IMDb — это займёт минуту.</p>
+      <p>Загружаем подборки IMDb - это займёт минуту.</p>
       <p class="muted">Пока можно поискать фильм выше.</p>
     </div>
   {/if}
@@ -274,6 +293,12 @@
   }
   .tall {
     min-height: 50vh;
+  }
+  .kinds {
+    display: flex;
+    gap: 8px;
+    margin: -8px 0 24px;
+    overflow-x: auto;
   }
   .foot {
     font-size: 13px;

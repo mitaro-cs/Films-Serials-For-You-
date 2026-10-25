@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '$lib/ui/PasswordInput.svelte';
   import { api, errorText, post, put } from '$lib/api';
   import Icon from '$lib/ui/Icon.svelte';
 
@@ -112,7 +113,7 @@
     <button class="mode card" class:on={v.mode === 'cloudpub'} onclick={() => set('cloudpub')} disabled={busy}>
       <Icon name="globe" size={22} />
       <b>Ссылка для всех <small class="rec">рекомендуем</small></b>
-      <span class="muted">CloudPub: бесплатная постоянная ссылка https://….cloudpub.ru — открывается в России с VPN и без</span>
+      <span class="muted">CloudPub: бесплатная постоянная ссылка https://….cloudpub.ru - открывается в России с VPN и без</span>
     </button>
     <button class="mode card" class:on={v.mode === 'fxtunnel'} onclick={() => set('fxtunnel')} disabled={busy}>
       <Icon name="globe" size={22} />
@@ -139,22 +140,22 @@
       {#if v.message}<p class="muted">{v.message}</p>{/if}
       {#if v.publicUrl}
         <div class="url"><code>{v.publicUrl}</code><button class="btn sm primary" onclick={() => copy(v!.publicUrl!)}><Icon name={copied === v.publicUrl ? 'check' : 'copy'} size={14} /> Копировать</button></div>
-        <p class="muted small">Эта ссылка не меняется — её можно один раз отправить друзьям. Работает, пока компьютер включён.</p>
+        <p class="muted small">Эта ссылка не меняется - её можно один раз отправить друзьям. Работает, пока компьютер включён.</p>
       {/if}
       {#if !v.cpLoggedIn}
-        <p>Один раз войдите в бесплатный аккаунт <a href="https://cloudpub.ru" target="_blank" rel="noopener noreferrer">cloudpub.ru</a> — дальше ссылка поднимается сама при каждом запуске.</p>
+        <p>Один раз войдите в бесплатный аккаунт <a href="https://cloudpub.ru" target="_blank" rel="noopener noreferrer">cloudpub.ru</a> - дальше ссылка поднимается сама при каждом запуске.</p>
         <form class="cp" onsubmit={cpLogin}>
           {#if cpByToken}
             <label class="field"><span>Ключ API из личного кабинета</span><input class="input" bind:value={cpToken} autocomplete="off" required /></label>
           {:else}
             <label class="field"><span>Почта</span><input class="input" type="email" bind:value={cpEmail} autocomplete="username" required /></label>
-            <label class="field"><span>Пароль</span><input class="input" type="password" bind:value={cpPass} autocomplete="current-password" required /></label>
+            <div class="field"><PasswordInput caption="Пароль" bind:value={cpPass} autocomplete="current-password" required /></div>
           {/if}
           <div class="row">
             <button class="btn primary" disabled={busy}><Icon name="user" size={15} /> {busy ? 'Входим…' : 'Войти в CloudPub'}</button>
             <button type="button" class="btn ghost sm" onclick={() => (cpByToken = !cpByToken)}>{cpByToken ? 'Войти почтой' : 'Вход через Яндекс или VK? Ключом API'}</button>
           </div>
-          <p class="muted small">Пароль не сохраняется — CloudPub выдаёт приложению свой ключ.</p>
+          <p class="muted small">Пароль не сохраняется - CloudPub выдаёт приложению свой ключ.</p>
         </form>
       {:else}
         <div class="row"><button class="btn sm ghost" onclick={cpLogout}>Выйти из CloudPub</button></div>
@@ -176,7 +177,7 @@
           <a class="btn" href={v.login.url} target="_blank" rel="noopener noreferrer"><Icon name="globe" size={15} /> Открыть fxTunnel</a>
         </div>
       {:else if !v.fxLoggedIn}
-        <p>Один раз войдите в fxTunnel (бесплатно, через браузер) — дальше всё подключается само.</p>
+        <p>Один раз войдите в fxTunnel (бесплатно, через браузер) - дальше всё подключается само.</p>
         <button class="btn primary" onclick={login}><Icon name="user" size={15} /> Войти в fxTunnel</button>
       {/if}
       {#if v.fxLoggedIn}
@@ -198,7 +199,7 @@
       <input class="input" bind:value={custom} placeholder="https://kino.example.ru" />
       <button class="btn sm" disabled={!custom}>Использовать</button>
     </form>
-    <p class="muted small">Порт для проброса на роутере — тот, что в адресе домашней сети.</p>
+    <p class="muted small">Порт для проброса на роутере - тот, что в адресе домашней сети.</p>
   </div>
 {/if}
 
@@ -300,7 +301,7 @@
     padding: 1px 7px;
     border-radius: 99px;
     background: #fff;
-    color: var(--on-accent);
+    color: #0a0a0a;
     font-size: 10.5px;
     font-weight: 700;
     vertical-align: 2px;

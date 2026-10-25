@@ -11,7 +11,7 @@ use std::sync::LazyLock;
 pub struct Parsed {
     pub title: String,
     pub year: Option<i32>,
-    /// Есть у серий; у фильмов — `None`.
+    /// Есть у серий; у фильмов - `None`.
     pub season: Option<i32>,
     pub episode: Option<i32>,
     pub episode_end: Option<i32>,
@@ -58,7 +58,7 @@ static JUNK: LazyLock<Regex> = LazyLock::new(|| {
 /// Текст вида `Name.Of.The.Movie` → `Name Of The Movie`, без хвостов в скобках.
 fn tidy(s: &str) -> String {
     let s = s.replace(['.', '_'], " ");
-    let s = s.trim_matches(|c: char| c.is_whitespace() || "-–—[(,:".contains(c));
+    let s = s.trim_matches(|c: char| c.is_whitespace() || "---[(,:".contains(c));
     let mut out = String::new();
     for w in s.split_whitespace() {
         if !out.is_empty() {
@@ -67,7 +67,7 @@ fn tidy(s: &str) -> String {
         out.push_str(w);
     }
     // Висящие скобки после обрезки по году: «Name (»
-    out.trim_end_matches(|c: char| "([{-–—".contains(c) || c.is_whitespace()).to_string()
+    out.trim_end_matches(|c: char| "([{---".contains(c) || c.is_whitespace()).to_string()
 }
 
 /// Название и год из строки: всё до года или до первого «технического» слова.
@@ -75,7 +75,7 @@ fn title_year(s: &str) -> (String, Option<i32>) {
     let mut cut = s.len();
     let mut year = None;
     let sep = |c: Option<char>| c.is_none_or(|c| " .[]()_-".contains(c));
-    // Год в начале — это название («2012»), год берётся только после него.
+    // Год в начале - это название («2012»), год берётся только после него.
     for m in DIGITS4.find_iter(s) {
         let n: i32 = m.as_str().parse().unwrap_or(0);
         if m.start() == 0 || m.len() != 4 || !(1900..=2099).contains(&n) {
@@ -95,13 +95,13 @@ fn title_year(s: &str) -> (String, Option<i32>) {
     (tidy(&s[..cut]), year)
 }
 
-/// Имя похоже на серию без сезона: «01. Пилот», «Серия 5», «E07». Несколько таких в одной папке —
+/// Имя похоже на серию без сезона: «01. Пилот», «Серия 5», «E07». Несколько таких в одной папке -
 /// это сериал (`scan` решает по папке, по одному имени не угадать: «21 Jump Street»).
 pub fn numbered(stem: &str) -> bool {
     (LEADING_NUM.is_match(stem) || EP_ONLY.is_match(stem)) && title_year(stem).1.is_none()
 }
 
-/// Разбор пути относительно корня библиотеки. `force`: Some(true) — сериал, Some(false) — фильм.
+/// Разбор пути относительно корня библиотеки. `force`: Some(true) - сериал, Some(false) - фильм.
 pub fn parse(rel: &Path, force: Option<bool>) -> Parsed {
     let stem = rel.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
     let dirs: Vec<String> =
@@ -171,10 +171,10 @@ pub fn parse(rel: &Path, force: Option<bool>) -> Parsed {
         return Parsed { title, year, season, episode, episode_end };
     }
 
-    // Фильм: имя файла, а если папка выглядит как «Название (год)» — она точнее.
+    // Фильм: имя файла, а если папка выглядит как «Название (год)» - она точнее.
     let (mut title, mut year) = title_year(&stem);
     if let Some(d) = dirs.last() {
-        // «Название (год)» — так папки называют вручную (и Plex): ей верим больше, чем имени файла.
+        // «Название (год)» - так папки называют вручную (и Plex): ей верим больше, чем имени файла.
         if let Some(c) = PLEX_DIR.captures(d) {
             let y: i32 = c[2].parse().unwrap_or(0);
             if year.is_none_or(|fy| fy == y) {

@@ -74,7 +74,7 @@ pub fn scan(db: &Db, images: &Images) -> anyhow::Result<ScanStats> {
             _ => None,
         };
         let mut new_files: Vec<(PathBuf, u64, i64)> = Vec::new();
-        // Папка, в которую ещё грузят файлы (`*.part`), — подождёт: иначе первая серия
+        // Папка, в которую ещё грузят файлы (`*.part`), - подождёт: иначе первая серия
         // успела бы стать «фильмом» до прихода остальных.
         let mut busy: HashMap<PathBuf, bool> = HashMap::new();
         let walker = walkdir::WalkDir::new(&root)
@@ -205,7 +205,7 @@ fn add_files(
                         params![kind, key, p.title, p.year, now, now],
                     )?;
                     let id = tx.last_insert_rowid();
-                    // Картинки рядом: у фильма — в его папке, у сериала — в папке сериала или сезона.
+                    // Картинки рядом: у фильма - в его папке, у сериала - в папке сериала или сезона.
                     let mut dir = path.parent();
                     for _ in 0..2 {
                         match dir {
@@ -313,7 +313,7 @@ mod tests {
         let images = Images::new(dir.path().join("img")).unwrap();
         lib(&db, &root, "auto");
         let s = scan(&db, &images).unwrap();
-        assert_eq!(s.added, 1, "папку ещё грузят — ждём");
+        assert_eq!(s.added, 1, "папку ещё грузят - ждём");
 
         fs::rename(show.join("03. Return of the Gladiator.mkv.part"), show.join("03. Return of the Gladiator.mkv"))
             .unwrap();

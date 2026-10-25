@@ -55,6 +55,7 @@ pub async fn status(State(app): State<Arc<App>>, _m: Manager) -> Out {
     let tools = app.tools.read().clone();
     Ok(Json(json!({
         "version": crate::VERSION,
+        "system": crate::monitor::snapshot(&app.data),
         "update": app.host.update_info(),
         "ports": {"public": app.ports.0, "window": app.ports.1},
         "titles": titles, "files": files, "size": size,
@@ -76,7 +77,7 @@ pub async fn inbox(State(app): State<Arc<App>>, _m: Manager) -> Out {
     Ok(Json(json!({"path": dir.display().to_string()})))
 }
 
-/// Открыть свою папку в Finder/Проводнике — только в окне на компьютере хоста.
+/// Открыть свою папку в Finder/Проводнике - только в окне на компьютере хоста.
 pub async fn reveal_inbox(State(app): State<Arc<App>>, m: Manager) -> Out {
     if !m.0.local {
         return Err(ApiError::bad("not_local", "Открыть папку можно только на компьютере хоста"));
@@ -89,12 +90,12 @@ pub async fn reveal_inbox(State(app): State<Arc<App>>, m: Manager) -> Out {
 pub struct UploadQuery {
     name: String,
     folder: Option<String>,
-    /// Впереди ещё файлы этой загрузки: обход библиотеки — после последнего.
+    /// Впереди ещё файлы этой загрузки: обход библиотеки - после последнего.
     #[serde(default)]
     more: u8,
 }
 
-/// Загрузка файла из браузера в свою папку: потоком на диск (`*.part`), в конце — переименование.
+/// Загрузка файла из браузера в свою папку: потоком на диск (`*.part`), в конце - переименование.
 pub async fn upload(
     State(app): State<Arc<App>>,
     _m: Manager,
@@ -135,7 +136,7 @@ pub async fn update(State(app): State<Arc<App>>, m: Manager, Path(what): Path<St
         return Err(ApiError::new(StatusCode::FORBIDDEN, "host_only", "Обновляет только хост"));
     }
     if app.host.update_info().is_none() {
-        return Err(ApiError::bad("no_updater", "Сервер запущен без приложения — обновите его вручную"));
+        return Err(ApiError::bad("no_updater", "Сервер запущен без приложения - обновите его вручную"));
     }
     match what.as_str() {
         "check" => app.host.update_check(),
@@ -150,12 +151,14 @@ pub async fn settings(State(app): State<Arc<App>>, _m: Manager) -> Out {
     let tools = app.tools.read().clone();
     Ok(Json(json!({
         "siteName": app.site_name(),
+        "metadataLanguage": db.setting_or("meta.language", "ru"),
         "registration": db.setting_or("site.registration", crate::api::account::REGISTRATION_DEFAULT),
         "downloads": db.setting_or("site.downloads", "1") == "1",
         "provider": db.setting_or("meta.provider", "imdb"),
         "tmdbKeySet": !db.setting_or("meta.tmdb.key", "").is_empty(),
         "kpKeySet": !db.setting_or("meta.kp.key", "").is_empty(),
         "vkTokenSet": !db.setting_or("vk.token", "").is_empty(),
+        "sites": super::links::extra_sites(&app),
         "tmdbApi": db.setting_or("meta.tmdb.api", ""),
         "tmdbImages": db.setting_or("meta.tmdb.images", ""),
         "ffmpegPath": db.setting_or("tools.ffmpeg", ""),
@@ -167,6 +170,7 @@ pub async fn settings(State(app): State<Arc<App>>, _m: Manager) -> Out {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsBody {
+    metadata_language: Option<String>,
     site_name: Option<String>,
     registration: Option<String>,
     downloads: Option<bool>,
@@ -177,6 +181,8 @@ pub struct SettingsBody {
     tmdb_images: Option<String>,
     ffmpeg_path: Option<String>,
     vk_token: Option<String>,
+    /// Свои видеосайты хоста (домены).
+    sites: Option<Vec<String>>,
 }
 
 fn url_or_empty(s: &str) -> ApiResult<String> {
@@ -190,10 +196,16 @@ fn url_or_empty(s: &str) -> ApiResult<String> {
 
 pub async fn save_settings(State(app): State<Arc<App>>, _m: Manager, Json(b): Json<SettingsBody>) -> Out {
     let db = &app.db;
+    if let Some(language) = b.metadata_language {
+        if !matches!(language.as_str(), "ru" | "source") {
+            return Err(ApiError::bad("language", "Неизвестный язык описаний"));
+        }
+        db.set_setting("meta.language", &language)?;
+    }
     if let Some(n) = b.site_name {
         let n = n.trim();
         if n.is_empty() || n.chars().count() > 60 {
-            return Err(ApiError::bad("bad_name", "Название — от 1 до 60 символов"));
+            return Err(ApiError::bad("bad_name", "Название - от 1 до 60 символов"));
         }
         db.set_setting("site.name", n)?;
     }
@@ -231,6 +243,21 @@ pub async fn save_settings(State(app): State<Arc<App>>, _m: Manager, Json(b): Js
         db.with(|c| c.execute("UPDATE titles SET meta_status = 'pending' WHERE meta_status = 'none'", []))?;
         app.meta_state.lock().error = None;
         app.meta_kick.notify_one();
+    }
+    if let Some(list) = b.sites {
+        let mut keep: Vec<String> = Vec::new();
+        for s in &list {
+            let d = super::links::site_domain(s).ok_or_else(|| {
+                ApiError::bad("bad_site", format!("«{s}» - не адрес сайта (нужно вроде kino.example)"))
+            })?;
+            if !keep.contains(&d) {
+                keep.push(d);
+            }
+        }
+        if keep.len() > 30 {
+            return Err(ApiError::bad("too_many", "Своих сайтов - не больше 30"));
+        }
+        db.set_setting("video.sites", &serde_json::to_string(&keep).unwrap_or_else(|_| "[]".into()))?;
     }
     if let Some(t) = b.vk_token {
         db.set_setting("vk.token", t.trim())?;
@@ -294,7 +321,7 @@ pub async fn add_library(State(app): State<Arc<App>>, _m: Manager, Json(b): Json
 /// Окно выбора папки в приложении хоста.
 pub async fn pick_folder(State(app): State<Arc<App>>, m: Manager) -> Out {
     if !m.0.local || !app.host.can_pick() {
-        return Err(ApiError::bad("no_picker", "Выбор папки — только в приложении на компьютере хоста"));
+        return Err(ApiError::bad("no_picker", "Выбор папки - только в приложении на компьютере хоста"));
     }
     let a = app.clone();
     let path = tokio::task::spawn_blocking(move || a.host.pick_folder()).await.map_err(ApiError::internal)?;
@@ -376,11 +403,11 @@ pub struct TitleEdit {
     hidden: Option<bool>,
     locked: Option<bool>,
     genres: Option<Vec<String>>,
-    /// Возрастной рейтинг («12+», «PG-13»); пусто — неизвестен.
+    /// Возрастной рейтинг («12+», «PG-13»); пусто - неизвестен.
     age: Option<String>,
-    /// Страны (на билете — первая).
+    /// Страны (на билете - первая).
     countries: Option<Vec<String>>,
-    /// Режиссёр; пусто — убрать.
+    /// Режиссёр; пусто - убрать.
     director: Option<String>,
 }
 
@@ -392,7 +419,7 @@ pub async fn edit_title(
 ) -> Out {
     if let Some(k) = &b.kind {
         if k != "movie" && k != "series" {
-            return Err(ApiError::bad("bad_value", "Вид — фильм или сериал"));
+            return Err(ApiError::bad("bad_value", "Вид - фильм или сериал"));
         }
     }
     if b.title.as_deref().is_some_and(|t| t.trim().is_empty()) {
@@ -441,7 +468,7 @@ pub async fn edit_title(
             set("age_min", &crate::taste::age_min(v))?;
         }
         if let Some(v) = &b.genres {
-            set("genres", &serde_json::to_string(v).unwrap_or_else(|_| "[]".into()))?;
+            set("genres", &serde_json::to_string(&crate::meta::genres_ru(v)).unwrap_or_else(|_| "[]".into()))?;
         }
         if let Some(v) = &b.countries {
             let v: Vec<&str> = v.iter().map(|c| c.trim()).filter(|c| !c.is_empty()).collect();
@@ -456,13 +483,19 @@ pub async fn edit_title(
             if !d.trim().is_empty() {
                 people.insert(
                     0,
-                    crate::meta::Person { name: d.trim().into(), role: None, job: "director".into(), photo: None },
+                    crate::meta::Person {
+                        name: d.trim().into(),
+                        role: None,
+                        job: "director".into(),
+                        photo: None,
+                        id: None,
+                    },
                 );
             }
             set("people", &serde_json::to_string(&people).unwrap_or_else(|_| "[]".into()))?;
         }
         if manual {
-            // Хост поправил сам — автоматическое обновление это не перезапишет.
+            // Хост поправил сам - автоматическое обновление это не перезапишет.
             set("locked", &true)?;
         }
         Ok(n)
@@ -516,6 +549,29 @@ pub async fn match_meta(
         .await
         .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "provider", e.to_string()))?;
     ok()
+}
+
+/// Убрать фильм из каталога - только без файлов на диске (импорт с сайтов, пустые карточки): фильм с
+/// файлами вернулся бы при следующей проверке папки, его убирают вместе с файлами из папки.
+pub async fn delete_title(State(app): State<Arc<App>>, _m: Manager, Path(id): Path<i64>) -> Out {
+    let files: i64 =
+        app.db.with(|c| c.query_row("SELECT COUNT(*) FROM files WHERE title_id = ?", [id], |r| r.get(0)))?;
+    if files > 0 {
+        return Err(ApiError::bad("has_files", "У фильма есть файлы - уберите их из папки, и он исчезнет сам"));
+    }
+    let n = app.db.with(|c| c.execute("DELETE FROM titles WHERE id = ?", [id]))?;
+    if n == 0 {
+        return Err(ApiError::not_found());
+    }
+    Ok(Json(json!({"ok": true})))
+}
+
+/// Убрать все фильмы без файлов разом.
+pub async fn delete_empty_titles(State(app): State<Arc<App>>, _m: Manager) -> Out {
+    let n = app.db.with(|c| {
+        c.execute("DELETE FROM titles WHERE NOT EXISTS (SELECT 1 FROM files f WHERE f.title_id = titles.id)", [])
+    })?;
+    Ok(Json(json!({"removed": n})))
 }
 
 pub async fn refresh_title(State(app): State<Arc<App>>, _m: Manager, Path(id): Path<i64>) -> Out {
@@ -671,7 +727,7 @@ pub async fn create_user(State(app): State<Arc<App>>, m: Manager, Json(b): Json<
     let name = auth::check_name(&b.name)?;
     auth::check_password(&b.password)?;
     let pw = b.password;
-    let hash = tokio::task::spawn_blocking(move || auth::hash_password(&pw)).await.map_err(ApiError::internal)?;
+    let hash = auth::password_job(move || auth::hash_password(&pw)).await.map_err(ApiError::internal)?;
     let n = app.db.with(|c| {
         c.execute(
             "INSERT OR IGNORE INTO users (login, name, pass, role, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -709,10 +765,13 @@ pub async fn edit_user(State(app): State<Arc<App>>, m: Manager, Path(id): Path<i
     if let Some(r) = &b.role {
         role_allowed(&m.0, r)?;
     }
+    if role == "host" && b.password.is_some() && !m.0.local {
+        return Err(ApiError::forbidden());
+    }
     let hash = match b.password {
         Some(p) => {
             auth::check_password(&p)?;
-            Some(tokio::task::spawn_blocking(move || auth::hash_password(&p)).await.map_err(ApiError::internal)?)
+            Some(auth::password_job(move || auth::hash_password(&p)).await.map_err(ApiError::internal)?)
         }
         None => None,
     };
@@ -736,6 +795,7 @@ pub async fn edit_user(State(app): State<Arc<App>>, m: Manager, Path(id): Path<i
         }
         if let Some(h) = &hash {
             tx.execute("UPDATE users SET pass = ? WHERE id = ?", params![h, id])?;
+            tx.execute("DELETE FROM account_tokens WHERE user_id = ?", [id])?;
             tx.execute("DELETE FROM sessions WHERE user_id = ? AND local = 0", [id])?;
         }
         Ok(())
@@ -828,7 +888,7 @@ pub async fn set_access(State(app): State<Arc<App>>, _m: Manager, Json(b): Json<
             if let Some(s) = b.subdomain {
                 let s = s.trim().to_lowercase();
                 if !SUBDOMAIN.is_match(&s) {
-                    return Err(ApiError::bad("bad_subdomain", "Адрес: 3–32 латинские буквы, цифры и «-»"));
+                    return Err(ApiError::bad("bad_subdomain", "Адрес: 3-32 латинские буквы, цифры и «-»"));
                 }
                 app.db.set_setting("access.fx.sub", &s)?;
             } else if app.db.setting_or("access.fx.sub", "").is_empty() {

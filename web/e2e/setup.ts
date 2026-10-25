@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-// Демо-библиотека: короткие видео и постеры разных цветов — как на макете, плюс крайние случаи
+// Демо-библиотека: короткие видео и постеры разных цветов - как на макете, плюс крайние случаи
 // (очень длинное название, без страны и режиссёра, сериал). Хост входит одноразовой ссылкой
 // окна; статусы «Хочу», «Смотрю» и «Просмотрено» расставлены заранее.
 
@@ -117,7 +117,7 @@ export default async function setup(_: FullConfig) {
   const dark = await send('GET', `/api/titles/${id('Тьма')}`);
   await send('PUT', `/api/progress/${dark.files[0].id}`, { position: 6, duration: 6 });
 
-  // Люди: Анна и Борис (аккаунты заводит хост — лимит самостоятельных регистраций с одного
+  // Люди: Анна и Борис (аккаунты заводит хост - лимит самостоятельных регистраций с одного
   // адреса оставляем тестам регистрации), отзывы, дружба, переписка.
   const publicURL = `http://127.0.0.1:${port}`;
   const signup = async (name: string, login: string) => {
@@ -137,7 +137,7 @@ export default async function setup(_: FullConfig) {
   await send('POST', `/api/titles/${lala}/reviews`, { stars: 10, body: 'Лучший мюзикл десятилетия.' });
   await anna.c.post(`/api/friends/${me}`);
   await send('POST', `/api/friends/${anna.id}`);
-  await anna.c.post(`/api/chats/${me}`, { data: { body: 'Привет! Посмотрела «Дюну» — давай обсудим?', titleId: id('Дюна') } });
+  await anna.c.post(`/api/chats/${me}`, { data: { body: 'Привет! Посмотрела «Дюну» - давай обсудим?', titleId: id('Дюна') } });
   await send('POST', `/api/chats/${anna.id}`, { body: 'Давай! Мне больше понравилась музыка 🙂' });
   await boris.c.post(`/api/friends/${me}`);
   await anna.c.dispose();
@@ -151,7 +151,14 @@ export default async function setup(_: FullConfig) {
   );
 
   return async () => {
+    // На Windows сервер отпускает файлы не сразу после kill: ждём выхода и удаляем с повторами.
+    const gone = new Promise((r) => child.once('exit', r));
     child.kill();
-    rmSync(base, { recursive: true, force: true });
+    await Promise.race([gone, new Promise((r) => setTimeout(r, 5000))]);
+    try {
+      rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    } catch (e) {
+      console.warn(`не удалось убрать ${base}: ${e}`);
+    }
   };
 }

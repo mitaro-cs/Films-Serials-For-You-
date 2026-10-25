@@ -1,4 +1,4 @@
-/* Один шрифт на всё — Inter (OFL, лежит у нас: внешних запросов нет), без наклона. */
+/* Один шрифт на всё - Inter (OFL, лежит у нас: внешних запросов нет), без наклона. */
 @font-face {
   font-family: 'Inter';
   font-style: normal;
@@ -18,14 +18,16 @@
 }
 
 :root {
-  /* Чёрная тема по макету: фон без цвета, карточки-билеты в цвет постера, выбранное — белое. */
-  --bg: #000;
-  --bg-2: #0e0e10;
-  --bg-3: #18181b;
+  /* Чёрная тема по макету: фон без цвета, карточки-билеты в цвет постера, выбранное - белое. */
+  --bg: #000000;
+  --bg-2: #050505;
+  --bg-3: #0a0a0a;
   /* Поверхности как у Apple TV: спокойный тёмно-серый, без рамок и размытия. */
-  --surface: #161618;
-  --surface-2: rgba(255, 255, 255, 0.12);
-  --surface-3: rgba(255, 255, 255, 0.18);
+  --surface: #030303;
+  --brand: #ffffff;
+  --panel: #000000;
+  --surface-2: #090909;
+  --surface-3: #121212;
   --line: rgba(255, 255, 255, 0.1);
   --line-strong: rgba(255, 255, 255, 0.28);
   --text: #f5f5f7;
@@ -33,15 +35,15 @@
   --faint: rgba(235, 235, 245, 0.4);
   --accent: #ffffff;
   --accent-2: #d4d4d8;
-  --accent-grad: linear-gradient(135deg, #ffffff, #e4e4e7);
-  --on-accent: #0a0a0a;
-  --ticket: #f4f2ee;
-  --ticket-ink: #1c1b19;
+  --accent-grad: linear-gradient(#000000, #000000);
+  --on-accent: #ffffff;
+  --ticket: #000000;
+  --ticket-ink: #ffffff;
   --imdb: #f5c518;
   --ok: #3ddc97;
   --warn: #ffb84d;
   --danger: #ff5c6c;
-  --radius: 14px;
+  --radius: 20px;
   --radius-sm: 10px;
   --gutter: clamp(16px, 4vw, 56px);
   --header: 64px;
@@ -73,10 +75,15 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* clip, а не hidden: hidden делал body контейнером прокрутки, и в iOS Safari нижняя панель
+   (position: fixed) уезжала вместе со страницей. */
+html {
+  overflow-x: clip;
+}
 body {
   min-height: 100dvh;
   background: var(--bg);
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 a {
@@ -123,9 +130,9 @@ textarea {
   gap: 8px;
   height: 42px;
   padding: 0 20px;
-  /* Кнопки — скруглённые прямоугольники, как «Go to Show» у Apple TV. */
-  border-radius: 10px;
-  border: 0;
+  /* Кнопки - скруглённые прямоугольники, как «Go to Show» у Apple TV. */
+  border-radius: 14px;
+  border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--text);
   font-weight: 600;
@@ -154,15 +161,15 @@ textarea {
   color: var(--on-accent);
 }
 .btn.primary:hover {
-  background: #e4e4e7;
+  background: #101010;
 }
 .btn.white {
-  background: #fff;
+  background: #000;
   color: var(--on-accent);
-  border-color: #fff;
+  border-color: #ffffff60;
 }
 .btn.white:hover {
-  background: #e4e4e7;
+  background: #101010;
 }
 .btn.ghost {
   background: transparent;
@@ -237,7 +244,7 @@ select.input option {
   border-radius: var(--radius);
 }
 
-/* Капсула-фильтр как в шапке Apple TV: серая, выбранная — светлая. */
+/* Капсула-фильтр как в шапке Apple TV: серая, выбранная - светлая. */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -261,8 +268,9 @@ select.input option {
   background: rgba(255, 255, 255, 0.16);
 }
 .chip.on {
-  background: rgba(235, 235, 240, 0.95);
-  color: #111;
+  background: #000;
+  box-shadow: inset 0 0 0 1px #ffffff80;
+  color: #fff;
 }
 .chip small {
   font-size: 11px;
@@ -338,7 +346,7 @@ select.input option {
   padding: 64px 16px;
   color: var(--muted);
 }
-/* Пустая страница целиком («Фильмов ещё нет») — по центру экрана, а не под шапкой. */
+/* Пустая страница целиком («Фильмов ещё нет») - по центру экрана, а не под шапкой. */
 .page.empty {
   min-height: 100dvh;
   padding-top: var(--header);
@@ -347,7 +355,7 @@ select.input option {
 
 .skeleton {
   /* Только прозрачность: её считает видеокарта без перерисовки (бегущий градиент перерисовывал
-     каждый кадр — на слабом компьютере хоста всё подтормаживало). */
+     каждый кадр - на слабом компьютере хоста всё подтормаживало). */
   background: var(--surface);
   animation: pulse 1.6s ease-in-out infinite;
 }
@@ -359,20 +367,20 @@ select.input option {
 
 /* ---------- движение: только transform и opacity (видеокарте легко, вёрстка не прыгает) ---------- */
 
-/* Страница появляется мягко — при каждом переходе. */
+/* Страница появляется мягко - при каждом переходе. */
 .page,
 .home {
-  animation: page-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: page-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 @keyframes page-in {
   from {
-    opacity: 0;
-    transform: translateY(16px);
+    opacity: 0.85;
+    transform: translateY(4px);
   }
 }
 /* Карточки-панели (профиль, управление, списки) всплывают по очереди. */
 .pane {
-  animation: rise-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: rise-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 .pane:nth-child(2) {
   animation-delay: 60ms;
@@ -392,7 +400,7 @@ select.input option {
   transition:
     background 0.2s,
     color 0.2s,
-    transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 @media (hover: hover) {
   .btn:hover:not(:disabled),
@@ -402,19 +410,21 @@ select.input option {
 }
 .btn:active:not(:disabled),
 .chip:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(0.98);
 }
-/* Ряды и карточки — лесенкой, сверху вниз и слева направо (--i — номер). */
+/* Ряды и карточки - лесенкой, сверху вниз и слева направо (--i - номер). */
 .rise {
   animation: rise-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-  animation-delay: calc(min(var(--i, 0), 12) * 40ms);
+  animation-delay: calc(min(var(--i, 0), 6) * 15ms);
 }
 @keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(22px);
+    transform: translateY(6px);
   }
 }
+/* Разделы листа (страница фильма, сериала, человека) проявляются при прокрутке - там, где браузер
+   умеет анимацию по прокрутке (Chromium, окно на Windows); иначе просто стоят на месте. */
 /* Значок пустого экрана чуть покачивается. */
 .empty > svg:first-child {
   animation: bob 3.2s ease-in-out infinite;
@@ -436,3 +446,28 @@ select.input option {
 .empty p {
   margin: 0;
 }
+
+/* Общий язык Nova: графитовые поверхности и светлая орбита. */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.input { border-radius: 12px; background: #000; }
+.skeleton { position: relative; overflow: hidden; background: #070707; }
+.skeleton::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent, rgba(196,206,239,.12), transparent); transform: translateX(-100%); animation: loading-orbit 1.8s ease-in-out infinite; }
+@keyframes loading-orbit { to { transform: translateX(100%); } }
+.no-motion .skeleton::after { animation: none; }
+.page { max-width: 1920px; margin-inline: auto; }
+.btn.primary { background: #000; color: #fff; border: 1px solid #ffffff60; }
+.btn:focus-visible, .chip:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+::view-transition-old(root) { animation: nova-page-out 140ms ease both; }
+::view-transition-new(root) { animation: nova-page-in 220ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes nova-page-out { to { opacity: 0; transform: translateY(-4px); } }
+@keyframes nova-page-in { from { opacity: 0; transform: translateY(9px); } }
+.no-motion::view-transition-old(root), .no-motion::view-transition-new(root) { animation: none; }
+
+button, a.btn { touch-action: manipulation; }
+button:focus-visible, a.btn:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+/* Input feedback is immediate; entrance motion never delays the next action. */
+a, button, [role="button"] { touch-action: manipulation; }
+.btn:active:not(:disabled), .chip:active:not(:disabled) { transition-duration: 0ms; }
+.pane { animation-duration: 140ms; animation-delay: 0ms !important; }
+.rise { animation-duration: 160ms; animation-delay: 0ms; }

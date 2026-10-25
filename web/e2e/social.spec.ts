@@ -1,5 +1,5 @@
 import { expect, test } from './util-test';
-import { env, stranger, url } from './util';
+import { env, stranger, url, expectHome } from './util';
 
 // Люди: отзывы с оценкой, дружба, переписка с фильмом, регистрация без приглашения.
 
@@ -32,7 +32,7 @@ test('страница фильма: оценки, актёры, отзывы д
 });
 
 test('люди: заявка в друзья, принять, написать', async ({ page }, info) => {
-  // Свой человек на каждый прогон: дружба меняется, демо-данные — нет.
+  // Свой человек на каждый прогон: дружба меняется, демо-данные - нет.
   const name = `Гость ${info.project.name} ${Date.now() % 100000}`;
   const guest = await stranger(name);
   await guest.c.post(`/api/friends/${env().people.me}`);
@@ -75,6 +75,6 @@ test('регистрация без приглашения', async ({ browser })
   await page.getByLabel(/Логин/).fill(login);
   await page.getByLabel(/Пароль/).fill('пароль-12345');
   await page.getByRole('button', { name: 'Создать аккаунт' }).click();
-  await expect(page.getByRole('region', { name: 'Рекомендуем' })).toBeVisible();
+  await expectHome(page);
   await ctx.close();
 });

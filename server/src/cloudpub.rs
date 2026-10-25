@@ -1,9 +1,9 @@
-//! Клиент CloudPub (cloudpub.ru, открытый клиент — github.com/ermak-dev/cloudpub): российский
-//! туннель, связь с сервером — WebSocket по TLS на порту 443. Поэтому работает и с VPN, и без, и в
+//! Клиент CloudPub (cloudpub.ru, открытый клиент - github.com/ermak-dev/cloudpub): российский
+//! туннель, связь с сервером - WebSocket по TLS на порту 443. Поэтому работает и с VPN, и без, и в
 //! сетях, где открыт только обычный HTTPS.
 //!
 //! Адрес постоянный: сервис один раз регистрируется (`clo register`), а при каждом запуске
-//! поднимается командой `clo run` с тем же адресом. Настройки клиента (в том числе его токен) —
+//! поднимается командой `clo run` с тем же адресом. Настройки клиента (в том числе его токен) -
 //! в `tools/cloudpub/client.toml` каталога данных; пароль нигде не хранится.
 
 use regex::Regex;
@@ -14,20 +14,21 @@ use std::process::Stdio;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-pub const VERSION: &str = "3.5.1056";
+pub const VERSION: &str = "3.6.902";
 const BUILDS: &[(&str, &str, &str)] = &[
-    ("darwin-arm64", "macos-aarch64.tar.gz", "1fbf7655750762268c5b2fc23f498c6275ddc56e5bd8131716b1b5ba9d285e35"),
-    ("darwin-amd64", "macos-x86_64.tar.gz", "9ad1e1e7608ad0dd2f5ab823e7a9dfd18291616cbd5f756ca548a309da26408c"),
-    ("windows-amd64", "windows-x86_64.zip", "db1238b3e3f01686d5856b7b6ad8095fe18803ba70e13fe7912faa3e954fe904"),
-    ("linux-amd64", "linux-x86_64.tar.gz", "23a8a9e9c2faa2d2fc5d65fe1487cbf3e9aecf8874dcda4f13755214adb78e25"),
-    ("linux-arm64", "linux-aarch64.tar.gz", "b8645665e37512bfb0573da8be0fb5835d943180c18c5b6675598aa61fa18120"),
+    ("darwin-arm64", "macos-aarch64.tar.gz", "b1def4e0d9e13eb638bead56ad069f825e662f0b238fd4fde2e6f7e122ddef27"),
+    ("darwin-amd64", "macos-x86_64.tar.gz", "3aef7d90b9ae7f3a1ee3f5d862372f18a544dc7a164b3de4b3a0d6ebcb4b4063"),
+    ("windows-amd64", "windows-x86_64.zip", "1a9bcd9487a678c0cf6bb61dcf7e998c1dfcc142f1b6c0ab31efb78c208e3ae2"),
+    ("linux-amd64", "linux-x86_64.tar.gz", "a77711855f39d197a361f44d7d1aec6642d78064789c9d50fc34079dcaef9969"),
+    ("linux-arm64", "linux-aarch64.tar.gz", "4b8cb10f8e7de7379812555b8a0083c1375bd94f20133f08db23df05c828c88a"),
 ];
 
-/// «… -> https://имя.cloudpub.ru:443/» — адрес сервиса в строке клиента.
+/// «… -> https://имя.cloudpub.ru:443/» - адрес сервиса в строке клиента.
 pub static URL: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"->\s*(https://[a-z0-9.-]+\.cloudpub\.ru)").unwrap());
 static TOKEN_LINE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?m)^\s*token\s*=\s*"[^"]+""#).unwrap());
-pub static AUTH_ERROR: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)(токен|авториз|token|unauthori[sz]ed|login|парол|password)").unwrap());
+pub static AUTH_ERROR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(unauthori[sz]ed|invalid\s+(token|credentials|password)|token.{0,12}(invalid|expired)|expired\s+token|authentication failed|authorization failed|неверн.{0,20}(токен|парол)|ошибк.{0,20}авторизац)").unwrap()
+});
 static ANSI: LazyLock<Regex> = LazyLock::new(|| Regex::new("\u{1b}\\[[0-9;?]*[A-Za-z]").unwrap());
 
 pub struct CloudPub {
@@ -41,7 +42,7 @@ pub struct Out {
 }
 
 impl Out {
-    /// Последняя непустая строка — обычно в ней и объяснение ошибки.
+    /// Последняя непустая строка - обычно в ней и объяснение ошибки.
     pub fn last_line(&self) -> String {
         self.text.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or_default().to_string()
     }
@@ -61,19 +62,19 @@ impl CloudPub {
     }
 
     fn exe(&self) -> PathBuf {
-        self.dir.join(if cfg!(windows) { "clo.exe" } else { "clo" })
+        self.dir.join(format!("bin-{VERSION}")).join(if cfg!(windows) { "clo.exe" } else { "clo" })
     }
 
     pub fn installed(&self) -> bool {
         self.exe().is_file()
     }
 
-    /// Токен сохранён в настройках клиента — вход выполнен.
+    /// Токен сохранён в настройках клиента - вход выполнен.
     pub fn logged_in(&self) -> bool {
         std::fs::read_to_string(self.conf()).is_ok_and(|s| TOKEN_LINE.is_match(&s))
     }
 
-    /// Клиент на диске; если нет — скачать с cloudpub.ru и сверить SHA-256.
+    /// Клиент на диске; если нет - скачать с cloudpub.ru и сверить SHA-256.
     pub async fn ensure(&self, http: &reqwest::Client) -> anyhow::Result<PathBuf> {
         let exe = self.exe();
         if exe.is_file() {
@@ -87,12 +88,12 @@ impl CloudPub {
         let url = format!("https://cloudpub.ru/download/stable/clo-{VERSION}-stable-{asset}");
         let bytes = http.get(url).timeout(Duration::from_secs(300)).send().await?.error_for_status()?.bytes().await?;
         if hex::encode(Sha256::digest(&bytes)) != *sha {
-            anyhow::bail!("скачанный клиент CloudPub не совпал с ожидаемым — не запускаем");
+            anyhow::bail!("скачанный клиент CloudPub не совпал с ожидаемым - не запускаем");
         }
         let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("clo").to_string();
         let bin = if asset.ends_with(".zip") { from_zip(&bytes, &name)? } else { from_tar_gz(&bytes, &name)? };
-        std::fs::create_dir_all(&self.dir)?;
-        let part = self.dir.join(format!("{name}.part"));
+        std::fs::create_dir_all(exe.parent().expect("binary directory"))?;
+        let part = exe.with_extension("part");
         std::fs::write(&part, bin)?;
         #[cfg(unix)]
         {
@@ -124,7 +125,7 @@ impl CloudPub {
         Ok(Out { ok: out.status.success(), text: ANSI.replace_all(&text, "").into_owned() })
     }
 
-    /// Вход почтой и паролем. Пароль — через переменную окружения, в командной строке его не видно.
+    /// Вход почтой и паролем. Пароль - через переменную окружения, в командной строке его не видно.
     pub async fn login(&self, email: &str, password: &str) -> anyhow::Result<Out> {
         self.run(&["login", email], &[("CLO_PASSWORD", password)], 60).await
     }
@@ -138,10 +139,11 @@ impl CloudPub {
         self.run(&["logout"], &[], 30).await
     }
 
-    /// Адрес уже зарегистрированного сервиса для этого порта — чтобы не плодить новые адреса.
+    /// Адрес уже зарегистрированного сервиса для этого порта - чтобы не плодить новые адреса.
     pub async fn registered(&self, port: u16) -> anyhow::Result<Option<String>> {
         let out = self.run(&["ls"], &[], 60).await?;
-        Ok(if out.ok { find_registered(&out.text, port) } else { None })
+        anyhow::ensure!(out.ok, "{}", out.last_line());
+        Ok(find_registered(&out.text, port))
     }
 
     /// Регистрирует сервис и возвращает его постоянный адрес.
@@ -164,7 +166,7 @@ impl CloudPub {
         cmd
     }
 
-    /// В настройках клиента лежит его токен — только для владельца.
+    /// В настройках клиента лежит его токен - только для владельца.
     fn restrict(&self) {
         #[cfg(unix)]
         {
@@ -227,6 +229,8 @@ mod tests {
         assert_eq!(find_registered(ls, 1748), None, "порт целиком, а не начало");
         assert!(AUTH_ERROR.is_match("Ошибка: неверный токен"));
         assert!(!AUTH_ERROR.is_match("connection reset"));
+        assert!(!AUTH_ERROR.is_match("login successful, token refreshed"));
+        assert!(AUTH_ERROR.is_match("Token is expired"));
         let o = Out { ok: false, text: "a\n  причина  \n\n".into() };
         assert_eq!(o.last_line(), "причина");
     }
@@ -257,7 +261,7 @@ mod tests {
         assert!(!cp.logged_in());
         std::fs::create_dir_all(cp.conf().parent().unwrap()).unwrap();
         std::fs::write(cp.conf(), "server = \"x\"\ntoken = \"\"\n").unwrap();
-        assert!(!cp.logged_in(), "пустой токен — не вход");
+        assert!(!cp.logged_in(), "пустой токен - не вход");
         std::fs::write(cp.conf(), "token = \"abc\"\n").unwrap();
         assert!(cp.logged_in());
     }

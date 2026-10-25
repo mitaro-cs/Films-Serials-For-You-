@@ -87,13 +87,13 @@ fn exe(name: &str) -> String {
 }
 
 /// Где искать ffmpeg: своя настройка, рядом с программой, PATH и обычные места установки
-/// (у приложений на Mac PATH из терминала нет — Homebrew нужно искать самим).
+/// (у приложений на Mac PATH из терминала нет - Homebrew нужно искать самим).
 pub fn locate(name: &str, configured: Option<&str>) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(c) = configured.filter(|c| !c.trim().is_empty()) {
         let p = PathBuf::from(c.trim());
         if p.is_file() {
-            // Указали ffmpeg — ffprobe лежит рядом.
+            // Указали ffmpeg - ffprobe лежит рядом.
             let sibling = p.with_file_name(exe(name));
             return sibling.is_file().then_some(sibling);
         }
@@ -125,13 +125,13 @@ impl Tools {
     }
 }
 
-/// ffmpeg и ffprobe — всегда ниже обычного приоритета: компьютер хоста — это ещё и чей-то
+/// ffmpeg и ffprobe - всегда ниже обычного приоритета: компьютер хоста - это ещё и чей-то
 /// рабочий компьютер, интерфейс и другие программы не должны тормозить из-за просмотра.
 pub fn command(bin: &Path) -> Command {
     prioritized(bin, 10, 0x0000_4000) // BELOW_NORMAL_PRIORITY_CLASS
 }
 
-/// Фоновая работа (кадры, картинки): ещё ниже — только когда компьютер свободен.
+/// Фоновая работа (кадры, картинки): ещё ниже - только когда компьютер свободен.
 pub fn background(bin: &Path) -> Command {
     prioritized(bin, 19, 0x0000_0040) // IDLE_PRIORITY_CLASS
 }
@@ -228,7 +228,7 @@ pub fn from_json(v: &serde_json::Value) -> Probe {
     p
 }
 
-/// Кадр из середины начала фильма — превью серии или фон, если другого нет.
+/// Кадр из середины начала фильма - превью серии или фон, если другого нет.
 pub async fn frame(ffmpeg: &Path, file: &Path, at: f64, width: u32) -> anyhow::Result<Vec<u8>> {
     let out = tokio::time::timeout(
         Duration::from_secs(60),
@@ -256,7 +256,7 @@ pub async fn frame(ffmpeg: &Path, file: &Path, at: f64, width: u32) -> anyhow::R
     Ok(out.stdout)
 }
 
-/// Картинка, сжатая до 24×36 точек, пикселями RGB — для цвета карточки.
+/// Картинка, сжатая до 24×36 точек, пикселями RGB - для цвета карточки.
 pub async fn tiny_rgb(ffmpeg: &Path, src: &Path) -> anyhow::Result<Vec<u8>> {
     let out = tokio::time::timeout(
         Duration::from_secs(30),
@@ -272,7 +272,7 @@ pub async fn tiny_rgb(ffmpeg: &Path, src: &Path) -> anyhow::Result<Vec<u8>> {
     Ok(out.stdout)
 }
 
-/// Квадратная картинка `size`×`size` (середина кадра) — для фото профиля.
+/// Квадратная картинка `size`×`size` (середина кадра) - для фото профиля.
 pub async fn square_image(ffmpeg: &Path, src: &Path, size: u32) -> anyhow::Result<Vec<u8>> {
     let out = tokio::time::timeout(
         Duration::from_secs(30),
@@ -300,7 +300,7 @@ pub async fn square_image(ffmpeg: &Path, src: &Path, size: u32) -> anyhow::Resul
     Ok(out.stdout)
 }
 
-/// Картинка меньшего размера (JPEG) — для лёгких постеров.
+/// Картинка меньшего размера (JPEG) - для лёгких постеров.
 pub async fn scale_image(ffmpeg: &Path, src: &Path, width: u32) -> anyhow::Result<Vec<u8>> {
     let out = tokio::time::timeout(
         Duration::from_secs(30),
@@ -410,7 +410,7 @@ mod tests {
         ];
         assert_eq!(chapter_markers(&list, Some(1400.0)), (Some((60.0, 150.0)), Some(1300.0)));
         assert_eq!(chapter_markers(&[ch(0.0, 10.0, "Chapter 1")], Some(100.0)), (None, None));
-        // «Титры» в начале фильма — это не финальные титры.
+        // «Титры» в начале фильма - это не финальные титры.
         assert_eq!(chapter_markers(&[ch(5.0, 60.0, "Титры")], Some(5000.0)).1, None);
     }
 }

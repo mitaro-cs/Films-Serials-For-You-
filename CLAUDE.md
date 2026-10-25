@@ -86,6 +86,39 @@
     через `*.part`), `PUT /api/admin/upload` потоком (`folder` — с вложенными, `more=1` — скан
     после последнего файла), `watch_worker` (notify, тишина 3 с → скан). Скан пропускает папку,
     где есть `*.part`; папка с ≥2 видео «01. …»/«Серия 5» — сериал (`scan::numbered_dir`).
+  - 1.0 (миграция 10): статусы одним запросом `PUT /api/titles/{id}/status` (want | watching |
+    watched | dropped | null; фронт — `lib/marks.ts`), «Смотрю» вручную — `watching`, «Больше не
+    смотрю» — `dropped` (не «Смотрю» и не в «Продолжить», пока прогресс не новее `at`; `Taste`).
+    `ext_marks` — и `watching`; серии сериала из ленты — `ext_episodes`/`ext_seasons` (по сезону,
+    `discover::season`), отметки серий — `ext_seen`. Отзывы — `title_id` или `ext_id` (у одного
+    фильма общие: `social::Target`). `api/activity.rs` — «Друзья смотрят», «Смотрят друзья» у фильма,
+    «Сейчас смотрит» (`profiles.show_activity`). Обзор — `discover::FEEDS` (чарты, поиск IMDb
+    `advancedTitleSearch`, `comingSoon`), «Потому что вам понравилось» — `api/discover::because`.
+  - Смотреть вместе (1.0): `rooms.rs` (комнаты в памяти, `janitor`), `api/rooms.rs` — SSE
+    `/api/rooms/{id}/events` (сжатие для `text/event-stream` выключено), состояние, чат, реакции,
+    приглашение сообщением со ссылкой `/room/{id}`. Фронт — `routes/room/[id]`, `Player` с `sync`.
+  - Видео по ссылке в плеере Nova (1.0): `api/stream_link.rs` — Rutube (`play/options` →
+    `video_balancer.m3u8`), VK (страница `video_ext.php` с куками → `"hls"`), свои сайты хоста
+    (`settings video.sites`, вид ссылки `site`, миграция 11: видео ищется на странице или в первом
+    `<iframe>`). Плейлисты переписываются на `p?u=<base64>`, ходим только на адреса сайта
+    (`allowed_for`). Фронт: `Player` с `src`, `/watch/link/[id]` (YouTube — своим плеером).
+  - Архив «скачать сериал/сезон/фильм» (1.0): `zipstream.rs` (ZIP64 без сжатия, размер заранее),
+    `GET /api/titles/{id}/download?season=`; фронт — `title/Downloads.svelte`. Сетка оценок серий —
+    `GET /api/discover/title/{imdb}/ratings` (`discover::season_data`), фронт — `title/RatingsGrid`.
+  - Голос в комнате (1.0): WebRTC между браузерами (`lib/room/voice.svelte.ts`, STUN Google и
+    Cloudflare), сервер — только `voice` (кто в чате) и `signal` (`rooms.rs`, сигнал — лишь от того,
+    кто в голосе). `Permissions-Policy: microphone=(self)` в `web.rs`. Микрофон — только https или
+    localhost.
+  - Режиссёры (1.0, миграция 12): `directors.rs` — id IMDb из описаний (`Person.id`, «nm…») или
+    `mainSearch`, фото и фильмография (`credits` director) раз в неделю (`ext_people`,
+    `ext_people_names`), `GET /api/directors?name=`; страница `/director?name=`. Любимые — по пять
+    фильмов и сериалов (`profile::check_favorites`).
+  - Франшизы (1.0, миграция 14, `franchise.rs`): Викиданные SPARQL (P179 «часть серии», P1545 номер,
+    P577 дата) по id IMDb → `franchises` на 30 дней; недостающие фильмы — IMDb `titles(ids:)`.
+    `GET /api/franchise?imdb=`, фронт — `title/Franchise.svelte` (на `/title` и `/ext`).
+  - Тексты интерфейса — обычный дефис « - », без длинных тире (просьба владельца, 1.0).
+  - Фронт 1.0: `title/SeriesHero.svelte` (сериал как у HBO GO, и для своих, и для ленты),
+    `ui/QuickMarks.svelte` (отметки на постере: родитель — `.tile`), `social/FriendsStrip.svelte`.
 - `desktop/src-tauri` — Tauri 2: сервер работает в процессе приложения, окно открывает
   `http://127.0.0.1:<порт окна>/api/host/enter?t=…`, трей, `DesktopHost` (выбор папки).
   `update.rs` — автообновление (tauri-plugin-updater, `latest.json` выпуска, подпись — секрет
@@ -117,10 +150,17 @@
 - Имена файлов не должны совпадать без учёта регистра (`x.svelte.ts` и `X.svelte` — тоже):
   на Mac и Windows импорт находит не тот файл (сборка 0.1.0 так упала). Ловит
   `web/src/lib/paths.test.ts`.
-- Выпуск собирается сам: `release.yml` на пуш в `miaro` смотрит `version` в `tauri.conf.json`;
-  тега `v<версия>` нет — создаёт выпуск с тегом на этом коммите и собирает установщики (поднять
-  версию = выпустить). Вручную — тег `vX.Y.Z`, равный `version` (иначе останавливается сразу).
-  Из облачной сессии Claude тег не отправить (прокси пускает только свою ветку) — поэтому так.
+- С 1.0 (октябрь 2026) владелец ведёт Nova **без git и GitHub**: выпуск — локально на Windows x64.
+  Порядок: сначала план «в теории», потом работа. Версия — в `Cargo.toml` (workspace),
+  `tauri.conf.json`, `web/package.json`, `desktop/package.json` и CHANGELOG; проверки ниже; ffmpeg —
+  `scripts/fetch-ffmpeg.sh windows` (Git Bash); сборка — в `desktop/`: `npm ci`, затем
+  `npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis`; установщик
+  `target/x86_64-pc-windows-msvc/release/bundle/nsis/Nova_<версия>_x64-setup.exe` — на рабочий стол.
+  Автообновление выключено (`desktop/src-tauri/src/main.rs`, `mod update` оставлен).
+  Инструменты в PATH новой оболочки не видны: `$env:Path` = Machine + User. e2e на Windows —
+  `FSFY_BIN=target\release\fsfy.exe`.
+- (до 1.0) Выпуск собирался сам: `release.yml` на пуш в `miaro` смотрел `version` в
+  `tauri.conf.json` и создавал выпуск с тегом.
 - В `tauri-action` нет `tauriScript`: с `npm run tauri --` он сам добавлял ещё один `--`,
   `--target` уходил в cargo, а упаковщик искал программу в `target/release` (0.1.1 так упал).
 - Mac: бандл подписывается ad-hoc (`bundle.macOS.signingIdentity: "-"`), ffmpeg — `codesign -s -`
@@ -129,10 +169,7 @@
 - Внешних запросов из фронта нет (шрифты системные, иконки свои); картинки IMDb/TMDB сервер
   скачивает к себе (`images/<sha256>.ext`).
 - Коммиты — Conventional Commits (`feat:`, `fix:`, …).
-- Ветка `miaro` — основная; владелец поручил Claude вести её самому: работа — в своей ветке →
-  PR в `miaro` → зелёная CI (server, web, e2e, desktop) → Claude сливает PR сам (merge commit).
-  Прямо в `miaro` не пушить. Выпуски (с 0.5) Claude собирает сам: новая `version` в PR →
-  после слияния `release.yml` выпускает её сам; проследить сборку до опубликованного выпуска.
+- (до 1.0) Ветка `miaro`, PR и CI на GitHub — сейчас не используются (см. выше: выпуск локально).
 
 ## Проверки перед пушем
 
@@ -149,11 +186,18 @@
 - «Ничего не дёргается»: `e2e/smooth.spec.ts` — CLS < 0,02 на главных страницах. Не показывать
   то, что вырастет после загрузки (числа в капсулах, отзывы — грузить вместе со страницей),
   `main` — не ниже экрана. Анимации — только `transform`/`opacity`.
-- Навигация: ≥1000 px — капсула в шапке (Главная, Фильмы, Сериалы, Обзор, Списки, Люди, Чаты,
-  поиск), уже — нижняя панель (Главная, Обзор, Списки, Люди, Чаты; `--tabbar` — отступ под неё),
-  поиск и аватар — в шапке, и капсула вкладок поверх героя главной.
-- Дизайн (0.6): шрифт — только Inter (`static/fonts`, без курсива), без `backdrop-filter`
-  (грузил видеокарту хоста), пустые экраны — `.empty` по центру.
+- Навигация (1.0): ≥1000 px — капсула в шапке (Главная, Фильмы, Сериалы, Обзор, поиск), Люди,
+  Чаты и Списки — в меню аватара (значок — просьбы дружбы + непрочитанное); уже — нижняя панель
+  (Главная, Фильмы, Сериалы, Обзор, «Я» — то же меню листом; `--tabbar` — отступ под неё), поиск —
+  в шапке, и капсула вкладок поверх героя главной.
+- Дизайн (0.6): шрифт — только Inter (`static/fonts`, без курсива), без `backdrop-filter` на больших
+  площадях (грузил видеокарту хоста), пустые экраны — `.empty` по центру. С beta.14 — «Кинозал»
+  (выбор владельца): «жидкое стекло» (`backdrop-filter`) только на маленьких капсулах (шапка, разделы,
+  круглые кнопки), на телефоне верх фильма — `title/MobileHero` (кадр, «Смотреть», «+», «…»).
+- Жанры — `meta::genre_ru`/`genres_ru`: один русский список (IMDb и Викиданные), в базе хранятся уже
+  нормализованными (`normalize_stored_genres` при запуске).
+- Место между устройствами — `/api/badges` `watchedAt` + `lib/progressSync.svelte.ts`.
+- Аватарки — свои персонажи `ui/characters.ts` (чужих изображений нет), новому — случайный.
 - Скорость (0.6.1): без View Transitions при переходах (`onNavigate` держал старый снимок, пока
   грузится новая страница — «всё тормозит»), без `filter: blur` и бегущих градиентов
   (заглушки — пульс прозрачности), без анимации `box-shadow`. Большие кадры — `titles.backdrop_md`

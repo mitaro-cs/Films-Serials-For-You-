@@ -5,7 +5,9 @@
   import Icon from '$lib/ui/Icon.svelte';
   import type { Status, UpdateInfo } from './types';
 
-  // Версия и обновление с GitHub прямо из приложения: проверить, скачать, поставить.
+  // Версия. С 1.0 приложение обновлений само не ищет (выпуски - у владельца, без GitHub): новая
+  // версия ставится установщиком поверх. Если приложение сообщает об обновлениях - проверить и
+  // поставить отсюда.
   let { status, reload }: { status: Status; reload: () => void } = $props();
 
   let error = $state('');
@@ -13,7 +15,7 @@
   const busy = $derived(!!u && ['checking', 'downloading', 'installing'].includes(u.state));
   const host = $derived(session.me?.user.role === 'host');
 
-  // Пока идёт проверка или скачивание — следим за ходом раз в секунду.
+  // Пока идёт проверка или скачивание - следим за ходом раз в секунду.
   $effect(() => {
     if (!busy) return;
     const t = setInterval(reload, 1000);
@@ -32,7 +34,7 @@
   }
 
   const TEXT: Record<UpdateInfo['state'], string> = {
-    idle: 'Обновления проверяются сами — через 20 секунд после запуска и раз в 6 часов.',
+    idle: 'Обновления проверяются сами - через 20 секунд после запуска и раз в 6 часов.',
     checking: 'Проверяем обновления на GitHub…',
     latest: 'У вас последняя версия.',
     available: 'Доступна новая версия.',
@@ -53,8 +55,8 @@
 
   {#if !u}
     <p class="muted">
-      Сервер запущен без приложения — обновите его вручную:
-      <a href="https://github.com/mitaro-cs/Films-Serials-For-You-/releases/latest" target="_blank" rel="noreferrer">последний выпуск на GitHub</a>.
+      Новая версия ставится установщиком: запустите <b>Nova_…_x64-setup.exe</b> поверх этой - фильмы, люди,
+      отзывы и настройки останутся на месте.
     </p>
   {:else}
     <div class="state" class:ok={u.state === 'latest'} class:new={u.state === 'available'} class:bad={u.state === 'error'}>
@@ -76,10 +78,9 @@
       {/if}
       <button class="btn" disabled={busy || !host} onclick={() => run('check')}><Icon name="refresh" size={16} /> Проверить обновления</button>
     </div>
-    {#if !host}<p class="faint small">Обновляет только хост — владелец компьютера с приложением.</p>{/if}
+    {#if !host}<p class="faint small">Обновляет только хост - владелец компьютера с приложением.</p>{/if}
   {/if}
   {#if error}<p class="error">{error}</p>{/if}
-  <a class="faint small" href="https://github.com/mitaro-cs/Films-Serials-For-You-/releases" target="_blank" rel="noreferrer">Что нового — все выпуски на GitHub</a>
 </section>
 
 <style>

@@ -32,7 +32,7 @@ export function loadCatalog(force = false): Promise<void> {
   return pending;
 }
 
-/** После выхода — чужой каталог не показываем. */
+/** После выхода - чужой каталог не показываем. */
 export function forgetCatalog() {
   catalog.items = null;
   catalog.recent = [];

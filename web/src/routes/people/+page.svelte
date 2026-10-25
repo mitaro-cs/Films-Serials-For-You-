@@ -6,7 +6,7 @@
   import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
 
-  // Люди сайта: найти друзей, принять заявки. Сверху — кто просит дружбы, потом друзья.
+  // Люди сайта: найти друзей, принять заявки. Сверху - кто просит дружбы, потом друзья.
   let list = $state<Member[] | null>(null);
   let error = $state('');
   let q = $state('');
@@ -39,7 +39,7 @@
   {:else if list === null}
     <div class="sk skeleton"></div>
   {:else if list.length === 0}
-    <div class="empty"><Icon name="users" size={40} /> Пока здесь только вы. Позовите друзей — регистрация открыта.</div>
+    <div class="empty"><Icon name="users" size={40} /> Пока здесь только вы. Позовите друзей - регистрация открыта.</div>
   {:else}
     {#each groups as g (g.id)}
       {#if g.items.length}

@@ -19,6 +19,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
+    { name: 'iphone-webkit', use: { ...devices['iPhone 13'], browserName: 'webkit' } },
     { name: 'phone', use: { ...devices['iPhone 13'], browserName: 'chromium' } },
     { name: 'tablet', use: { viewport: { width: 820, height: 1180 }, hasTouch: true } },
     { name: 'desktop', use: { viewport: { width: 1440, height: 900 } } },

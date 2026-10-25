@@ -1,4 +1,4 @@
-//! Личная страница: статистика (часы, фильмы, серии, любимые жанры, по месяцам) и оформление —
+//! Личная страница: статистика (часы, фильмы, серии, любимые жанры, по месяцам) и оформление -
 //! обложка, свой цвет, «о себе», любимые фильмы (с сервиса и из ленты IMDb).
 
 use crate::auth::Viewer;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 const MONTH: i64 = 30 * 86_400_000;
 
-/// Статистика человека. `now` — для подсчёта по месяцам (последние 12).
+/// Статистика человека. `now` - для подсчёта по месяцам (последние 12).
 pub fn stats(app: &App, id: i64, now: i64) -> ApiResult<Value> {
     let (minutes, movies, episodes, series, reviews, friends, outside): (f64, i64, i64, i64, i64, i64, i64) =
         app.db.with(|c| {
@@ -33,7 +33,28 @@ pub fn stats(app: &App, id: i64, now: i64) -> ApiResult<Value> {
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
             )
         })?;
-    // Жанры — по всему, что смотрел (с сервиса) и отметил просмотренным в ленте.
+    // Источники по ссылке раньше вовсе не попадали в статистику. Несколько источников одной
+    // серии считаем один раз; фильм, уже учтённый через локальный файл, не дублируем.
+    let external_minutes: f64 = app.db.with(|c| {
+        c.query_row(
+            "SELECT COALESCE(SUM(pos),0)/60.0 FROM (
+          SELECT MAX(MIN(p.position,p.duration)) pos FROM link_progress p JOIN links l ON l.id=p.link_id
+          WHERE p.profile_id=?1 AND NOT EXISTS(SELECT 1 FROM progress x JOIN files f ON f.id=x.file_id
+            WHERE x.profile_id=?1 AND f.title_id=l.title_id)
+          GROUP BY COALESCE(l.ext_id,'t:'||l.title_id,'l:'||l.id),l.season,l.episode)",
+            [id],
+            |r| r.get(0),
+        )
+    })?;
+    let (external_movies, external_episodes, external_series): (i64,i64,i64) = app.db.with(|c| c.query_row(
+        "SELECT
+          (SELECT COUNT(*) FROM ext_marks m JOIN ext_titles e ON e.id=m.ext_id WHERE m.profile_id=?1 AND m.status='watched' AND e.kind='movie'
+            AND NOT EXISTS(SELECT 1 FROM watched w JOIN titles t ON t.id=w.title_id WHERE w.profile_id=?1 AND t.imdb_id=e.id)),
+          (SELECT COUNT(*) FROM ext_seen s WHERE s.profile_id=?1 AND NOT EXISTS(SELECT 1 FROM progress p JOIN files f ON f.id=p.file_id JOIN titles t ON t.id=f.title_id
+            WHERE p.profile_id=?1 AND p.done=1 AND t.imdb_id=s.ext_id AND f.season=s.season AND f.episode=s.episode)),
+          (SELECT COUNT(DISTINCT s.ext_id) FROM ext_seen s WHERE s.profile_id=?1 AND NOT EXISTS(SELECT 1 FROM progress p JOIN files f ON f.id=p.file_id JOIN titles t ON t.id=f.title_id
+            WHERE p.profile_id=?1 AND t.imdb_id=s.ext_id))", [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))))?;
+    // Жанры - по всему, что смотрел (с сервиса) и отметил просмотренным в ленте.
     let genre_lists: Vec<String> = app.db.with(|c| {
         let mut st = c.prepare(
             "SELECT t.genres FROM titles t WHERE t.id IN (
@@ -45,7 +66,7 @@ pub fn stats(app: &App, id: i64, now: i64) -> ApiResult<Value> {
         let r = st.query_map([id], |r| r.get::<_, Option<String>>(0))?;
         r.map(|g| g.map(|g| g.unwrap_or_default())).collect()
     })?;
-    // Режиссёры того, что смотрел, — чаще всего первыми (подсказки для «любимых режиссёров»).
+    // Режиссёры того, что смотрел, - чаще всего первыми (подсказки для «любимых режиссёров»).
     let peoples: Vec<String> = app.db.with(|c| {
         let mut st = c.prepare(
             "SELECT t.people FROM titles t WHERE t.id IN (
@@ -75,39 +96,58 @@ pub fn stats(app: &App, id: i64, now: i64) -> ApiResult<Value> {
     let mut genres: Vec<(String, i64)> = genres.into_iter().collect();
     genres.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
     genres.truncate(6);
-    // По месяцам: досмотренное (фильмы и серии) за последние 12 месяцев, старое — слева.
+    // По месяцам: досмотренное (фильмы и серии) за последние 12 месяцев, старое - слева.
     let done: Vec<i64> = app.db.with(|c| {
-        let mut st =
-            c.prepare("SELECT updated_at FROM progress WHERE profile_id = ? AND done = 1 AND updated_at > ?")?;
-        let r = st.query_map(params![id, now - 12 * MONTH], |r| r.get(0))?;
+        let mut st = c.prepare("SELECT MAX(at) FROM (
+          SELECT COALESCE(t.imdb_id,'t:'||t.id)||':'||COALESCE(f.season,0)||':'||COALESCE(f.episode,0) item,p.updated_at at
+            FROM progress p JOIN files f ON f.id=p.file_id JOIN titles t ON t.id=f.title_id WHERE p.profile_id=?1 AND p.done=1
+          UNION ALL SELECT COALESCE(t.imdb_id,'t:'||t.id)||':0:0',w.at FROM watched w JOIN titles t ON t.id=w.title_id WHERE w.profile_id=?1 AND t.kind='movie'
+          UNION ALL SELECT s.ext_id||':'||s.season||':'||s.episode,s.at FROM ext_seen s WHERE s.profile_id=?1
+          UNION ALL SELECT m.ext_id||':0:0',m.at FROM ext_marks m JOIN ext_titles e ON e.id=m.ext_id WHERE m.profile_id=?1 AND m.status='watched' AND e.kind='movie'
+        ) GROUP BY item HAVING MAX(at)>?2")?;
+        let r = st.query_map(params![id, now - 13 * MONTH], |r| r.get(0))?;
         r.collect()
     })?;
     let mut months = [0i64; 12];
+    let month_index = |at: i64| -> rusqlite::Result<i32> {
+        app.db.with(|c| c.query_row(
+        "SELECT CAST(strftime('%Y',?1/1000,'unixepoch') AS INTEGER)*12 + CAST(strftime('%m',?1/1000,'unixepoch') AS INTEGER)-1", [at], |r| r.get(0)))
+    };
+    let current = month_index(now)?;
     for at in done {
-        let ago = ((now - at) / MONTH).clamp(0, 11) as usize;
-        months[11 - ago] += 1;
+        let ago = current - month_index(at)?;
+        if (0..12).contains(&ago) {
+            months[11 - ago as usize] += 1;
+        }
     }
+    let labels = (0..12)
+        .map(|i| {
+            let m = current - 11 + i;
+            format!("{:04}-{:02}", m / 12, m % 12 + 1)
+        })
+        .collect::<Vec<_>>();
     Ok(json!({
-        "hours": (minutes / 60.0 * 10.0).round() / 10.0,
-        "movies": movies, "episodes": episodes, "series": series, "reviews": reviews, "friends": friends,
+        "hours": ((minutes + external_minutes) / 60.0 * 10.0).round() / 10.0,
+        "movies": movies + external_movies, "episodes": episodes + external_episodes, "series": series + external_series, "reviews": reviews, "friends": friends,
         "outside": outside,
         "genres": genres.into_iter().map(|(g, n)| json!({"genre": g, "count": n})).collect::<Vec<_>>(),
         "months": months,
+        "monthLabels": labels,
         "directors": dirs.into_iter().map(|(n, c)| json!({"name": n, "count": c})).collect::<Vec<_>>(),
     }))
 }
 
 /// Оформление профиля с любимыми фильмами (карточки).
 pub fn decor(app: &App, v: &Viewer, id: i64) -> ApiResult<Value> {
-    type Row = (Option<String>, Option<String>, Option<String>, String, String, String);
-    let (cover, accent, bio, favs, directors, kind): Row = app.db.with(|c| {
+    type Row = (Option<String>, Option<String>, Option<String>, String, String, String, bool);
+    let (cover, accent, bio, favs, directors, kind, show): Row = app.db.with(|c| {
         c.query_row(
-            "SELECT cover, accent, bio, favorites, directors, cover_kind FROM profiles WHERE id = ?",
+            "SELECT cover, accent, bio, favorites, directors, cover_kind, show_activity FROM profiles WHERE id = ?",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
         )
     })?;
-    // Лента обложки — постеры просмотренного (с сервиса и из Обзора), свежие первыми.
+    // Лента обложки - постеры просмотренного (с сервиса и из Обзора), свежие первыми.
     let ribbon: Vec<String> = app.db.with(|c| {
         let mut st = c.prepare(&format!(
             "SELECT p FROM (
@@ -136,7 +176,12 @@ pub fn decor(app: &App, v: &Viewer, id: i64) -> ApiResult<Value> {
     }
     Ok(json!({
         "cover": super::img(cover), "coverKind": kind, "accent": accent, "bio": bio, "favorites": favorites,
-        "directors": super::json_list(Some(directors)),
+        "directors": super::json_list(Some(directors.clone())), "showActivity": show,
+        // Фото режиссёров - что уже известно (без запросов к IMDb; недостающее ищет `directors::warm`).
+        "directorsInfo": super::json_list(Some(directors)).into_iter().map(|n| {
+            let photo = crate::directors::cached(app, &n).and_then(|c| c.1);
+            json!({"name": n, "photo": super::img(photo)})
+        }).collect::<Vec<_>>(),
         "ribbon": ribbon.into_iter().filter_map(|n| super::img(Some(n))).collect::<Vec<_>>(),
     }))
 }
@@ -149,10 +194,35 @@ pub struct DecorBody {
     cover_kind: Option<String>,
     accent: Option<String>,
     favorites: Option<Vec<String>>,
+    /// Показывать друзьям, что смотрю.
+    #[serde(rename = "showActivity")]
+    show_activity: Option<bool>,
 }
 
-/// Любимых — пять, как на IMDb.
-pub const MAX_FAVORITES: usize = 5;
+/// Большое избранное, отдельно фильмы и сериалы.
+pub const MAX_FAVORITES: usize = 100;
+
+/// Фильм или сериал у ключа любимого («t:12» - с сервиса, «x:tt…» - из ленты).
+fn fav_kind(app: &App, key: &str) -> Option<String> {
+    let (sql, id) = if let Some(t) = key.strip_prefix("t:") {
+        ("SELECT kind FROM titles WHERE id = ?", t)
+    } else {
+        ("SELECT kind FROM ext_titles WHERE id = ?", key.strip_prefix("x:")?)
+    };
+    app.db.with(|c| c.query_row(sql, [id], |r| r.get(0))).ok()
+}
+
+/// Слишком много любимых одного вида - ошибка с понятным текстом.
+fn check_favorites(app: &App, list: &[String]) -> ApiResult<()> {
+    // Неизвестное (фильма уже нет) - считаем фильмом: иначе любимых можно было бы набрать сколько угодно.
+    let kinds: Vec<Option<String>> = list.iter().map(|k| fav_kind(app, k).or(Some("movie".into()))).collect();
+    for (kind, what) in [("movie", "фильмов"), ("series", "сериалов")] {
+        if kinds.iter().filter(|k| k.as_deref() == Some(kind)).count() > MAX_FAVORITES {
+            return Err(ApiError::bad("too_many", format!("В избранном можно сохранить до {MAX_FAVORITES} {what}")));
+        }
+    }
+    Ok(())
+}
 
 fn valid_key(k: &str) -> bool {
     k.strip_prefix("t:").is_some_and(|t| t.parse::<i64>().is_ok())
@@ -165,29 +235,22 @@ pub struct FavBody {
     value: bool,
 }
 
-/// Один фильм в любимые или из них (с его страницы). Шестой — нельзя: сначала убрать один.
+/// Один фильм в любимые или из них (с его страницы). Шестой фильм (или сериал) - нельзя: сначала убрать один.
 pub async fn set_favorite(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<FavBody>) -> ApiResult<Json<Value>> {
     if !valid_key(&b.key) {
         return Err(ApiError::bad("bad_key", "Неизвестный фильм"));
     }
     let me = v.profile.id;
-    let list = app.db.tx(|tx| {
-        let raw: String = tx.query_row("SELECT favorites FROM profiles WHERE id = ?", [me], |r| r.get(0))?;
-        let mut list = super::json_list(Some(raw));
-        list.retain(|k| k != &b.key);
-        if b.value {
-            if list.len() >= MAX_FAVORITES {
-                return Ok(None);
-            }
-            list.push(b.key.clone());
-        }
-        let s = serde_json::to_string(&list).unwrap_or_else(|_| "[]".into());
-        tx.execute("UPDATE profiles SET favorites = ? WHERE id = ?", params![s, me])?;
-        Ok(Some(list))
-    })?;
-    let list = list.ok_or_else(|| {
-        ApiError::bad("too_many", format!("Любимых — не больше {MAX_FAVORITES}: уберите один в профиле"))
-    })?;
+    let raw: String =
+        app.db.with(|c| c.query_row("SELECT favorites FROM profiles WHERE id = ?", [me], |r| r.get(0)))?;
+    let mut list = super::json_list(Some(raw));
+    list.retain(|k| k != &b.key);
+    if b.value {
+        list.push(b.key.clone());
+        check_favorites(&app, &list)?;
+    }
+    let s = serde_json::to_string(&list).unwrap_or_else(|_| "[]".into());
+    app.db.with(|c| c.execute("UPDATE profiles SET favorites = ? WHERE id = ?", params![s, me]))?;
     Ok(Json(json!({"favorites": list})))
 }
 
@@ -200,7 +263,7 @@ pub async fn set_decor(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<Dec
     if let Some(bio) = &b.bio {
         let bio = bio.trim();
         if bio.chars().count() > 300 {
-            return Err(ApiError::bad("too_long", "«О себе» — не длиннее 300 символов"));
+            return Err(ApiError::bad("too_long", "«О себе» - не длиннее 300 символов"));
         }
         app.db.with(|c| {
             c.execute("UPDATE profiles SET bio = ? WHERE id = ?", params![(!bio.is_empty()).then_some(bio), me])
@@ -209,7 +272,7 @@ pub async fn set_decor(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<Dec
     if let Some(a) = &b.accent {
         let a = a.trim().to_lowercase();
         if !a.is_empty() && !valid_color(&a) {
-            return Err(ApiError::bad("bad_color", "Цвет — в виде #ff8800"));
+            return Err(ApiError::bad("bad_color", "Цвет - в виде #ff8800"));
         }
         app.db.with(|c| {
             c.execute("UPDATE profiles SET accent = ? WHERE id = ?", params![(!a.is_empty()).then_some(a), me])
@@ -219,23 +282,26 @@ pub async fn set_decor(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<Dec
         let mut keep: Vec<String> = Vec::new();
         for n in d.iter().map(|n| n.trim()).filter(|n| !n.is_empty()) {
             if n.chars().count() > 80 {
-                return Err(ApiError::bad("too_long", "Имя режиссёра — не длиннее 80 символов"));
+                return Err(ApiError::bad("too_long", "Имя режиссёра - не длиннее 80 символов"));
             }
             if !keep.iter().any(|k| k.to_lowercase() == n.to_lowercase()) {
                 keep.push(n.to_string());
             }
         }
         if keep.len() > MAX_FAVORITES {
-            return Err(ApiError::bad("too_many", format!("Любимых режиссёров — не больше {MAX_FAVORITES}")));
+            return Err(ApiError::bad("too_many", format!("Любимых режиссёров - не больше {MAX_FAVORITES}")));
         }
         let s = serde_json::to_string(&keep).unwrap_or_else(|_| "[]".into());
         app.db.with(|c| c.execute("UPDATE profiles SET directors = ? WHERE id = ?", params![s, me]))?;
     }
     if let Some(k) = &b.cover_kind {
         if k != "ribbon" && k != "image" {
-            return Err(ApiError::bad("bad_value", "Обложка — лента или своя картинка"));
+            return Err(ApiError::bad("bad_value", "Обложка - лента или своя картинка"));
         }
         app.db.with(|c| c.execute("UPDATE profiles SET cover_kind = ? WHERE id = ?", params![k, me]))?;
+    }
+    if let Some(s) = b.show_activity {
+        app.db.with(|c| c.execute("UPDATE profiles SET show_activity = ? WHERE id = ?", params![s, me]))?;
     }
     if let Some(f) = &b.favorites {
         let mut keep: Vec<String> = Vec::new();
@@ -244,9 +310,7 @@ pub async fn set_decor(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<Dec
                 keep.push(k.clone());
             }
         }
-        if keep.len() > MAX_FAVORITES {
-            return Err(ApiError::bad("too_many", format!("Любимых — не больше {MAX_FAVORITES}")));
-        }
+        check_favorites(&app, &keep)?;
         let s = serde_json::to_string(&keep).unwrap_or_else(|_| "[]".into());
         app.db.with(|c| c.execute("UPDATE profiles SET favorites = ? WHERE id = ?", params![s, me]))?;
     }

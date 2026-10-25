@@ -11,7 +11,7 @@ use std::time::Duration;
 #[tokio::test(flavor = "multi_thread")]
 async fn host_adds_folder_and_viewer_watches() {
     if !ffmpeg() {
-        eprintln!("нет ffmpeg — пропуск");
+        eprintln!("нет ffmpeg - пропуск");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -66,7 +66,7 @@ async fn host_adds_folder_and_viewer_watches() {
     let r = host.send("POST", "/api/admin/libraries", json!({"path": media.to_str().unwrap()})).await;
     assert!(r.status().is_success(), "{}", r.text().await.unwrap());
 
-    // Обход и ffprobe — в фоне.
+    // Обход и ffprobe - в фоне.
     let mut titles = Value::Null;
     for _ in 0..100 {
         titles = host.json("/api/titles").await;
@@ -147,7 +147,7 @@ async fn host_adds_folder_and_viewer_watches() {
     let bytes = mp4.bytes().await.unwrap();
     assert!(bytes.len() > 1000 && &bytes[4..8] == b"ftyp", "фрагментированный MP4");
 
-    // Готовая копия (Safari, окно на Mac): HLS из fMP4 без перекодирования видео, звук — в AAC.
+    // Готовая копия (Safari, окно на Mac): HLS из fMP4 без перекодирования видео, звук - в AAC.
     let list = viewer.get(&format!("/api/files/{ep}/copy/0/index.m3u8")).await;
     assert_eq!(list.headers()["content-type"], "application/vnd.apple.mpegurl");
     let list = list.text().await.unwrap();
@@ -160,7 +160,7 @@ async fn host_adds_folder_and_viewer_watches() {
     assert_eq!(viewer.get(&format!("/api/files/{ep}/copy/0/..%2Fx")).await.status(), 404);
     assert_eq!(viewer.get(&format!("/api/files/{ep}/copy/0/s1x.m4s")).await.status(), 404);
 
-    // Досмотрел первую серию — «Продолжить» предлагает вторую.
+    // Досмотрел первую серию - «Продолжить» предлагает вторую.
     let r = viewer.send("PUT", &format!("/api/progress/{ep}"), json!({"position": 3.9, "duration": 4.0})).await;
     assert!(r.status().is_success());
     let home = viewer.json("/api/home").await;

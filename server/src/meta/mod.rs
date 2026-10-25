@@ -1,5 +1,5 @@
 //! Описание фильмов и сериалов: поиск по названию из имени файла, постеры, фоны, актёры, серии.
-//! По умолчанию — IMDb без ключа; можно TMDB или Кинопоиск (с ключом, описания на русском).
+//! По умолчанию - IMDb без ключа; можно TMDB или Кинопоиск (с ключом, описания на русском).
 
 pub mod imdb;
 pub mod kp;
@@ -32,6 +32,9 @@ pub struct Person {
     /// director, writer, creator, actor
     pub job: String,
     pub photo: Option<String>,
+    /// Id человека на IMDb («nm…») - для страницы режиссёра (у старых описаний нет).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -42,6 +45,9 @@ pub struct Episode {
     pub overview: Option<String>,
     pub still: Option<String>,
     pub air_date: Option<String>,
+    /// Оценка серии на IMDb и длительность в минутах (у TMDB и Кинопоиска - нет).
+    pub rating: Option<f64>,
+    pub runtime: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -68,6 +74,8 @@ pub struct Details {
     pub gallery: Vec<String>,
     pub imdb_id: Option<String>,
     pub episodes: Vec<Episode>,
+    /// Номера сезонов сериала (IMDb).
+    pub seasons: Vec<i32>,
 }
 
 pub fn capitalize(s: &str) -> String {
@@ -75,39 +83,136 @@ pub fn capitalize(s: &str) -> String {
     c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
 }
 
-/// Жанры IMDb по-русски (у IMDb они только на английском).
+/// Жанр по-русски одним коротким словом из общего списка: у IMDb жанры английские
+/// («Sci-Fi»), у Викиданных - описательные («научно-фантастический фильм», «фильм-триллер»).
+/// Незнакомое - как есть, с заглавной буквы.
 pub fn genre_ru(g: &str) -> String {
-    let ru = match g {
-        "Action" => "Боевик",
-        "Adventure" => "Приключения",
-        "Animation" => "Мультфильм",
-        "Biography" => "Биография",
-        "Comedy" => "Комедия",
-        "Crime" => "Криминал",
-        "Documentary" => "Документальный",
-        "Drama" => "Драма",
-        "Family" => "Семейный",
-        "Fantasy" => "Фэнтези",
-        "Film-Noir" => "Нуар",
-        "History" => "История",
-        "Horror" => "Ужасы",
-        "Music" => "Музыка",
-        "Musical" => "Мюзикл",
-        "Mystery" => "Детектив",
-        "Romance" => "Мелодрама",
-        "Sci-Fi" => "Фантастика",
-        "Short" => "Короткометражка",
-        "Sport" => "Спорт",
-        "Thriller" => "Триллер",
-        "War" => "Военный",
-        "Western" => "Вестерн",
-        "Reality-TV" => "Реалити-шоу",
-        "Talk-Show" => "Ток-шоу",
-        "Game-Show" => "Игра",
-        "News" => "Новости",
-        other => other,
+    let g = g.trim();
+    let en = match g {
+        "Action" => Some("Боевик"),
+        "Adventure" => Some("Приключения"),
+        "Animation" => Some("Мультфильм"),
+        "Biography" => Some("Биография"),
+        "Comedy" => Some("Комедия"),
+        "Crime" => Some("Криминал"),
+        "Documentary" => Some("Документальный"),
+        "Drama" => Some("Драма"),
+        "Family" => Some("Семейный"),
+        "Fantasy" => Some("Фэнтези"),
+        "Film-Noir" => Some("Нуар"),
+        "History" => Some("История"),
+        "Horror" => Some("Ужасы"),
+        "Music" => Some("Музыка"),
+        "Musical" => Some("Мюзикл"),
+        "Mystery" => Some("Детектив"),
+        "Romance" => Some("Мелодрама"),
+        "Sci-Fi" | "Science Fiction" => Some("Фантастика"),
+        "Short" => Some("Короткометражка"),
+        "Sport" => Some("Спорт"),
+        "Thriller" => Some("Триллер"),
+        "War" => Some("Военный"),
+        "Western" => Some("Вестерн"),
+        "Reality-TV" => Some("Реалити-шоу"),
+        "Talk-Show" => Some("Ток-шоу"),
+        "Game-Show" => Some("Игра"),
+        "News" => Some("Новости"),
+        "Adult" => Some("Для взрослых"),
+        _ => None,
     };
-    ru.to_string()
+    if let Some(ru) = en {
+        return ru.into();
+    }
+    let l = g.to_lowercase();
+    // Порядок важен: «криминальный триллер» - триллер, «романтическая комедия» - комедия.
+    const STEMS: &[(&str, &str)] = &[
+        ("аниме", "Аниме"),
+        ("мульт", "Мультфильм"),
+        ("анимац", "Мультфильм"),
+        ("документ", "Документальный"),
+        ("ужас", "Ужасы"),
+        ("хоррор", "Ужасы"),
+        ("привидени", "Ужасы"),
+        ("триллер", "Триллер"),
+        ("комед", "Комедия"),
+        ("юмор", "Комедия"),
+        ("мюзикл", "Мюзикл"),
+        ("вестерн", "Вестерн"),
+        ("нуар", "Нуар"),
+        ("фэнтез", "Фэнтези"),
+        ("колдовств", "Фэнтези"),
+        ("фантаст", "Фантастика"),
+        ("киберпанк", "Фантастика"),
+        ("антиутоп", "Фантастика"),
+        ("постапокалипт", "Фантастика"),
+        ("путешествиях во времени", "Фантастика"),
+        ("супергеро", "Фантастика"),
+        ("катастроф", "Фантастика"),
+        ("детектив", "Детектив"),
+        ("тайна", "Детектив"),
+        ("криминал", "Криминал"),
+        ("полицейск", "Криминал"),
+        ("боевик", "Боевик"),
+        ("экшен", "Боевик"),
+        ("экшн", "Боевик"),
+        ("бадди", "Боевик"),
+        ("военн", "Военный"),
+        ("истори", "История"),
+        ("биограф", "Биография"),
+        ("спорт", "Спорт"),
+        ("музык", "Музыка"),
+        ("приключен", "Приключения"),
+        ("романтич", "Мелодрама"),
+        ("мелодрам", "Мелодрама"),
+        ("семейн", "Семейный"),
+        ("детск", "Семейный"),
+        ("взросле", "Драма"),
+        ("драм", "Драма"),
+    ];
+    if let Some((_, ru)) = STEMS.iter().find(|(stem, _)| l.contains(stem)) {
+        return (*ru).into();
+    }
+    capitalize(g)
+}
+
+/// Список жанров по-русски без повторов («Драма» и «драматический фильм» - один жанр).
+pub fn genres_ru<S: AsRef<str>>(list: impl IntoIterator<Item = S>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for g in list {
+        let ru = genre_ru(g.as_ref());
+        if !ru.is_empty() && !out.contains(&ru) {
+            out.push(ru);
+        }
+    }
+    out
+}
+
+/// Жанры, уже лежащие в базе (английские IMDb и описательные Викиданных), - к общему русскому
+/// списку. При каждом запуске: меняет только то, что отличается.
+pub fn normalize_stored_genres(db: &crate::db::Db) -> anyhow::Result<usize> {
+    let mut changed = 0;
+    for table in ["titles", "ext_titles"] {
+        let rows: Vec<(String, String)> = db.with(|c| {
+            let mut st = c.prepare(&format!(
+                "SELECT CAST(id AS TEXT), genres FROM {table} WHERE genres IS NOT NULL AND genres != '[]'"
+            ))?;
+            let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            r.collect::<rusqlite::Result<Vec<_>>>()
+        })?;
+        for (id, raw) in rows {
+            let list: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
+            let fresh = serde_json::to_string(&genres_ru(&list))?;
+            if fresh != raw {
+                db.with(|c| {
+                    c.execute(
+                        &format!("UPDATE {table} SET genres = ?1 WHERE CAST(id AS TEXT) = ?2"),
+                        rusqlite::params![fresh, id],
+                    )
+                })?;
+                changed += 1;
+            }
+        }
+    }
+    Ok(changed)
 }
 
 pub enum Provider {
@@ -117,7 +222,7 @@ pub enum Provider {
 }
 
 impl Provider {
-    /// Источник из настроек; `None` — описания выключены или нет ключа.
+    /// Источник из настроек; `None` - описания выключены или нет ключа.
     pub fn from_settings(app: &App) -> Option<Provider> {
         let db = &app.db;
         let http = app.http.clone();
@@ -171,7 +276,7 @@ impl Provider {
     }
 }
 
-/// Лучший кандидат: тот же вид (фильм/сериал) и год ±1; без года — первый того же вида.
+/// Лучший кандидат: тот же вид (фильм/сериал) и год ±1; без года - первый того же вида.
 pub fn best(cands: &[Candidate], year: Option<i32>, series: bool) -> Option<&Candidate> {
     cands.iter().find(|c| {
         c.series == series
@@ -201,7 +306,7 @@ fn seasons_of(app: &App, title_id: i64) -> Vec<i32> {
         .unwrap_or_default()
 }
 
-/// Скачать картинки и записать описание. `status`: matched — найдено само, manual — выбрал хост.
+/// Скачать картинки и записать описание. `status`: matched - найдено само, manual - выбрал хост.
 pub async fn apply(
     app: &App,
     title_id: i64,
@@ -210,6 +315,20 @@ pub async fn apply(
     d: Details,
     status: &str,
 ) -> anyhow::Result<()> {
+    // Сюжет у IMDb - по-английски: русский - из Википедии, слоган - переводом.
+    let mut d = d;
+    let imdb = d.imdb_id.clone().or_else(|| (provider == "imdb").then(|| provider_id.to_string()));
+    if let Some(imdb) = imdb.filter(|_| d.overview.as_deref().is_none_or(|o| !crate::ruwiki::has_cyrillic(o))) {
+        if let Some(ru) = crate::ruwiki::overview(&app.http, &imdb).await {
+            d.overview = Some(ru);
+        }
+        if let Some(tr) = match &d.tagline {
+            Some(t) => crate::ruwiki::translate(&app.http, t).await,
+            None => None,
+        } {
+            d.tagline = Some(tr);
+        }
+    }
     let im = &app.images;
     let get = |u: Option<String>| async move {
         match u {
@@ -218,6 +337,16 @@ pub async fn apply(
         }
     };
     let (poster, backdrop, logo) = tokio::join!(get(d.poster.clone()), get(d.backdrop.clone()), get(d.logo.clone()));
+    // Publish the hero artwork before the optional gallery and cast downloads finish.
+    app.db.with(|c| {
+        c.execute(
+            "UPDATE titles SET poster=COALESCE(?1,poster), backdrop=COALESCE(?2,backdrop),
+         poster_sm=CASE WHEN ?1 IS NOT NULL THEN NULL ELSE poster_sm END,
+         backdrop_sm=CASE WHEN ?2 IS NOT NULL THEN NULL ELSE backdrop_sm END,
+         backdrop_md=CASE WHEN ?2 IS NOT NULL THEN NULL ELSE backdrop_md END WHERE id=?3",
+            params![poster, backdrop, title_id],
+        )
+    })?;
     let gallery: Vec<String> =
         stream::iter(d.gallery.clone()).map(|u| get(Some(u))).buffered(4).filter_map(|x| async { x }).collect().await;
     let photos: Vec<Option<String>> =
@@ -247,7 +376,7 @@ pub async fn apply(
                 d.year,
                 d.overview,
                 d.tagline,
-                js(&d.genres),
+                js(&genres_ru(&d.genres)),
                 js(&d.countries),
                 js(&d.languages),
                 js(&d.aka),
@@ -272,9 +401,9 @@ pub async fn apply(
         )?;
         for (e, still) in d.episodes.iter().zip(stills) {
             tx.execute(
-                "UPDATE files SET name = ?, overview = ?, still = COALESCE(?, still), air_date = ?
+                "UPDATE files SET name = ?, overview = ?, still = COALESCE(?, still), air_date = ?, rating = ?
                  WHERE title_id = ? AND season = ? AND episode = ?",
-                params![e.name, e.overview, still, e.air_date, title_id, e.season, e.episode],
+                params![e.name, e.overview, still, e.air_date, e.rating, title_id, e.season, e.episode],
             )?;
         }
         Ok(())
@@ -282,13 +411,23 @@ pub async fn apply(
     Ok(())
 }
 
-/// Найти и записать описание одного произведения. Ok(false) — ничего подходящего не нашлось.
+/// Найти и записать описание одного произведения. Ok(false) - ничего подходящего не нашлось.
+/// Уже найденное у того же источника - заново по его id, без поиска по названию (обновление
+/// описаний не перепутает фильм).
 pub async fn fetch_one(app: &App, p: &Provider, id: i64) -> anyhow::Result<bool> {
-    let (title, year, kind): (String, Option<i32>, String) = app.db.with(|c| {
-        c.query_row("SELECT title, year, kind FROM titles WHERE id = ?", [id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    type Row = (String, Option<i32>, String, Option<String>, Option<String>);
+    let (title, year, kind, provider, provider_id): Row = app.db.with(|c| {
+        c.query_row("SELECT title, year, kind, provider, provider_id FROM titles WHERE id = ?", [id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })
     })?;
+    if let (Some(prov), Some(pid)) = (provider, provider_id) {
+        if prov == p.name() {
+            let d = p.details(&pid, &seasons_of(app, id)).await?;
+            apply(app, id, p.name(), &pid, d, "matched").await?;
+            return Ok(true);
+        }
+    }
     let series = kind == "series";
     let cands = p.search(&title, year, series).await?;
     let Some(c) = best(&cands, year, series) else {
@@ -337,7 +476,7 @@ pub async fn worker(app: Arc<App>) {
                         tracing::warn!(error = %e, "описание не получено");
                         app.meta_state.lock().error = Some(e.to_string());
                         failed = true;
-                        break;
+                        // One broken title must not block every later item in this batch.
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(if p.name() == "kinopoisk" { 400 } else { 150 })).await;
@@ -349,13 +488,25 @@ pub async fn worker(app: Arc<App>) {
             }
         }
         // Нет работы или сеть недоступна: ждём новых файлов, смены настроек или 10 минут.
-        let wait = if failed { 600 } else { 3600 };
+        let wait = if failed { 60 } else { 3600 };
         let _ = tokio::time::timeout(Duration::from_secs(wait), app.meta_kick.notified()).await;
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn genres_normalize() {
+        assert_eq!(genre_ru("Sci-Fi"), "Фантастика");
+        assert_eq!(genre_ru("фильм-триллер"), "Триллер");
+        assert_eq!(genre_ru("научно-фантастический фильм"), "Фантастика");
+        assert_eq!(genre_ru("романтическая комедия"), "Комедия");
+        assert_eq!(genre_ru("криминальная драма"), "Криминал");
+        assert_eq!(genre_ru("драма"), "Драма");
+        assert_eq!(genre_ru("стратегия в реальном времени"), "Стратегия в реальном времени");
+        assert_eq!(genres_ru(["Drama", "драматический фильм", "Comedy"]), ["Драма", "Комедия"]);
+    }
+
     use super::*;
 
     fn c(id: &str, year: Option<i32>, series: bool) -> Candidate {

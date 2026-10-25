@@ -3,30 +3,42 @@
   import type { Card, ExtCard } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
+  import QuickMarks from '$lib/ui/QuickMarks.svelte';
   import { remember } from './sheet.svelte';
 
-  // Постер 2:3: название, год и оценка. Из ленты IMDb — ссылка на его страницу `/ext/<id>`
-  // (карточка запоминается — страница показывается сразу), с сервиса (`local`) — на `/title/<id>`.
+  // Постер 2:3: название, год и оценка, поверх - быстрые отметки. Из ленты IMDb - ссылка на его
+  // страницу `/ext/<id>` (карточка запоминается - страница показывается сразу), с сервиса
+  // (`local`) - на `/title/<id>`.
   let {
     card,
     local = null,
     rank = null,
     i = null,
-  }: { card?: ExtCard; local?: Card | null; rank?: number | null; i?: number | null } = $props();
+    marks = true,
+  }: { card?: ExtCard; local?: Card | null; rank?: number | null; i?: number | null; marks?: boolean } = $props();
 
   const c = $derived(
     local
-      ? { title: local.title, year: local.year, rating: local.rating, poster: local.poster, here: false, mark: null }
-      : { title: card!.title, year: card!.year, rating: card!.rating, poster: card!.poster, here: !!card!.local, mark: card!.mark },
+      ? { title: local.title, year: local.year, rating: local.rating, poster: local.poster, here: false, kind: local.kind }
+      : { title: card!.title, year: card!.year, rating: card!.rating, poster: card!.poster, here: !!card!.local, kind: card!.kind },
   );
+  let replacement = $state<string | null>(null);
+  let loaded = $state(false);
+  const source = $derived(replacement ?? c.poster);
+  $effect(() => { void c.poster; void card?.id; replacement = null; loaded = false; });
+  function retryImage() {
+    const fallback = card ? `/api/discover/poster/${card.id}` : null;
+    if (fallback && source !== fallback) replacement = fallback;
+    else loaded = false;
+  }
 </script>
 
 {#snippet body()}
-  <span class="art" style:background={c.poster ? undefined : placeholder(c.title)}>
-    {#if c.poster}<img use:fadeIn src={c.poster} alt="" loading="lazy" decoding="async" width="342" height="513" />{:else}<span class="ph">{c.title}</span>{/if}
+  <span class="art" class:ranked={rank !== null} style:background={c.poster ? undefined : placeholder(c.title)}>
+    {#if !loaded}<span class="ph">{c.title}</span>{/if}
+    {#if source}<img use:fadeIn src={source} alt="" loading="lazy" decoding="async" width="342" height="513" onload={() => loaded = true} onerror={retryImage} />{/if}
     {#if rank}<span class="rank">{rank}</span>{/if}
     {#if c.here}<span class="here">Есть у нас</span>{/if}
-    {#if c.mark}<span class="mark" title={c.mark === 'watched' ? 'Просмотрено' : 'Буду смотреть'}><Icon name={c.mark === 'watched' ? 'check' : 'bookmark'} size={13} stroke={2.6} /></span>{/if}
   </span>
   <span class="name">{c.title}</span>
   <span class="sub">
@@ -34,13 +46,20 @@
   </span>
 {/snippet}
 
-{#if local}
-  <a class="poster" class:rise={i !== null} style:--i={i} href="/title/{local.id}" aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</a>
-{:else}
-  <a class="poster" class:rise={i !== null} style:--i={i} href="/ext/{card!.id}" onclick={() => remember(card!)} aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</a>
-{/if}
+<div class="tile" class:rise={i !== null} style:--i={i}>
+  {#if local}
+    <a class="poster" href="/title/{local.id}" aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</a>
+  {:else}
+    <a class="poster" href="/ext/{card!.id}" onclick={() => remember(card!)} aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</a>
+  {/if}
+  {#if marks}<QuickMarks card={local} ext={local ? null : card} kind={c.kind} title={c.title} />{/if}
+</div>
 
 <style>
+  .tile {
+    position: relative;
+    min-width: 0;
+  }
   .poster {
     display: grid;
     gap: 2px;
@@ -62,7 +81,7 @@
     background: var(--surface);
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
-  .poster:hover .art,
+  .tile:hover .art,
   .poster:focus-visible .art {
     transform: scale(1.04);
   }
@@ -82,14 +101,15 @@
   }
   .ph {
     position: absolute;
-    inset: 0;
+    inset: 40px 10px 10px;
     display: grid;
     place-items: center;
-    padding: 10px;
+    padding: 0;
     text-align: center;
     font-weight: 700;
     overflow: hidden;
   }
+  .ranked .ph { bottom: 44px; }
   .rank {
     position: absolute;
     left: 8px;
@@ -110,18 +130,6 @@
     color: #000;
     font-size: 11px;
     font-weight: 700;
-  }
-  .mark {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.7);
-    color: #fff;
   }
   .name,
   .sub {

@@ -23,6 +23,12 @@ export const url = (path: string) => env().baseURL + path;
 export async function expectClean(page: Page, what: string) {
   await page.waitForLoadState('networkidle');
   await page.evaluate(() => document.fonts.ready);
+  // html и body обрезают лишнее справа (overflow-x: clip - для нижней панели на iPhone): на время
+  // замера обрезку снимаем, иначе вылезающее за экран не было бы видно.
+  await page.evaluate(() => {
+    document.documentElement.style.overflowX = 'visible';
+    document.body.style.overflowX = 'visible';
+  });
   const problems = await page.evaluate(() => {
     const out: string[] = [];
     const W = document.documentElement.clientWidth;
@@ -40,6 +46,9 @@ export async function expectClean(page: Page, what: string) {
     }
 
     const visible = (el: Element) => {
+      // В закрытом details браузер может сохранить геометрию потомков, хотя они не рисуются.
+      const closed = el.closest('details:not([open])');
+      if (closed && !closed.querySelector(':scope > summary')?.contains(el)) return false;
       const s = getComputedStyle(el);
       return s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0.05;
     };
@@ -50,7 +59,7 @@ export async function expectClean(page: Page, what: string) {
       }
       return null;
     };
-    // Обрезка прокручиваемым или overflow:hidden предком — видимая часть.
+    // Обрезка прокручиваемым или overflow:hidden предком - видимая часть.
     // Считая и сам элемент: текст с многоточием обрезан своим же `overflow: hidden`.
     const clip = (el: Element, r: DOMRect) => {
       let { left, top, right, bottom } = r;
@@ -66,8 +75,9 @@ export async function expectClean(page: Page, what: string) {
       }
       return { left, top, right, bottom };
     };
+    // Считая сам элемент: подпись с многоточием обрезана своим же overflow: hidden.
     const scrollsX = (el: Element) => {
-      for (let e = el.parentElement; e; e = e.parentElement) {
+      for (let e: Element | null = el; e; e = e.parentElement) {
         const s = getComputedStyle(e).overflowX;
         if (s === 'auto' || s === 'scroll' || s === 'hidden' || s === 'clip') return true;
       }
@@ -80,7 +90,7 @@ export async function expectClean(page: Page, what: string) {
 
     type Box = { el: Element; r: { left: number; top: number; right: number; bottom: number }; kind: 'text' | 'ctl' };
     const boxes: Box[] = [];
-    // Строки текста — по прямоугольникам самих текстовых узлов.
+    // Строки текста - по прямоугольникам самих текстовых узлов.
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       if (!n.textContent?.trim()) continue;
@@ -105,6 +115,22 @@ export async function expectClean(page: Page, what: string) {
       boxes.push({ el, r: c, kind: 'ctl' });
       if (r.right > W + 1 && !scrollsX(el)) out.push(`за правым краем: ${name(el)}`);
     }
+    // Текст не виден: цвет совпадает с фоном (белое на белом - плашки «Хост», «рекомендуем»).
+    // Фон - с запоминанием: на «Топ-250» сотни подписей с общими родителями.
+    const bgs = new Map<Element, string>();
+    const bgOf = (el: Element | null): string => {
+      if (!el) return 'rgb(0, 0, 0)';
+      const known = bgs.get(el);
+      if (known) return known;
+      const b = getComputedStyle(el).backgroundColor;
+      const v = b && b !== 'rgba(0, 0, 0, 0)' && b !== 'transparent' ? b : bgOf(el.parentElement);
+      bgs.set(el, v);
+      return v;
+    };
+    for (const b of boxes) {
+      if (b.kind !== 'text') continue;
+      if (getComputedStyle(b.el).color === bgOf(b.el)) out.push(`текст не виден (цвет как фон): ${name(b.el)}`);
+    }
     const H = innerHeight;
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {
@@ -115,7 +141,7 @@ export async function expectClean(page: Page, what: string) {
         const fb = fixedOf(b.el);
         // Нижние плавающие панели и прокручиваемое содержимое: пересечение зависит от прокрутки.
         if (fa !== fb && ((fa && fa.getBoundingClientRect().top > H / 2) || (fb && fb.getBoundingClientRect().top > H / 2))) continue;
-        // Всплывающее меню поверх страницы — задумано.
+        // Всплывающее меню поверх страницы - задумано.
         if ((fa && fa !== fb && getComputedStyle(fa).zIndex > '60') || (fb && fa !== fb && getComputedStyle(fb).zIndex > '60')) continue;
         const w = Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left);
         const h = Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top);
@@ -123,6 +149,10 @@ export async function expectClean(page: Page, what: string) {
       }
     }
     return [...new Set(out)].slice(0, 15);
+  });
+  await page.evaluate(() => {
+    document.documentElement.style.overflowX = '';
+    document.body.style.overflowX = '';
   });
   expect(problems, `${what}: вёрстка`).toEqual([]);
 }
@@ -144,7 +174,7 @@ export async function resetStatuses() {
   await api.dispose();
 }
 
-/** Новый человек на сайте (заводит хост) и его вход — для сценариев, которые меняют дружбу. */
+/** Новый человек на сайте (заводит хост) и его вход - для сценариев, которые меняют дружбу. */
 export async function stranger(name: string) {
   const { baseURL, publicURL } = env();
   const { request } = await import('@playwright/test');
@@ -157,4 +187,21 @@ export async function stranger(name: string) {
   await c.post('/api/auth/login', { data: { login, password: 'пароль-12345' } });
   const id = (await (await c.get('/api/me')).json()).user.profile.id as number;
   return { c, id };
+}
+
+/** Телефон: на странице фильма - постер как у Disney+, действия - в окне «…», на главной - выбор раздела. */
+export const narrow = (page: Page) => (page.viewportSize()?.width ?? 0) <= 640;
+
+/** Нажать действие фильма: в панели (планшет, компьютер) или в окне «…» (телефон). */
+export async function act(page: Page, name: string | RegExp) {
+  const exact = typeof name === 'string';
+  if (!narrow(page)) return page.getByRole('button', { name, exact }).first().click();
+  const sheet = page.getByRole('dialog', { name: /.+/ }).filter({ has: page.getByRole('button', { name, exact }) });
+  if (!(await sheet.isVisible().catch(() => false))) await page.getByRole('button', { name: 'Ещё действия' }).click();
+  await sheet.getByRole('button', { name, exact }).first().click();
+}
+
+/** Главная открылась: большой кадр «Рекомендуем» (на любом экране). */
+export async function expectHome(page: Page) {
+  await expect(page.getByRole('region', { name: 'Рекомендуем' })).toBeVisible();
 }

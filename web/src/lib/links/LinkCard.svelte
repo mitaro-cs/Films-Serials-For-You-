@@ -6,7 +6,7 @@
 
   // Видео по ссылке: кадр 16:9, название, сайт. Открывается в нашем плеере.
   let { link, onremove }: { link: VideoLink; onremove?: () => void } = $props();
-  const SITE = { rutube: 'Rutube', vk: 'VK Видео', youtube: 'YouTube', direct: 'Файл' } as const;
+  const SITE = { rutube: 'Rutube', vk: 'VK Видео', youtube: 'YouTube', direct: 'Файл', site: 'Сайт' } as const;
 </script>
 
 <div class="lc">

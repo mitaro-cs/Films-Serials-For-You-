@@ -1,0 +1,37 @@
+[
+  {
+    "version": "3.53.4.0",
+    "artifact": "sqlite-jdbc",
+    "sha256": "bcb1f51e36f940867e83342f9efbf5968ac44a6bef4d397bb4af7b17b45cd2fb"
+  },
+  {
+    "version": "2.22.4",
+    "artifact": "jackson-databind",
+    "sha256": "d4cbf8947087f305869826801913abdc50735a1fab2074a1993e7bc67ca974a3"
+  },
+  {
+    "version": "2.22.4",
+    "artifact": "jackson-core",
+    "sha256": "2d30c375cddea9657a1e1ef97547a2694b663b355facb4de53a097782b312d1a"
+  },
+  {
+    "version": "2.22",
+    "artifact": "jackson-annotations",
+    "sha256": "21ddb598807d3a51a876704eb979d9296e1c6a6f47ab1826ff88c6d6a127a2d0"
+  },
+  {
+    "version": "2.0.20",
+    "artifact": "slf4j-api",
+    "sha256": "7e1446499b359675d8aabe6af2de86b85e72ae8a2a932c0b40d0e5ba57097439"
+  },
+  {
+    "version": "2.0.20",
+    "artifact": "slf4j-nop",
+    "sha256": "6522080396fb339e99bae40d329a06d18d3190dc864020ac4ca943519d0fd85b"
+  },
+  {
+    "artifact": "bcprov-jdk18on",
+    "version": "1.86",
+    "sha256": "2af190b300cbb0b35e248ccf5f4a06b6072030aeb3da7a98ec73abe5b4cb371f"
+  }
+]

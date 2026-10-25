@@ -6,6 +6,23 @@ const card = (p: Partial<Card>): Card =>
   ({ id: 1, kind: 'movie', title: 'Ла-Ла Ленд', originalTitle: 'La La Land', year: 2016, director: 'Дэмьен Шазелл', status: null, ...p }) as Card;
 
 describe('library', () => {
+  it('anime includes Japanese animation and explicit genre, not all cartoons', () => {
+    const items = [
+      card({ id: 1, country: 'Япония', genres: ['Мультфильм'] }),
+      card({ id: 2, kind: 'series', genres: ['Аниме'] }),
+      card({ id: 3, country: 'США', genres: ['Мультфильм'] }),
+      card({ id: 4, country: 'Япония', genres: ['Драма'] }),
+    ];
+    expect(tabOf(new URLSearchParams('tab=anime'))).toBe('anime');
+    expect(ofTab(items, 'anime').map((c) => c.id)).toEqual([1, 2]);
+  });
+  it('keeps dropped titles searchable but removes them from every home shelf and hero', () => {
+    const items = [card({ id: 7, status: 'dropped', genres: ['Драма'], backdrop: '/a.jpg', addedAt: 100 }), card({ id: 8, status: null, genres: ['Драма'], backdrop: '/b.jpg', addedAt: 50 })];
+    expect(featured(items).map((c) => c.id)).toEqual([8]);
+    expect(shelves(items, [7], 'home').flatMap((s) => s.items).some((c) => c.id === 7)).toBe(false);
+    expect(filter(items, 'all').map((c) => c.id)).toContain(7);
+    expect(counts(items)).toEqual({ all: 2, want: 0, watching: 0, watched: 0 });
+  });
   it('reads tab and status from the address', () => {
     expect(tabOf(new URLSearchParams(''))).toBe('home');
     expect(tabOf(new URLSearchParams('tab=series'))).toBe('series');
@@ -31,7 +48,7 @@ describe('library', () => {
     expect(day(ms)).toBe('10.04.2025');
     expect(time(ms)).toBe('09:05');
     expect(length({ kind: 'movie', runtime: 112, files: 1 })).toEqual({ label: 'Время', value: '1:52' });
-    expect(length({ kind: 'movie', runtime: null, files: 1 }).value).toBe('—');
+    expect(length({ kind: 'movie', runtime: null, files: 1 }).value).toBe('-');
     expect(length({ kind: 'series', runtime: 45, files: 16 })).toEqual({ label: 'Серий', value: '16' });
     expect(credit({ country: 'США', director: 'Дэмьен Шазелл' })).toBe('[США] Дэмьен Шазелл');
     expect(credit({ country: null, director: null })).toBe('');

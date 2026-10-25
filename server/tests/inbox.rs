@@ -19,7 +19,7 @@ async fn titles(host: &common::Client) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn upload_watch_and_drop() {
     if !ffmpeg() {
-        eprintln!("нет ffmpeg — пропуск");
+        eprintln!("нет ffmpeg - пропуск");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -32,7 +32,7 @@ async fn upload_watch_and_drop() {
     assert_eq!(host.json("/api/admin/libraries").await.as_array().unwrap().len(), 1);
     assert_eq!(host.json("/api/admin/status").await["inbox"], inbox.to_str().unwrap());
 
-    // Загрузка из браузера: потоком, в подпапку; плохие имена и типы — нет.
+    // Загрузка из браузера: потоком, в подпапку; плохие имена и типы - нет.
     let src = dir.path().join("src");
     make_video(&src.join("Загрузка.mp4"), "aac");
     let bytes = std::fs::read(src.join("Загрузка.mp4")).unwrap();
@@ -53,13 +53,13 @@ async fn upload_watch_and_drop() {
     assert_eq!(up("virus.exe", "", bytes.clone()).await.unwrap().status(), 400);
     assert_eq!(up("пусто.mp4", "", vec![]).await.unwrap().status(), 400);
     assert!(!inbox.join("пусто.mp4.part").exists(), "недогруженное убрано");
-    // За пределы своей папки не выйти: «..» в папке — отказ, путь в имени — только имя.
+    // За пределы своей папки не выйти: «..» в папке - отказ, путь в имени - только имя.
     assert_eq!(up("escape.mp4", "../..", bytes.clone()).await.unwrap().status(), 400);
     assert!(up("../../escape.mp4", "", bytes.clone()).await.unwrap().status().is_success());
     assert!(inbox.join("escape.mp4").is_file());
     assert!(!dir.path().join("escape.mp4").exists());
     assert_eq!(up("a.mp4", "Сериал/../../x", bytes.clone()).await.unwrap().status(), 400);
-    // Сериал папкой: структура сохраняется, серии без сезона — один сериал.
+    // Сериал папкой: структура сохраняется, серии без сезона - один сериал.
     for n in ["01. Пилот.mp4", "02. Второй день.mp4"] {
         let r = up(n, "Мой сериал/Сезон 1", bytes.clone()).await.unwrap();
         assert!(r.status().is_success(), "{}", r.status());
@@ -82,7 +82,7 @@ async fn upload_watch_and_drop() {
         .unwrap();
     assert_eq!(r.status(), 403);
 
-    // Слежение: положили файл в папку — появился сам, без «Обновить».
+    // Слежение: положили файл в папку - появился сам, без «Обновить».
     make_video(&inbox.join("Сам (2023)/sam.mp4"), "aac");
     assert!(until(|| async { titles(&host).await.contains(&"Сам".to_string()) }).await, "слежение за папкой");
 

@@ -1,12 +1,12 @@
 //! Обновление с GitHub: `latest.json` последнего выпуска (подпись проверяет плагин по ключу из
-//! tauri.conf.json). Проверка через 20 с после запуска и раз в 6 часов; нашлась новая версия —
+//! tauri.conf.json). Проверка через 20 с после запуска и раз в 6 часов; нашлась новая версия -
 //! пункт в трее и один раз за запуск вопрос «Обновить сейчас?». Перед установкой сайт
 //! выключается как положено (база закрыта), потом приложение перезапускается уже новым.
-//! То же из окна: «Управление → Версия» (состояние — `info`, без системных окон).
+//! То же из окна: «Управление → Версия» (состояние - `info`, без системных окон).
 //!
-//! Нет `latest.json` (выпуск собран без секрета подписи) — запасная дорога через GitHub API
-//! (`fsfy::release`): скачиваем установщик своей системы и запускаем его (Windows — сам ставит
-//! поверх, Mac — открывается .dmg).
+//! Нет `latest.json` (выпуск собран без секрета подписи) - запасная дорога через GitHub API
+//! (`fsfy::release`): скачиваем установщик своей системы и запускаем его (Windows - сам ставит
+//! поверх, Mac - открывается .dmg).
 
 use fsfy::host::UpdateInfo;
 use parking_lot::Mutex;
@@ -29,8 +29,8 @@ pub struct Updates {
     info: Mutex<UpdateInfo>,
 }
 
-/// Кто спросил: проверка по расписанию (один раз — окно «Обновить?»), трей (окна всегда) или
-/// страница сайта (без окон: ответ — в `info`).
+/// Кто спросил: проверка по расписанию (один раз - окно «Обновить?»), трей (окна всегда) или
+/// страница сайта (без окон: ответ - в `info`).
 #[derive(Clone, Copy, PartialEq)]
 pub enum From {
     Auto,
@@ -74,7 +74,7 @@ pub fn start(app: AppHandle) {
     });
 }
 
-/// Из трея — сообщить и «нет обновлений», и ошибку; со страницы — только в `info`.
+/// Из трея - сообщить и «нет обновлений», и ошибку; со страницы - только в `info`.
 pub async fn check(app: &AppHandle, from: From) {
     let u = app.state::<Updates>();
     if *u.busy.lock() {
@@ -89,7 +89,7 @@ pub async fn check(app: &AppHandle, from: From) {
         Ok(up) => up.check().await,
         Err(e) => Err(e),
     };
-    // Без файлов автообновления в выпуске — смотрим сам выпуск на GitHub.
+    // Без файлов автообновления в выпуске - смотрим сам выпуск на GitHub.
     let manual = match &found {
         Ok(Some(_)) => None,
         _ => Some(fsfy::release::latest(&fsfy::release::client()).await),
@@ -133,7 +133,7 @@ pub async fn check(app: &AppHandle, from: From) {
                 i.checked_at = Some(fsfy::util::now_ms());
             });
             if from == From::Menu {
-                info(app, &format!("Установлена последняя версия — {current}."));
+                info(app, &format!("Установлена последняя версия - {current}."));
             }
         }
         Err(e) => {
@@ -141,11 +141,11 @@ pub async fn check(app: &AppHandle, from: From) {
             u.label("Проверить обновления", true);
             u.set(|i| {
                 i.state = "error".into();
-                i.error = Some("Не удалось проверить — нет связи с GitHub. Попробуйте позже.".into());
+                i.error = Some("Не удалось проверить - нет связи с GitHub. Попробуйте позже.".into());
                 i.checked_at = Some(fsfy::util::now_ms());
             });
             if from == From::Menu {
-                info(app, "Не удалось проверить обновления — нет связи с GitHub. Попробуем позже сами.");
+                info(app, "Не удалось проверить обновления - нет связи с GitHub. Попробуем позже сами.");
             }
         }
     }
@@ -174,7 +174,7 @@ fn ask(app: &AppHandle, version: &str) {
         });
 }
 
-/// Из трея: «Обновить до …» — ставим найденное; иначе — проверить вручную.
+/// Из трея: «Обновить до …» - ставим найденное; иначе - проверить вручную.
 pub fn menu(app: &AppHandle) {
     let h = app.clone();
     let u = app.state::<Updates>();
@@ -188,7 +188,7 @@ pub fn menu(app: &AppHandle) {
     });
 }
 
-/// Со страницы сайта: найдено — ставим, нет — сначала проверяем.
+/// Со страницы сайта: найдено - ставим, нет - сначала проверяем.
 pub fn from_page(app: &AppHandle, install_now: bool) {
     let h = app.clone();
     tauri::async_runtime::spawn(async move {
@@ -243,7 +243,7 @@ pub async fn install(app: &AppHandle) {
             u.set(|i| {
                 i.state = "error".into();
                 i.progress = None;
-                i.error = Some("Не удалось скачать обновление — проверьте интернет и попробуйте ещё раз.".into());
+                i.error = Some("Не удалось скачать обновление - проверьте интернет и попробуйте ещё раз.".into());
             });
             return;
         }
@@ -253,7 +253,7 @@ pub async fn install(app: &AppHandle) {
         i.state = "installing".into();
         i.progress = Some(1.0);
     });
-    // Сайт — выключить аккуратно до замены файлов приложения.
+    // Сайт - выключить аккуратно до замены файлов приложения.
     crate::stop_server(app).await;
     if let Err(e) = update.install(bytes) {
         tracing::error!(error = %e, "установка обновления");
@@ -263,7 +263,7 @@ pub async fn install(app: &AppHandle) {
 }
 
 /// Запасная дорога: скачать установщик с GitHub и запустить. Windows ставит поверх себя сам
-/// (тихий режим с окном хода `/P`), на Mac открывается .dmg — перетащить в «Программы».
+/// (тихий режим с окном хода `/P`), на Mac открывается .dmg - перетащить в «Программы».
 async fn install_manual(app: &AppHandle, l: fsfy::release::Latest) {
     let u = app.state::<Updates>();
     let Some((name, url)) = l.asset.clone() else { return };
@@ -289,7 +289,7 @@ async fn install_manual(app: &AppHandle, l: fsfy::release::Latest) {
         u.set(|i| {
             i.state = "error".into();
             i.progress = None;
-            i.error = Some("Не удалось скачать обновление — проверьте интернет и попробуйте ещё раз.".into());
+            i.error = Some("Не удалось скачать обновление - проверьте интернет и попробуйте ещё раз.".into());
         });
         *u.manual.lock() = Some(l);
         return;

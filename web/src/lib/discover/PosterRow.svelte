@@ -1,20 +1,23 @@
 <script lang="ts">
-  import type { Card, ExtCard } from '$lib/types';
+  import type { Card, ExtCard, Who } from '$lib/types';
+  import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Poster from './Poster.svelte';
 
-  // Ряд постеров ленты — как ряд главной, только карточки вертикальные. «Все» — подборка целиком.
+  // Ряд постеров ленты - как ряд главной, только карточки вертикальные. «Все» - подборка целиком.
+  // В «Друзья смотрят» под постером - кто и где остановился.
+  type Tile = { ext?: ExtCard; card?: Card; person?: Who; label?: string };
   let {
     title,
     items,
     href = null,
     ranked = false,
     i = 0,
-  }: { title: string; items: { ext?: ExtCard; card?: Card }[] | ExtCard[]; href?: string | null; ranked?: boolean; i?: number } = $props();
+  }: { title: string; items: Tile[] | ExtCard[]; href?: string | null; ranked?: boolean; i?: number } = $props();
 
-  // Элемент — карточка ленты или {ext | card} из «Буду смотреть» и списков.
-  const tiles = $derived(items.map((i) => ('id' in i ? { ext: i as ExtCard, card: undefined } : i)));
-  const key = (t: { ext?: ExtCard; card?: Card }) => (t.ext ? t.ext.id : `t${t.card!.id}`);
+  // Элемент - карточка ленты или {ext | card} из «Буду смотреть» и списков.
+  const tiles = $derived<Tile[]>(items.map((i) => ('id' in i ? { ext: i as ExtCard } : (i as Tile))));
+  const key = (t: Tile, n: number) => `${t.person?.id ?? ''}:${t.ext ? t.ext.id : `t${t.card?.id}`}:${t.person ? n : ''}`;
 
   let strip = $state<HTMLDivElement>();
   let start = $state(true);
@@ -42,7 +45,17 @@
   </div>
   <div class="wrap">
     <div class="strip" bind:this={strip} onscroll={edges}>
-      {#each tiles as t, n (key(t))}<Poster card={t.ext} local={t.card ?? null} rank={ranked ? n + 1 : null} />{/each}
+      {#each tiles as t, n (key(t, n))}
+        {#if t.person}
+          <div class="by">
+            <Poster card={t.ext} local={t.card ?? null} />
+            <a class="who" href="/people/{t.person.id}"><Avatar avatar={t.person.avatar} photo={t.person.photo} size={20} /><span>{t.person.name}</span></a>
+            {#if t.label}<small class="lbl">{t.label}</small>{/if}
+          </div>
+        {:else}
+          <Poster card={t.ext} local={t.card ?? null} rank={ranked ? n + 1 : null} />
+        {/if}
+      {/each}
     </div>
     {#if !start}<button class="arrow l" aria-label="Назад" onclick={() => page(-1)}><Icon name="back" size={22} /></button>{/if}
     {#if !end}<button class="arrow r" aria-label="Дальше" onclick={() => page(1)}><Icon name="right" size={22} /></button>{/if}
@@ -132,15 +145,50 @@
       --gap: 12px;
     }
   }
+  /* Телефон - как у Disney+: три с лишним постера в ряд, плотно, без подписей (название - на постере
+     и в описании для чтения с экрана). */
   @media (max-width: 640px) {
     .row {
-      --n: 2.6;
-      --gap: 10px;
+      --n: 3.3;
+      --gap: 8px;
+      margin-bottom: 24px;
+    }
+    h2 {
+      font-size: 17px;
+    }
+    .strip > :global(.tile .name),
+    .strip > :global(.tile .sub) {
+      display: none;
     }
   }
   @media (hover: none) {
     .arrow {
       display: none;
     }
+  }
+  .by {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+    min-width: 0;
+  }
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .who span,
+  .lbl {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lbl {
+    font-size: 12px;
+    color: var(--muted);
   }
 </style>

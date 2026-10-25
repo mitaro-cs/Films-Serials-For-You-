@@ -17,7 +17,7 @@ async fn signup(public: &str, login: &str) -> Client {
 #[tokio::test(flavor = "multi_thread")]
 async fn reviews_friends_chat_photo() {
     if !ffmpeg() {
-        eprintln!("нет ffmpeg — пропуск");
+        eprintln!("нет ffmpeg - пропуск");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -47,7 +47,7 @@ async fn reviews_friends_chat_photo() {
     assert_eq!(r["author"]["name"], "anna");
     let rid = r["id"].as_i64().unwrap();
     boris.send("POST", &format!("/api/titles/{dune}/reviews"), json!({"stars": 6, "body": "Долго"})).await;
-    // Только комментарий, без оценки — в среднюю не идёт.
+    // Только комментарий, без оценки - в среднюю не идёт.
     boris.send("POST", &format!("/api/titles/{dune}/reviews"), json!({"body": "Но музыка ❤"})).await;
     let list = anna.json(&format!("/api/titles/{dune}/reviews")).await;
     assert_eq!(list["total"], 3);
@@ -62,7 +62,7 @@ async fn reviews_friends_chat_photo() {
     let long = anna.send("POST", &format!("/api/titles/{dune}/reviews"), json!({"body": "я".repeat(4001)})).await;
     assert_eq!(long.status(), 400);
 
-    // Лайк, правка своего, чужое не править и не удалять, хост — удаляет.
+    // Лайк, правка своего, чужое не править и не удалять, хост - удаляет.
     let l: Value =
         boris.send("PUT", &format!("/api/reviews/{rid}/like"), json!({"value": true})).await.json().await.unwrap();
     assert_eq!(l["likes"], 1);
@@ -94,15 +94,40 @@ async fn reviews_friends_chat_photo() {
     let b = m.as_array().unwrap().iter().find(|x| x["id"] == pb).unwrap();
     assert_eq!(b["relation"], "none");
     assert_eq!(b["reviews"], 1);
+    running
+        .app
+        .db
+        .with(|c| {
+            c.execute(
+                "INSERT INTO ext_titles(id,kind,title,updated_at) VALUES('tt9999001','movie','Внешний фильм',0)",
+                [],
+            )?;
+            c.execute("INSERT INTO ext_marks(profile_id,ext_id,status,at) VALUES(?,'tt9999001','watched',0)", [pb])?;
+            Ok(())
+        })
+        .unwrap();
+    let members = anna.json("/api/members").await;
+    assert_eq!(members.as_array().unwrap().iter().find(|x| x["id"] == pb).unwrap()["watched"], 1);
+    running.app.db.with(|c| {
+        c.execute("INSERT INTO titles(kind,key,title,imdb_id,added_at,updated_at) VALUES('movie','same-external','Внешний фильм','tt9999001',0,0)", [])?;
+        c.execute("INSERT INTO watched(profile_id,title_id,at) VALUES(?,?,0)", rusqlite::params![pb,c.last_insert_rowid()])?;
+        Ok(())
+    }).unwrap();
+    let members = anna.json("/api/members").await;
+    assert_eq!(
+        members.as_array().unwrap().iter().find(|x| x["id"] == pb).unwrap()["watched"],
+        1,
+        "Один фильм из двух источников считается один раз"
+    );
     // Писать можно только друзьям.
     assert_eq!(anna.send("POST", &format!("/api/chats/{pb}"), json!({"body": "привет"})).await.status(), 403);
     let r: Value = anna.send("POST", &format!("/api/friends/{pb}"), json!({})).await.json().await.unwrap();
     assert_eq!(r["relation"], "outgoing");
     assert_eq!(boris.json("/api/badges").await["requests"], 1);
-    assert_eq!(boris.json("/api/members").await[0]["relation"], "incoming", "просьбы — сверху");
+    assert_eq!(boris.json("/api/members").await[0]["relation"], "incoming", "просьбы - сверху");
     let r: Value = boris.send("POST", &format!("/api/friends/{pa}"), json!({})).await.json().await.unwrap();
     assert_eq!(r["relation"], "friend");
-    assert_eq!(anna.send("POST", &format!("/api/friends/{pa}"), json!({})).await.status(), 400, "себе — нельзя");
+    assert_eq!(anna.send("POST", &format!("/api/friends/{pa}"), json!({})).await.status(), 400, "себе - нельзя");
 
     // ---------- переписка ----------
     let s: Value = anna
@@ -119,7 +144,7 @@ async fn reviews_friends_chat_photo() {
     let chat = boris.json(&format!("/api/chats/{pa}")).await;
     assert_eq!(chat["items"][0]["body"], "Посмотри!");
     assert_eq!(chat["items"][0]["mine"], false);
-    assert_eq!(boris.json("/api/badges").await["unread"], 0, "открыли — прочитано");
+    assert_eq!(boris.json("/api/badges").await["unread"], 0, "открыли - прочитано");
     let last = s["id"].as_i64().unwrap();
     boris.send("POST", &format!("/api/chats/{pa}"), json!({"body": "Уже смотрю"})).await;
     let new = anna.json(&format!("/api/chats/{pb}?after={last}")).await;
@@ -145,7 +170,7 @@ async fn reviews_friends_chat_photo() {
     let full = anna.json(&format!("/api/lists/{lid}")).await;
     assert_eq!(full["items"][0]["card"]["title"], "Дюна");
     assert_eq!(full["items"][0]["addedBy"]["id"], pa);
-    assert!(full["items"][0]["watchedAt"].as_i64().is_some(), "посмотрели вместе — видно всем");
+    assert!(full["items"][0]["watchedAt"].as_i64().is_some(), "посмотрели вместе - видно всем");
     assert_eq!(anna.json(&format!("/api/titles/{dune}/lists")).await[0]["has"], true);
     assert_eq!(host.get(&format!("/api/lists/{lid}")).await.status(), 404, "чужой список не виден");
     assert_eq!(
@@ -157,7 +182,7 @@ async fn reviews_friends_chat_photo() {
     assert_eq!(left["left"], true, "участник выходит, список остаётся");
     assert_eq!(anna.json("/api/lists").await.as_array().unwrap().len(), 1);
 
-    // Убрали из друзей — переписка закрыта.
+    // Убрали из друзей - переписка закрыта.
     boris.send("DELETE", &format!("/api/friends/{pa}"), json!({})).await;
     assert_eq!(anna.send("POST", &format!("/api/chats/{pb}"), json!({"body": "эй"})).await.status(), 403);
 
@@ -191,7 +216,7 @@ async fn reviews_friends_chat_photo() {
     let img = anna.get(&photo).await.bytes().await.unwrap();
     assert!(img.len() < jpg.len() * 4, "уменьшено");
     assert_eq!(anna.json("/api/me").await["user"]["profile"]["photo"], photo);
-    // Чужой профиль — нельзя; не картинка — нельзя.
+    // Чужой профиль - нельзя; не картинка - нельзя.
     let r = boris
         .http
         .put(format!("{public}/api/profiles/{pa}/photo"))
@@ -218,7 +243,7 @@ async fn reviews_friends_chat_photo() {
     host.send("PUT", "/api/admin/settings", json!({"registration": "invite"})).await;
     let r =
         extra.send("POST", "/api/auth/register", json!({"name": "x", "login": "x1", "password": "пароль-12345"})).await;
-    assert_eq!(r.status(), 400, "без приглашения — нельзя");
+    assert_eq!(r.status(), 400, "без приглашения - нельзя");
     host.send("PUT", "/api/admin/settings", json!({"registration": "open"})).await;
 
     // Открытая регистрация: не больше 5 аккаунтов с адреса за 10 минут (двое уже есть).

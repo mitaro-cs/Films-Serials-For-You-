@@ -2,9 +2,9 @@
   import type { Snippet } from 'svelte';
   import Logo from './Logo.svelte';
 
-  // Вход и регистрация: за формой — стена постеров популярного с IMDb, колонки плавно плывут
+  // Вход и регистрация: за формой - стена постеров популярного с IMDb, колонки плавно плывут
   // вверх (каждая со своей скоростью), сверху медленно дышат цветные пятна. Только
-  // transform/opacity — видеокарте легко. Постеров ещё нет — цветные заглушки в том же ритме.
+  // transform/opacity - видеокарте легко. Постеров ещё нет - цветные заглушки в том же ритме.
   let { title, subtitle, children }: { title: string; subtitle?: string; children: Snippet } = $props();
 
   const COLS = 14;
@@ -17,7 +17,7 @@
       .then((list: string[]) => (posters = list), () => {});
   });
 
-  // Колонка c — свои постеры по кругу; дважды подряд, чтобы бегущая лента была бесшовной.
+  // Колонка c - свои постеры по кругу; дважды подряд, чтобы бегущая лента была бесшовной.
   const cols = $derived(
     Array.from({ length: COLS }, (_, c) =>
       Array.from({ length: PER }, (_, i) => (posters.length ? posters[(c * PER + i * 5 + c) % posters.length] : null)),
@@ -48,10 +48,12 @@
     <h1>{title}</h1>
     {#if subtitle}<p class="muted">{subtitle}</p>{/if}
     {@render children()}
+    <nav class="legal" aria-label="Документы"><a href="/legal/terms">Правила использования</a><a href="/legal/privacy">Конфиденциальность</a></nav>
   </div>
 </div>
 
 <style>
+  .legal { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 18px; margin-top: 24px; color: var(--muted); font-size: 12px; }
   .shell {
     position: relative;
     min-height: 100dvh;
@@ -80,7 +82,7 @@
       opacity: 0.55;
     }
   }
-  /* Колонки плывут вверх, каждая своей скоростью и со своего места — стена «живая». */
+  /* Колонки плывут вверх, каждая своей скоростью и со своего места - стена «живая». */
   .col {
     display: flex;
     flex-direction: column;
@@ -111,7 +113,7 @@
     object-fit: cover;
   }
 
-  /* Цветные пятна плывут медленно — градиентом и transform, без filter: blur. */
+  /* Цветные пятна плывут медленно - градиентом и transform, без filter: blur. */
   .glow {
     position: absolute;
     z-index: -2;
@@ -143,7 +145,7 @@
     }
   }
 
-  /* Вокруг формы темнее — текст читается на любом постере. */
+  /* Вокруг формы темнее - текст читается на любом постере. */
   .veil {
     position: absolute;
     inset: 0;

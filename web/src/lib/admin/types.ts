@@ -7,8 +7,9 @@ export interface UpdateInfo {
 }
 
 export interface Status {
+  system?: { supported: boolean; sampledAt: number; cpu: number | null; memoryUsed: number | null; memoryTotal: number | null; diskFree: number | null; diskTotal: number | null };
   version: string;
-  /** null — сервер без приложения (`fsfy serve`): обновлять нечего. */
+  /** null - сервер без приложения (`fsfy serve`): обновлять нечего. */
   update: UpdateInfo | null;
   titles: number;
   files: number;
@@ -22,7 +23,7 @@ export interface Status {
   watching: { user: string; title: string; episode: string; position: number; duration: number }[];
   canPick: boolean;
   publicUrl: string | null;
-  /** Своя папка для фильмов (null — ещё нет). */
+  /** Своя папка для фильмов (null - ещё нет). */
   inbox: string | null;
   /** Копирование перетащенных в окно файлов. */
   import: { running: boolean; filesTotal: number; filesDone: number; bytesTotal: number; bytesDone: number; current: string | null; error: string | null };

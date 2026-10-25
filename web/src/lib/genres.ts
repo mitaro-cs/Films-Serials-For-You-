@@ -1,0 +1,2 @@
+const genres: Record<string, string> = { Action:'Боевик',Adventure:'Приключения',Animation:'Анимация',Biography:'Биография',Comedy:'Комедия',Crime:'Криминал',Documentary:'Документальный',Drama:'Драма',Family:'Семейный',Fantasy:'Фэнтези',History:'История',Horror:'Ужасы',Music:'Музыка',Musical:'Мюзикл',Mystery:'Детектив',Romance:'Мелодрама','Sci-Fi':'Фантастика',Sport:'Спорт',Thriller:'Триллер',War:'Военный',Western:'Вестерн' };
+export const genreRu = (genre: string) => genres[genre] ?? genre;

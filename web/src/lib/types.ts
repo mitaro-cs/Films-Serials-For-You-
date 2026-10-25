@@ -19,7 +19,7 @@ export interface Card {
   files: number;
   seasons: number;
   inList: boolean;
-  /** -1 — «не для меня», 1 — «нравится», 2 — «обожаю». */
+  /** -1 - «не для меня», 1 - «нравится», 2 - «обожаю». */
   myRating: -1 | 1 | 2 | null;
   matchPct: number | null;
   /** Для билета: первая страна, режиссёр, цвет низа карточки по постеру. */
@@ -28,7 +28,7 @@ export interface Card {
   accent: string | null;
   /** Кадр 640 px для широкой карточки. */
   backdropSmall: string | null;
-  status: 'want' | 'watching' | 'watched' | null;
+  status: 'want' | 'watching' | 'watched' | 'dropped' | null;
   /** Когда отмечено «Просмотрено». */
   watchedAt: number | null;
   /** Где остановился (у начатого). */
@@ -38,7 +38,7 @@ export interface Card {
 export interface Library {
   items: Card[];
   counts: Record<'all' | 'want' | 'watching' | 'watched', number>;
-  /** Начатое, последнее — первым. */
+  /** Начатое, последнее - первым. */
   recent: number[];
 }
 
@@ -98,9 +98,43 @@ export interface FileItem {
   fileName: string;
   addedAt: number;
   progress: Progress | null;
+  /** Оценка серии на IMDb. */
+  rating: number | null;
+}
+
+/** Друг и его отметка у фильма («смотрит», «просмотрел», «хочет»). */
+/** Человек в общении (без роли в фильме). */
+export type Who = { id: number; name: string; avatar: number; photo: string | null };
+
+export interface FriendMark {
+  person: Who;
+  status: 'want' | 'watching' | 'watched';
+}
+
+/** Что человек смотрит сейчас (или что смотрят друзья - тогда с `person`). */
+export interface NowItem {
+  at: number;
+  label: string;
+  card?: Card;
+  ext?: ExtCard;
+  person?: Who;
+}
+
+/** Серия сериала из ленты IMDb. */
+export interface ExtEpisode {
+  season: number;
+  episode: number;
+  name: string | null;
+  overview: string | null;
+  still: string | null;
+  airDate: string | null;
+  runtime: number | null;
+  rating: number | null;
+  seen: boolean;
 }
 
 export interface TitleDetail {
+  metadataPending?: boolean;
   card: Card;
   tagline: string | null;
   countries: string[];
@@ -118,9 +152,11 @@ export interface TitleDetail {
   inList: boolean;
   similar: Card[];
   canDownload: boolean;
+  friends: FriendMark[];
 }
 
 export interface Site {
+  metadataLanguage?: 'ru' | 'source';
   name: string;
   registration: 'invite' | 'open' | 'closed';
   downloads: boolean;
@@ -147,7 +183,7 @@ export interface Person {
 export interface Review {
   id: number;
   author: Person;
-  /** 1..10 — половинки звезды. */
+  /** 1..10 - половинки звезды. */
   stars: number | null;
   body: string;
   createdAt: number;
@@ -274,7 +310,7 @@ export interface SharedList {
 }
 
 export interface SharedItem {
-  /** С сервиса или из ленты IMDb — одно из двух. */
+  /** С сервиса или из ленты IMDb - одно из двух. */
   card?: Card;
   ext?: ExtCard;
   groupId: number | null;
@@ -302,18 +338,19 @@ export interface ExtCard {
   rating: number | null;
   poster: string | null;
   genres: string[];
-  /** Есть на сервисе — id фильма у нас. */
+  /** Есть на сервисе - id фильма у нас. */
   local: number | null;
-  mark: 'want' | 'watched' | null;
+  mark: 'want' | 'watching' | 'watched' | 'dropped' | null;
   wished: boolean;
 }
 
 export interface ExtDetail {
+  refreshing?: boolean;
   card: ExtCard;
   overview: string | null;
   runtime: number | null;
   votes: number | null;
-  /** Большой кадр и постер — копии у нас. */
+  /** Большой кадр и постер - копии у нас. */
   backdrop: string | null;
   posterLarge: string | null;
   tagline: string | null;
@@ -328,12 +365,17 @@ export interface ExtDetail {
   localCard: Card | null;
   lists: { id: number; name: string; has: boolean }[];
   links: VideoLink[];
+  /** Номера сезонов (у сериала). */
+  seasons: number[];
+  friends: FriendMark[];
 }
 
 /** Видео по ссылке: Rutube, VK, YouTube (их плеер) или прямой файл (наш). */
 export interface VideoLink {
+  season?: number | null;
+  episode?: number | null;
   id: number;
-  kind: 'rutube' | 'vk' | 'youtube' | 'direct';
+  kind: 'rutube' | 'vk' | 'youtube' | 'direct' | 'site';
   url: string;
   embed: string | null;
   label: string;
@@ -344,11 +386,13 @@ export interface VideoLink {
   addedBy: number | null;
   author: string;
   addedAt: number;
+  /** Где остановился этот зритель. */
+  progress: { position: number; duration: number } | null;
 }
 
-/** Найденное на Rutube/VK — ещё не сохранено. */
+/** Найденное на Rutube/VK - ещё не сохранено. */
 export interface FoundVideo {
-  site: 'rutube' | 'vk';
+  site: 'rutube' | 'vk' | 'dailymotion' | 'archive' | 'peertube' | 'commons';
   url: string;
   label: string;
   thumb: string | null;
@@ -364,6 +408,10 @@ export interface MarkItem {
   ext?: ExtCard;
 }
 
+export type Marks = { want: MarkItem[]; watching: MarkItem[]; watched: MarkItem[]; favorites?: { key: string; card?: Card; ext?: ExtCard }[] };
+
+export interface ResumeItem { key: string; href: string; position: number; duration: number; label: string; at: number; art: string | null; card?: Card; ext?: ExtCard; season?: number; episode?: number; }
+
 export interface ProfileStats {
   hours: number;
   movies: number;
@@ -375,7 +423,8 @@ export interface ProfileStats {
   watched: number;
   genres: { genre: string; count: number }[];
   months: number[];
-  /** Режиссёры того, что смотрел, — чаще всего первыми. */
+  monthLabels?: string[];
+  /** Режиссёры того, что смотрел, - чаще всего первыми. */
   directors: { name: string; count: number }[];
 }
 
@@ -384,9 +433,41 @@ export interface ProfileDecor {
   /** Обложка: лента просмотренного или своя картинка. */
   coverKind: 'ribbon' | 'image';
   directors: string[];
-  /** Постеры просмотренного — для ленты на обложке. */
+  /** Постеры просмотренного - для ленты на обложке. */
   ribbon: string[];
   accent: string | null;
   bio: string | null;
   favorites: { key: string; card?: Card; ext?: ExtCard }[];
+  /** Показывать друзьям, что смотрю. */
+  showActivity: boolean;
+  /** Фото любимых режиссёров (что уже известно). */
+  directorsInfo?: { name: string; photo: string | null }[];
 }
+
+/** Совместный просмотр: место в видео у всех в комнате. */
+export interface RoomState {
+  revision?: number;
+  fileId: number;
+  /** Видео по ссылке (фильм из Обзора) - тогда fileId = 0. */
+  linkId: number | null;
+  playing: boolean;
+  /** Секунды на момент `at` (мс); при `playing` - идёт дальше. */
+  position: number;
+  at: number;
+  by: string;
+}
+
+export interface RoomChat {
+  from: Who;
+  body: string;
+  at: number;
+}
+
+export type RoomEvent =
+  | { type: 'snapshot'; id: string; ownerId: number; titleId: number; state: RoomState; members: Who[]; chat: RoomChat[]; voice: number[] }
+  | { type: 'voice'; ids: number[] }
+  | { type: 'signal'; from: number; to: number; data: { type: 'offer' | 'answer'; sdp: RTCSessionDescriptionInit } | { type: 'ice'; candidate: RTCIceCandidateInit } }
+  | { type: 'state'; state: RoomState }
+  | { type: 'members'; members: Who[] }
+  | ({ type: 'chat' } & RoomChat)
+  | { type: 'react'; from: Who; emoji: string; at: number };

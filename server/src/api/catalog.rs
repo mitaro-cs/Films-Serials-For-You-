@@ -43,6 +43,8 @@ pub struct FileItem {
     pub file_name: String,
     pub added_at: i64,
     pub progress: Option<Progress>,
+    /// Оценка серии на IMDb.
+    pub rating: Option<f64>,
 }
 
 /// Что запускает «Смотреть»: начатое, следующее после досмотренного или первое.
@@ -66,10 +68,10 @@ pub fn episode_label(season: Option<i32>, episode: Option<i32>, name: Option<&st
 }
 
 fn files_of(app: &App, profile: i64, title: i64) -> rusqlite::Result<Vec<FileItem>> {
-    app.db.with(|c| {
+    let mut files: Vec<FileItem> = app.db.with(|c| {
         let mut st = c.prepare(
             "SELECT f.id, f.season, f.episode, f.episode_end, f.name, f.overview, f.still, f.air_date, f.duration, f.size, f.path,
-                    f.added_at, p.position, p.duration, p.done
+                    f.added_at, p.position, p.duration, p.done, f.rating
              FROM files f LEFT JOIN progress p ON p.file_id = f.id AND p.profile_id = ?
              WHERE f.title_id = ? AND f.missing = 0
              ORDER BY f.season, f.episode, f.path",
@@ -94,13 +96,19 @@ fn files_of(app: &App, profile: i64, title: i64) -> rusqlite::Result<Vec<FileIte
                     Some(position) => Some(Progress { position, duration: r.get(13)?, done: r.get(14)? }),
                     None => None,
                 },
+                rating: r.get(15)?,
             })
         })?;
         rows.collect()
-    })
+    })?;
+    for file in &mut files {
+        file.name = crate::episode_locale::localized(app, file.name.as_deref());
+        file.overview = crate::episode_locale::localized(app, file.overview.as_deref());
+    }
+    Ok(files)
 }
 
-/// Последний начатый файл — продолжить; досмотрен — следующий; ничего — первый.
+/// Последний начатый файл - продолжить; досмотрен - следующий; ничего - первый.
 fn next_of(app: &App, profile: i64, title: i64, files: &[FileItem]) -> rusqlite::Result<Option<Next>> {
     let last: Option<i64> = app.db.with(|c| {
         c.query_row(
@@ -422,6 +430,12 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) 
     for p in &mut people {
         p.photo = img(p.photo.take());
     }
+    let originals: Vec<String> = app.db.with(|c| {
+        let mut st = c.prepare("SELECT name,overview FROM files WHERE title_id=? AND missing=0")?;
+        let rows = st.query_map([id], |r| Ok([r.get::<_, Option<String>>(0)?, r.get::<_, Option<String>>(1)?]))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?.into_iter().flatten().flatten().collect())
+    })?;
+    crate::episode_locale::queue(&app, originals);
     let files = files_of(&app, v.profile.id, id)?;
     let next = next_of(&app, v.profile.id, id, &files)?;
     let mut seasons: Vec<i32> = files.iter().filter_map(|f| f.season).collect();
@@ -435,18 +449,23 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) 
     if gallery.is_empty() {
         gallery = files.iter().filter_map(|f| f.still.clone()).take(6).collect();
     }
-    // Одинаковые кадры (чёрный экран, одна заставка) — один раз.
+    // Одинаковые кадры (чёрный экран, одна заставка) - один раз.
     let mut seen = std::collections::HashSet::new();
     gallery.retain(|g| seen.insert(g.clone()));
     let mut similar = similar(&app, kids, &c)?;
     similar.retain(|s| !taste.disliked(s.id));
     taste.apply(&mut similar);
     let downloads = app.db.setting_or("site.downloads", "1") == "1" && v.can_download;
+    let friends = super::activity::of_title(&app, &v, Some(id), None)?;
+    let metadata_pending: bool = app.db.with(|db| {
+        db.query_row("SELECT meta_status='pending' AND locked=0 FROM titles WHERE id=?", [id], |r| r.get(0))
+    })?;
     Ok(Json(json!({
         "card": c, "tagline": tagline, "countries": json_list(countries), "languages": json_list(languages),
         "aka": json_list(aka), "people": people, "votes": votes, "releaseDate": release_date, "gallery": gallery,
         "imdbId": imdb_id, "provider": provider, "files": files, "seasons": seasons, "next": next,
-        "inList": c.in_list, "similar": similar, "canDownload": downloads,
+        "inList": c.in_list, "similar": similar, "canDownload": downloads, "friends": friends,
+        "metadataPending": metadata_pending && crate::meta::Provider::from_settings(&app).is_some(),
     })))
 }
 
@@ -481,13 +500,13 @@ pub async fn my_list(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<V
 
 #[derive(Deserialize)]
 pub struct LibraryQuery {
-    /// movies, series, new; иначе — всё.
+    /// movies, series, new; иначе - всё.
     tab: Option<String>,
-    /// want, watching, watched; иначе — всё.
+    /// want, watching, watched; иначе - всё.
     status: Option<String>,
 }
 
-/// Новое — последние добавленные (сколько бы давно ни было).
+/// Новое - последние добавленные (сколько бы давно ни было).
 const NEW_LIMIT: usize = 60;
 
 /// Каталог с билетами: вкладка, фильтр по статусу, числа у фильтров и «где остановился».
@@ -508,7 +527,7 @@ pub async fn library(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<Lib
     let counts = json!({
         "all": items.len(), "want": count("want"), "watching": count("watching"), "watched": count("watched"),
     });
-    // Порядок «Продолжить»: что смотрели последним — первым.
+    // Порядок «Продолжить»: что смотрели последним - первым.
     let recent: Vec<i64> = taste
         .recent
         .iter()
@@ -541,7 +560,7 @@ pub struct WatchedBody {
     value: bool,
 }
 
-/// «Просмотрено» вручную (билет с датой) или снять отметку — тогда и прогресс с начала.
+/// «Просмотрено» вручную (билет с датой) или снять отметку - тогда и прогресс с начала.
 pub async fn set_watched(
     State(app): State<Arc<App>>,
     v: Viewer,
@@ -568,7 +587,77 @@ pub async fn set_watched(
     Ok(Json(json!({"ok": true})))
 }
 
-/// После сохранения прогресса: фильм досмотрен или все серии сериала досмотрены — «Просмотрено».
+#[derive(Deserialize)]
+pub struct StatusBody {
+    status: Option<String>,
+}
+
+/// Статус одним нажатием (быстрые кнопки на постере, страница фильма): «Хочу», «Смотрю»,
+/// «Просмотрено», «Больше не смотрю» (из «Продолжить» и «Смотрю» - место в фильме остаётся) или
+/// ничего. Ответ - карточка с новым статусом.
+pub async fn set_status(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Path(id): Path<i64>,
+    Json(b): Json<StatusBody>,
+) -> ApiResult<Json<Card>> {
+    let mut card = cards(&app, v.profile.kids, "t.id = ?", "t.id", 1, &[&id])?.pop().ok_or_else(ApiError::not_found)?;
+    let s = b.status.as_deref();
+    if !matches!(s, None | Some("want" | "watching" | "watched" | "dropped")) {
+        return Err(ApiError::bad("bad_status", "Статус - want, watching, watched или dropped"));
+    }
+    let (me, now) = (v.profile.id, now_ms());
+    app.db.tx(|c| {
+        let drop_from = |table: &str| {
+            c.execute(&format!("DELETE FROM {table} WHERE profile_id = ? AND title_id = ?"), params![me, id])
+        };
+        let put_into = |table: &str, col: &str| {
+            c.execute(
+                &format!(
+                    "INSERT INTO {table} (profile_id, title_id, {col}) VALUES (?, ?, ?)
+                     ON CONFLICT DO UPDATE SET {col} = excluded.{col}"
+                ),
+                params![me, id, now],
+            )
+        };
+        match s {
+            Some("want") => {
+                drop_from("watched")?;
+                drop_from("watching")?;
+                put_into("my_list", "added_at")?;
+            }
+            Some("watching") => {
+                drop_from("watched")?;
+                drop_from("dropped")?;
+                drop_from("my_list")?;
+                put_into("watching", "at")?;
+            }
+            Some("watched") => {
+                drop_from("watching")?;
+                drop_from("dropped")?;
+                drop_from("my_list")?;
+                put_into("watched", "at")?;
+            }
+            Some("dropped") => {
+                drop_from("watching")?;
+                drop_from("my_list")?;
+                put_into("dropped", "at")?;
+            }
+            _ => {
+                drop_from("my_list")?;
+                drop_from("watching")?;
+                drop_from("watched")?;
+            }
+        }
+        Ok(())
+    })?;
+    let taste = Taste::load(&app, me)?;
+    taste.apply(std::slice::from_mut(&mut card));
+    with_resume(&app, me, std::slice::from_mut(&mut card))?;
+    Ok(Json(card))
+}
+
+/// После сохранения прогресса: фильм досмотрен или все серии сериала досмотрены - «Просмотрено».
 pub fn mark_if_finished(app: &App, profile: i64, title: i64) -> rusqlite::Result<bool> {
     app.db.with(|c| {
         let left: i64 = c.query_row(
@@ -615,7 +704,7 @@ pub async fn set_list(
 
 #[derive(Deserialize)]
 pub struct RatingBody {
-    /// -1 — «не для меня», 1 — «нравится», 2 — «обожаю», 0 — снять оценку.
+    /// -1 - «не для меня», 1 - «нравится», 2 - «обожаю», 0 - снять оценку.
     value: i32,
 }
 

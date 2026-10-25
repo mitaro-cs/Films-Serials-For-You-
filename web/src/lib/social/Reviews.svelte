@@ -8,9 +8,10 @@
   import StarInput from './StarInput.svelte';
   import StarsShow from './StarsShow.svelte';
 
-  // Отзывы и комментарии к фильму: свой — сверху формы, карточки — в две колонки (как на
-  // референсе). Изменения — сразу на экране, сервер — следом.
-  let { titleId, data = $bindable(), manage = false }: { titleId: number; data: Reviews; manage?: boolean } = $props();
+  // Отзывы и комментарии к фильму: свой - сверху формы, карточки - в две колонки (как на
+  // референсе). Изменения - сразу на экране, сервер - следом. `base` - фильм с сервиса
+  // (`/api/titles/12`) или из ленты (`/api/discover/title/tt…`): отзывы у них общие.
+  let { base, data = $bindable(), manage = false }: { base: string; data: Reviews; manage?: boolean } = $props();
 
   let body = $state('');
   let stars = $state<number | null>(null);
@@ -33,7 +34,7 @@
     busy = true;
     error = '';
     try {
-      const r = await post<Review>(`/api/titles/${titleId}/reviews`, { body, stars });
+      const r = await post<Review>(`${base}/reviews`, { body, stars });
       data.items = [r, ...data.items];
       data.total += 1;
       if (stars) recount();
@@ -46,7 +47,7 @@
     }
   }
 
-  /** Средняя — по последней оценке каждого человека (как на сервере). */
+  /** Средняя - по последней оценке каждого человека (как на сервере). */
   function recount() {
     const last = new Map<number, number>();
     for (const r of [...data.items].reverse()) if (r.stars) last.set(r.author.id, r.stars);
@@ -102,7 +103,7 @@
       <span class="muted">Ваша оценка</span>
       <StarInput value={stars} onchange={(v) => (stars = v)} size={24} />
     </div>
-    <textarea bind:this={textarea} class="input" bind:value={body} maxlength="4000" rows="3" placeholder="Что думаете? Спойлеры — по-честному предупреждайте"></textarea>
+    <textarea bind:this={textarea} class="input" bind:value={body} maxlength="4000" rows="3" placeholder="Что думаете? Спойлеры - по-честному предупреждайте"></textarea>
     {#if error}<p class="error">{error}</p>{/if}
     <div class="row">
       <span class="faint small">{body.length > 3500 ? `${4000 - body.length} знаков осталось` : ''}</span>
@@ -149,7 +150,7 @@
     <button class="btn ghost sm more" onclick={() => (showAll = true)}>Все отзывы ({data.items.length})</button>
   {/if}
 {:else}
-  <p class="muted none">Отзывов пока нет — будьте первым.</p>
+  <p class="muted none">Отзывов пока нет - будьте первым.</p>
 {/if}
 
 <style>

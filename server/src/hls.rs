@@ -1,10 +1,10 @@
 //! Адаптивный поток HLS, как у Netflix: качество подстраивается под скорость интернета зрителя,
-//! перемотка — сразу к нужному кусочку. Кусочки по 6 секунд перекодируются ffmpeg по запросу:
+//! перемотка - сразу к нужному кусочку. Кусочки по 6 секунд перекодируются ffmpeg по запросу:
 //! плейлист известен заранее (длительность из ffprobe), ключевые кадры ставятся ровно на
 //! границах кусочков, поэтому перезапуск ffmpeg с любого места даёт те же кусочки.
 //!
 //! Задача ffmpeg живёт, пока зритель смотрит: убегает больше чем на 4 минуты вперёд или
-//! зрителя нет минуту — останавливается; старые кусочки удаляются.
+//! зрителя нет минуту - останавливается; старые кусочки удаляются.
 
 use crate::error::{ApiError, ApiResult};
 use crate::App;
@@ -24,7 +24,7 @@ const IDLE: Duration = Duration::from_secs(60);
 /// Ступени качества: высота кадра и битрейт видео (кбит/с).
 const LADDER: &[(i64, u32)] = &[(1080, 5000), (720, 2800), (480, 1200), (360, 700)];
 
-/// Ступени для источника: не выше исходного; совсем маленький файл — одна ступень своей высоты.
+/// Ступени для источника: не выше исходного; совсем маленький файл - одна ступень своей высоты.
 pub fn levels(source_height: i64) -> Vec<i64> {
     let mut l: Vec<i64> = LADDER.iter().map(|(h, _)| *h).filter(|h| *h <= source_height.max(360)).collect();
     if source_height < 360 {
@@ -174,7 +174,7 @@ impl Job {
             if Instant::now() > deadline {
                 return Err(ApiError::internal("кусочек HLS не появился за 40 секунд"));
             }
-            let start_new = {
+            {
                 let mut jobs = app.hls.jobs.lock();
                 let usable = jobs.get_mut(self).is_some_and(|r| {
                     let alive = r.child.try_wait().ok().flatten().is_none();
@@ -186,21 +186,20 @@ impl Job {
                 });
                 if !usable {
                     jobs.remove(self); // старая задача (не там или завершилась) останавливается
+                                       // Check and register under the same lock: concurrent viewers must
+                                       // share one encoder, not race to replace each other's process.
+                    let permit = app.transcode.clone().try_acquire_owned().map_err(|_| crate::api::busy())?;
+                    std::fs::create_dir_all(&dir)?;
+                    let child = crate::library::probe::command(ffmpeg)
+                        .args(args(input, &dir, self.height, source_height, self.audio, n))
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .spawn()?;
+                    jobs.insert(
+                        *self,
+                        Running { child, start: n, requested: n, seen: Instant::now(), _permit: permit },
+                    );
                 }
-                !usable
-            };
-            if start_new {
-                let permit = app.transcode.clone().try_acquire_owned().map_err(|_| crate::api::busy())?;
-                std::fs::create_dir_all(&dir)?;
-                let child = crate::library::probe::command(ffmpeg)
-                    .args(args(input, &dir, self.height, source_height, self.audio, n))
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()?;
-                app.hls
-                    .jobs
-                    .lock()
-                    .insert(*self, Running { child, start: n, requested: n, seen: Instant::now(), _permit: permit });
             }
             tokio::time::sleep(Duration::from_millis(120)).await;
         }

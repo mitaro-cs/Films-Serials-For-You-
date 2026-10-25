@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { motionOn } from '$lib/motion';
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
@@ -8,7 +7,6 @@
   let dialog: HTMLDialogElement | undefined = $state();
   // Закрывается плавно: сначала анимация, потом close(); содержимое живёт до конца анимации.
   let closing = $state(false);
-  const still = typeof localStorage !== 'undefined' && !motionOn();
 
   $effect(() => {
     if (!dialog) return;
@@ -19,17 +17,12 @@
     if (!open && dialog.open && !closing) {
       closing = true;
       const d = dialog;
-      setTimeout(
-        () => {
-          if (!open) d.close();
-          closing = false;
-        },
-        still ? 0 : 180,
-      );
+      d.close();
+      closing = false;
     }
   });
 
-  // Esc и клик по затемнению — тоже через анимацию (слой Esc в +layout видит отмену и не закрывает).
+  // Esc и клик по затемнению - тоже через анимацию (слой Esc в +layout видит отмену и не закрывает).
   function cancel(e: Event) {
     e.preventDefault();
     open = false;
@@ -58,7 +51,7 @@
     box-shadow: 0 40px 100px -20px #000;
     overflow: auto;
   }
-  /* Появление: масштаб и прозрачность — без сдвига вёрстки под окном. */
+  /* Появление: масштаб и прозрачность - без сдвига вёрстки под окном. */
   dialog[open] {
     animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
   }

@@ -1,6 +1,6 @@
 //! Совместные списки: «смотрим вместе» с друзьями. Список видят и меняют все участники:
 //! добавляют фильмы, отмечают «посмотрели». Позвать можно только своего друга; создатель
-//! удаляет список, остальные — выходят из него.
+//! удаляет список, остальные - выходят из него.
 
 use super::social::{person, relation, text, title_visible, Person, PERSON_COLS, SOCIAL};
 use super::{card, visible, CARD_COLS, CARD_LEN};
@@ -115,7 +115,7 @@ pub async fn create(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<NewLis
     others.sort_unstable();
     others.dedup();
     if others.len() + 1 > MAX_MEMBERS {
-        return Err(ApiError::bad("too_many", format!("В списке — не больше {MAX_MEMBERS} человек")));
+        return Err(ApiError::bad("too_many", format!("В списке - не больше {MAX_MEMBERS} человек")));
     }
     for m in &others {
         friend(&app, &v, *m)?;
@@ -223,7 +223,7 @@ pub async fn rename(
     Ok(Json(json!({"ok": true})))
 }
 
-/// Создатель удаляет список, участник — выходит из него.
+/// Создатель удаляет список, участник - выходит из него.
 pub async fn delete(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
     let owner = member_of(&app, &v, id)?;
     app.db.with(|c| {
@@ -250,7 +250,7 @@ pub async fn invite(
     member_of(&app, &v, id)?;
     friend(&app, &v, b.id)?;
     if members(&app, id)?.len() >= MAX_MEMBERS {
-        return Err(ApiError::bad("too_many", format!("В списке — не больше {MAX_MEMBERS} человек")));
+        return Err(ApiError::bad("too_many", format!("В списке - не больше {MAX_MEMBERS} человек")));
     }
     app.db.with(|c| {
         c.execute("INSERT OR IGNORE INTO list_members (list_id, profile_id) VALUES (?, ?)", params![id, b.id])
@@ -276,7 +276,7 @@ pub async fn item(
         let n: i64 =
             app.db.with(|c| c.query_row("SELECT COUNT(*) FROM list_items WHERE list_id = ?", [id], |r| r.get(0)))?;
         if n >= MAX_ITEMS {
-            return Err(ApiError::bad("too_many", format!("В списке — не больше {MAX_ITEMS} фильмов")));
+            return Err(ApiError::bad("too_many", format!("В списке - не больше {MAX_ITEMS} фильмов")));
         }
         app.db.with(|c| {
             c.execute(
@@ -290,7 +290,7 @@ pub async fn item(
     Ok(Json(json!({"ok": true})))
 }
 
-/// «Посмотрели вместе» — или снять отметку.
+/// «Посмотрели вместе» - или снять отметку.
 pub async fn watched(
     State(app): State<Arc<App>>,
     v: Viewer,
@@ -356,7 +356,7 @@ pub async fn ext_item(
             )
         })?;
         if n >= MAX_ITEMS {
-            return Err(ApiError::bad("too_many", format!("В списке — не больше {MAX_ITEMS} фильмов")));
+            return Err(ApiError::bad("too_many", format!("В списке - не больше {MAX_ITEMS} фильмов")));
         }
         app.db.with(|c| {
             c.execute(
@@ -481,7 +481,7 @@ pub struct MoveBody {
     group: Option<i64>,
 }
 
-/// Переложить фильм в группу (или из группы — `group: null`).
+/// Переложить фильм в группу (или из группы - `group: null`).
 pub async fn move_item(
     State(app): State<Arc<App>>,
     v: Viewer,

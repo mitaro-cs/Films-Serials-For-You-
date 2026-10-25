@@ -11,9 +11,9 @@ export class ApiError extends Error {
   }
 }
 
-const AUTH_PAGES = ['/login', '/join', '/register'];
+const AUTH_PAGES = ['/login', '/join', '/register', '/forgot-password', '/reset-password', '/verify-email'];
 
-export async function api<T = unknown>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+export async function api<T = unknown>(path: string, init: RequestInit & { json?: unknown; headersReceived?: (headers: Headers) => void } = {}): Promise<T> {
   const headers = new Headers(init.headers);
   const method = (init.method ?? 'GET').toUpperCase();
   if (method !== 'GET' && method !== 'HEAD') headers.set('x-fsfy', '1');
@@ -25,16 +25,18 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
   let res: Response;
   try {
     res = await fetch(path, { ...init, method, headers, body, credentials: 'same-origin' });
-  } catch {
+  } catch (e) {
+    if (init.signal?.aborted) throw e;
     net.down = true;
     throw new ApiError(0, 'offline', 'Нет связи с сервером');
   }
-  // Ответ не от нашего сервера (нет метки) — это страница туннеля: компьютер хоста выключен.
+  // Ответ не от нашего сервера (нет метки) - это страница туннеля: компьютер хоста выключен.
   if (!res.headers.get('x-fsfy') && res.status >= 500) {
     net.down = true;
     throw new ApiError(res.status, 'offline', 'Компьютер хоста сейчас выключен');
   }
   net.down = false;
+  init.headersReceived?.(res.headers);
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
   if (!res.ok) {
     if (res.status === 401 && !AUTH_PAGES.some((p) => location.pathname.startsWith(p))) {

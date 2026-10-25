@@ -95,7 +95,7 @@ pub async fn probe_worker(app: Arc<App>) {
     }
 }
 
-/// Уменьшенные постеры (342 px) и цвет карточки по постеру. true — что-то сделано.
+/// Уменьшенные постеры (342 px) и цвет карточки по постеру. true - что-то сделано.
 async fn thumbs(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
     let todo: Vec<(i64, String)> = app
         .db
@@ -111,7 +111,7 @@ async fn thumbs(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
             Some(src) => probe::scale_image(ffmpeg, &src, 342).await.ok().and_then(|b| app.images.save(&b).ok()),
             None => None,
         };
-        // Не вышло — берём исходный, чтобы не пробовать по кругу.
+        // Не вышло - берём исходный, чтобы не пробовать по кругу.
         let small = small.unwrap_or_else(|| poster.clone());
         let accent = match app.images.path(poster) {
             Some(src) => probe::tiny_rgb(ffmpeg, &src).await.ok().map(|px| crate::images::accent(&px)),
@@ -124,7 +124,7 @@ async fn thumbs(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
     backdrops(app, ffmpeg).await || !todo.is_empty()
 }
 
-/// Лёгкие кадры (640 px) для широких карточек главной: большой кадр — только у героя.
+/// Лёгкие кадры (640 px) для широких карточек главной: большой кадр - только у героя.
 async fn backdrops(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
     let todo: Vec<(i64, String)> = app
         .db
@@ -147,7 +147,7 @@ async fn backdrops(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
     backdrops_md(app, ffmpeg).await || !todo.is_empty()
 }
 
-/// Большой кадр (1920 px, JPEG) для героя и страницы фильма — вместо оригинала, который бывает 4K.
+/// Большой кадр (1920 px, JPEG) для героя и страницы фильма - вместо оригинала, который бывает 4K.
 async fn backdrops_md(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
     let todo: Vec<(i64, String)> = app
         .db
@@ -161,10 +161,10 @@ async fn backdrops_md(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
         .unwrap_or_default();
     for (id, big) in &todo {
         let md = match app.images.path(big) {
-            Some(src) => probe::scale_image(ffmpeg, &src, 1920).await.ok().and_then(|b| app.images.save(&b).ok()),
+            Some(src) => probe::scale_image(ffmpeg, &src, 2560).await.ok().and_then(|b| app.images.save(&b).ok()),
             None => None,
         };
-        // Уменьшенный вышел больше оригинала (уже сжатый WebP) — оставляем оригинал.
+        // Уменьшенный вышел больше оригинала (уже сжатый WebP) - оставляем оригинал.
         let md = md
             .filter(|m| {
                 let size = |n: &str| app.images.path(n).and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len());
@@ -177,8 +177,8 @@ async fn backdrops_md(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
 }
 
 /// Кадры для полосы перемотки, как у Netflix: раз в 10 секунд, листы 10×10 по 240 px.
-/// Только для того, что начали смотреть (не для всей библиотеки — иначе компьютер хоста часами
-/// шумит вентилятором), в один поток и с низким приоритетом. true — что-то сделано.
+/// Только для того, что начали смотреть (не для всей библиотеки - иначе компьютер хоста часами
+/// шумит вентилятором), в один поток и с низким приоритетом. true - что-то сделано.
 async fn trickplay_one(app: &Arc<App>, ffmpeg: &std::path::Path) -> bool {
     if app.db.setting_or("media.trickplay", "1") != "1" {
         return false;

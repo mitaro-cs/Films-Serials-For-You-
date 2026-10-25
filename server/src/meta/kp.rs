@@ -1,4 +1,4 @@
-//! Кинопоиск через api.kinopoisk.dev (бесплатный ключ — в их Telegram-боте, 200 запросов в день).
+//! Кинопоиск через api.kinopoisk.dev (бесплатный ключ - в их Telegram-боте, 200 запросов в день).
 //! Работает из России без зеркал.
 
 use super::{Candidate, Details, Episode, Person};
@@ -29,7 +29,7 @@ impl Kp {
             .send()
             .await?;
         match res.status().as_u16() {
-            401 => anyhow::bail!("Кинопоиск не принял ключ API — проверьте его в настройках"),
+            401 => anyhow::bail!("Кинопоиск не принял ключ API - проверьте его в настройках"),
             403 => anyhow::bail!("Кинопоиск: закончился дневной лимит запросов, продолжим завтра"),
             s if s >= 400 => anyhow::bail!("Кинопоиск ответил {s}"),
             _ => Ok(res.json().await?),
@@ -55,7 +55,7 @@ impl Kp {
                 poster: text(&d["poster"]["previewUrl"]).or_else(|| text(&d["poster"]["url"])),
             })
             .collect();
-        // Сначала того же вида и года — так автоматический выбор берёт верное.
+        // Сначала того же вида и года - так автоматический выбор берёт верное.
         out.sort_by_key(|c| (c.series != series, year.is_some_and(|y| c.year.is_none_or(|cy| (cy - y).abs() > 1))));
         Ok(out)
     }
@@ -75,7 +75,13 @@ impl Kp {
                 _ => continue,
             };
             if let Some(name) = text(&p["name"]).or_else(|| text(&p["enName"])) {
-                people.push(Person { name, role: text(&p["description"]), job: job.into(), photo: text(&p["photo"]) });
+                people.push(Person {
+                    name,
+                    role: text(&p["description"]),
+                    job: job.into(),
+                    photo: text(&p["photo"]),
+                    id: None,
+                });
             }
         }
         people.sort_by_key(|p| p.job != "director");
@@ -102,6 +108,7 @@ impl Kp {
                             overview: text(&e["description"]),
                             still: text(&e["still"]["url"]),
                             air_date: text(&e["airDate"]).map(|d| d.chars().take(10).collect()),
+                            ..Default::default()
                         });
                     }
                 }

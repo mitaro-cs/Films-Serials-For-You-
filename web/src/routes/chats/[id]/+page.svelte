@@ -9,8 +9,8 @@
   import Icon from '$lib/ui/Icon.svelte';
   import Modal from '$lib/ui/Modal.svelte';
 
-  // Переписка с другом: новые сообщения — опросом раз в 3 с (пока вкладка видна), свои —
-  // сразу на экране. Можно приложить фильм — придёт карточкой.
+  // Переписка с другом: новые сообщения - опросом раз в 3 с (пока вкладка видна), свои -
+  // сразу на экране. Можно приложить фильм - придёт карточкой.
   const id = $derived(Number(page.params.id));
   let who = $state<Person | null>(null);
   let items = $state<(Message & { pending?: boolean })[]>([]);
@@ -152,11 +152,15 @@
               <span><b>{m.title.title}</b><small>{m.title.year ?? ''} · Обсудим?</small></span>
             </a>
           {/if}
-          {#if m.body}<p>{m.body}</p>{/if}
+          {#if m.body}
+            {@const room = m.body.match(/\/room\/([a-z0-9]{6,12})/)}
+            <p>{room ? m.body.replace(room[0], '').replace(/:\s*$/, '') : m.body}</p>
+            {#if room}<a class="btn sm white join" href="/room/{room[1]}"><Icon name="party" size={14} /> Войти в комнату</a>{/if}
+          {/if}
           <small class="t">{time(m.createdAt)}{#if m.mine}{m.pending ? ' · …' : m.read ? ' · прочитано' : ''}{/if}</small>
         </div>
       {:else}
-        {#if who}<p class="hello muted">Напишите {who.name} первым — или пришлите фильм кнопкой со скрепкой.</p>{/if}
+        {#if who}<p class="hello muted">Напишите {who.name} первым - или пришлите фильм кнопкой со скрепкой.</p>{/if}
       {/each}
     </div>
 
@@ -402,5 +406,8 @@
   }
   :global(.no-motion) .msg {
     animation: none;
+  }
+  .join {
+    margin-top: 6px;
   }
 </style>

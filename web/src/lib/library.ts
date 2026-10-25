@@ -1,15 +1,16 @@
 import type { Card } from './types';
 
 // Каталог как у Apple TV: вкладки, герой, ряды, фильтры по статусу и подписи на карточке.
-// Чистые функции — тесты рядом.
+// Чистые функции - тесты рядом.
 
-export type Tab = 'home' | 'movies' | 'series';
+export type Tab = 'home' | 'movies' | 'series' | 'anime';
 export type Status = 'all' | 'want' | 'watching' | 'watched';
 
 export const TABS = [
   { id: 'home', label: 'Главная', href: '/' },
   { id: 'movies', label: 'Фильмы', href: '/?tab=movies' },
   { id: 'series', label: 'Сериалы', href: '/?tab=series' },
+  { id: 'anime', label: 'Аниме', href: '/?tab=anime' },
 ] as const satisfies readonly { id: Tab; label: string; href: string }[];
 
 export const STATUSES: { id: Status; label: string }[] = [
@@ -21,20 +22,26 @@ export const STATUSES: { id: Status; label: string }[] = [
 
 export function tabOf(q: URLSearchParams): Tab {
   const t = q.get('tab');
-  return t === 'movies' || t === 'series' ? t : 'home';
+  return t === 'movies' || t === 'series' || t === 'anime' ? t : 'home';
+}
+
+export function isAnime(c: Pick<Card, 'genres'> & Partial<Pick<Card, 'country'>>): boolean {
+  return (c.genres ?? []).some((g) => /^(аниме|anime)$/i.test(g)) ||
+    (/япония|japan|^jp$/i.test(c.country ?? '') && (c.genres ?? []).some((g) => /мультфильм|анимация|animation/i.test(g)));
 }
 
 export function ofTab(items: Card[], tab: Tab): Card[] {
   if (tab === 'home') return items;
+  if (tab === 'anime') return items.filter(isAnime);
   const kind = tab === 'movies' ? 'movie' : 'series';
   return items.filter((c) => c.kind === kind);
 }
 
 const DAY = 86_400_000;
 
-/** Герой: до 6 недавно добавленных с большим кадром (нет кадров — с постером). */
+/** Герой: до 6 недавно добавленных с большим кадром (нет кадров - с постером). */
 export function featured(items: Card[], n = 6): Card[] {
-  const fresh = [...items].sort((a, b) => b.addedAt - a.addedAt);
+  const fresh = items.filter((c) => c.status !== 'dropped').sort((a, b) => b.addedAt - a.addedAt);
   const wide = fresh.filter((c) => c.backdrop && c.status !== 'watched');
   const pick = wide.length ? wide : fresh.filter((c) => c.backdrop || c.poster);
   return pick.slice(0, n);
@@ -48,6 +55,7 @@ export interface Shelf {
 
 /** Ряды главной: продолжить, новое, хочу, фильмы, сериалы, жанры, просмотренное. */
 export function shelves(items: Card[], recent: number[], tab: Tab, now = Date.now()): Shelf[] {
+  items = items.filter((c) => c.status !== 'dropped');
   const out: Shelf[] = [];
   const add = (key: string, title: string, list: Card[]) => {
     if (list.length) out.push({ key, title, items: list.slice(0, 24) });
@@ -95,7 +103,7 @@ export type Counts = Record<Status, number>;
 
 export function counts(items: Pick<Card, 'status'>[]): Counts {
   const c: Counts = { all: items.length, want: 0, watching: 0, watched: 0 };
-  for (const i of items) if (i.status) c[i.status]++;
+  for (const i of items) if (i.status && i.status !== 'dropped') c[i.status]++;
   return c;
 }
 
@@ -126,14 +134,14 @@ export function time(ms: number): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** Длительность фильма «1:52», у сериала — число серий. */
+/** Длительность фильма «1:52», у сериала - число серий. */
 export function length(c: Pick<Card, 'kind' | 'runtime' | 'files'>): { label: string; value: string } {
   if (c.kind === 'series') return { label: 'Серий', value: String(c.files) };
-  if (!c.runtime) return { label: 'Время', value: '—' };
+  if (!c.runtime) return { label: 'Время', value: '-' };
   return { label: 'Время', value: `${Math.floor(c.runtime / 60)}:${pad(c.runtime % 60)}` };
 }
 
-/** «осталось 23 мин» / «осталось 1 ч 5 мин»; у ещё не начатой серии — её длина не нужна. */
+/** «осталось 23 мин» / «осталось 1 ч 5 мин»; у ещё не начатой серии - её длина не нужна. */
 export function left(position: number, duration: number): string {
   if (!duration || position <= 0) return 'с начала';
   const m = Math.max(1, Math.round((duration - position) / 60));
@@ -144,7 +152,7 @@ export function percent(position: number, duration: number): number {
   return duration > 0 ? Math.min(100, Math.max(0, (position / duration) * 100)) : 0;
 }
 
-/** «[США] Дэмьен Шазелл» — как строка под названием на макете. */
+/** «[США] Дэмьен Шазелл» - как строка под названием на макете. */
 export function credit(c: Pick<Card, 'country' | 'director'>): string {
   return [c.country && `[${c.country}]`, c.director].filter(Boolean).join(' ');
 }

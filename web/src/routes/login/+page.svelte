@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PasswordInput from '$lib/ui/PasswordInput.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, errorText, post } from '$lib/api';
@@ -40,9 +41,9 @@
 <AuthShell title="Вход" subtitle={site ? `Онлайн-кинотеатр «${site.name}»` : undefined}>
   <form onsubmit={submit}>
     <label class="field"><span>Логин</span><input class="input" bind:value={login} autocomplete="username" required /></label>
-    <label class="field">
-      <span>Пароль</span><input class="input" type="password" bind:value={password} autocomplete="current-password" required />
-    </label>
+    <div class="field"><PasswordInput caption="Пароль" bind:value={password} autocomplete="current-password" required />
+    </div>
+    <a class="forgot" href="/forgot-password">Забыли пароль?</a>
     {#if error}<p class="error">{error}</p>{/if}
     <button class="btn primary block" disabled={busy}>{busy ? 'Входим…' : 'Войти'}</button>
     {#if site && site.registration !== 'closed'}
@@ -50,3 +51,5 @@
     {/if}
   </form>
 </AuthShell>
+
+<style>.forgot{justify-self:end;font-size:13px;color:#aaa;text-decoration:underline;padding:5px 0}.forgot:hover{color:#fff}</style>

@@ -1,8 +1,8 @@
 import { expect, test } from './util-test';
 import { url } from './util';
 
-// Скорость: главная качает мало кода (сжатым), плеер (hls.js) — только когда открыли просмотр,
-// постеры — лёгкие и лениво.
+// Скорость: главная качает мало кода (сжатым), плеер (hls.js) - только когда открыли просмотр,
+// постеры - лёгкие и лениво.
 
 const BUDGET_JS = 80 * 1024;
 
@@ -23,13 +23,13 @@ test('главная: код меньше бюджета, без hls.js', async 
 
 test('карточки лёгкие и с ленивой загрузкой', async ({ page }) => {
   await page.goto(url('/'));
-  const imgs = page.locator('a.wide .art > img:not(.mark)');
+  const imgs = page.locator('main .tile .art > img');
   await expect(imgs.first()).toBeVisible();
   const n = await imgs.count();
   let eager = 0;
   for (let i = 0; i < n; i++) if ((await imgs.nth(i).getAttribute('loading')) === 'eager') eager++;
   expect(eager, 'сразу грузятся только первые карточки').toBeLessThanOrEqual(10);
-  expect(n - eager, 'остальные — лениво').toBeGreaterThan(0);
+  expect(n - eager, 'остальные - лениво').toBeGreaterThan(0);
   // Лёгкий кадр, а не исходник: для карточки 640 px хватает.
   const w = await imgs.first().evaluate((i: HTMLImageElement) => i.naturalWidth);
   expect(w).toBeLessThanOrEqual(1280);

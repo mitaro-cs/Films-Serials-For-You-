@@ -1,6 +1,6 @@
 //! TMDB (themoviedb.org): поиск и описание на русском, постеры, фоны, логотипы, серии.
 //! Ключ API v3 (32 знака) или токен чтения v4 (`eyJ…`). Адреса API и картинок можно сменить
-//! на зеркало — в настройках.
+//! на зеркало - в настройках.
 
 use super::{Candidate, Details, Episode, Person};
 use serde_json::Value;
@@ -30,7 +30,7 @@ impl Tmdb {
         }
         let res = req.send().await?;
         match res.status().as_u16() {
-            401 => anyhow::bail!("TMDB не принял ключ API — проверьте его в настройках"),
+            401 => anyhow::bail!("TMDB не принял ключ API - проверьте его в настройках"),
             404 => anyhow::bail!("TMDB: не найдено"),
             s if s >= 400 => anyhow::bail!("TMDB ответил {s}"),
             _ => Ok(res.json().await?),
@@ -66,7 +66,7 @@ impl Tmdb {
             .collect())
     }
 
-    /// `id` — «movie/123» или «tv/456»; `seasons` — какие сезоны есть в файлах.
+    /// `id` - «movie/123» или «tv/456»; `seasons` - какие сезоны есть в файлах.
     pub async fn details(&self, id: &str, seasons: &[i32]) -> anyhow::Result<Details> {
         let series = id.starts_with("tv/");
         let ru = [
@@ -98,6 +98,7 @@ impl Tmdb {
                 role: text(&c["character"]),
                 job: "actor".into(),
                 photo: self.img("w185", &c["profile_path"]),
+                id: None,
             })
             .collect();
         let directors: Vec<Person> = if series {
@@ -106,7 +107,7 @@ impl Tmdb {
                 .into_iter()
                 .flatten()
                 .filter_map(|c| text(&c["name"]))
-                .map(|name| Person { name, role: None, job: "creator".into(), photo: None })
+                .map(|name| Person { name, role: None, job: "creator".into(), photo: None, id: None })
                 .collect()
         } else {
             v["credits"]["crew"]
@@ -115,7 +116,7 @@ impl Tmdb {
                 .flatten()
                 .filter(|c| c["job"] == "Director")
                 .filter_map(|c| text(&c["name"]))
-                .map(|name| Person { name, role: None, job: "director".into(), photo: None })
+                .map(|name| Person { name, role: None, job: "director".into(), photo: None, id: None })
                 .collect()
         };
         people.splice(0..0, directors);
@@ -154,6 +155,7 @@ impl Tmdb {
                         overview: text(&e["overview"]),
                         still: self.img("w300", &e["still_path"]),
                         air_date: text(&e["air_date"]),
+                        ..Default::default()
                     });
                 }
             }

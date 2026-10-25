@@ -3,9 +3,15 @@
   import Icon from './Icon.svelte';
   import Wide from './Wide.svelte';
 
-  // Ряд главной: заголовок и лента широких карточек; на компьютере — стрелки у краёв
+  // Ряд главной: заголовок и лента широких карточек; на компьютере - стрелки у краёв
   // (появляются при наведении, место не занимают).
-  let { title, items, eager = false, i = 0 }: { title: string; items: Card[]; eager?: boolean; i?: number } = $props();
+  let {
+    title,
+    items,
+    eager = false,
+    i = 0,
+    droppable = false,
+  }: { title: string; items: Card[]; eager?: boolean; i?: number; droppable?: boolean } = $props();
 
   let strip = $state<HTMLDivElement>();
   let start = $state(true);
@@ -30,7 +36,7 @@
   <h2>{title}</h2>
   <div class="wrap">
     <div class="strip" bind:this={strip} onscroll={edges}>
-      {#each items as card, i (card.id)}<Wide {card} eager={eager && i < 5} />{/each}
+      {#each items as card, i (card.id)}<Wide {card} eager={eager && i < 5} {droppable} />{/each}
     </div>
     {#if !start}<button class="arrow l" aria-label="Назад" onclick={() => page(-1)}><Icon name="back" size={22} /></button>{/if}
     {#if !end}<button class="arrow r" aria-label="Дальше" onclick={() => page(1)}><Icon name="right" size={22} /></button>{/if}

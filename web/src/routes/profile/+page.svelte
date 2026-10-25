@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { CHARACTERS } from '$lib/ui/characters';
+  import EmailSettings from '$lib/account/EmailSettings.svelte';
+  import PasswordInput from '$lib/ui/PasswordInput.svelte';
+  import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { api, del, errorText, patch, post, put } from '$lib/api';
   import { loadMe, session } from '$lib/session.svelte';
@@ -8,7 +12,7 @@
   import Icon from '$lib/ui/Icon.svelte';
   import { toast } from '$lib/ui/toast.svelte';
 
-  // Мой аккаунт: у каждого один — имя, фото или рисованный аватар, оформление страницы, пароль.
+  // Мой аккаунт: у каждого один - имя, фото или рисованный аватар, оформление страницы, пароль.
   const me = $derived(session.me);
   const profile = $derived(me?.user.profile);
 
@@ -17,7 +21,9 @@
   let fresh = $state('');
   let err = $state('');
   let uploading = $state(false);
+  let tab = $state<'style' | 'account' | 'playback'>('style');
   let motion = $state(motionOn());
+  $effect(()=>{const requested=page.url.searchParams.get('tab');if(requested==='account'||requested==='style'||requested==='playback')tab=requested;});
 
   $effect(() => {
     name = session.me?.user.name ?? '';
@@ -109,14 +115,19 @@
       </div>
     </section>
 
-    <DecorEditor profileId={profile.id} />
+    <nav class="profile-tabs" aria-label="Настройки профиля">
+      <button class:active={tab === 'style'} onclick={() => tab = 'style'}>Оформление</button>
+      <button class:active={tab === 'account'} onclick={() => tab = 'account'}>Аккаунт и безопасность</button>
+      <button class:active={tab === 'playback'} onclick={() => tab = 'playback'}>Интерфейс</button>
+    </nav>
+    {#if tab === 'style'}<DecorEditor profileId={profile.id} />{/if}
 
-    {#if !profile.photo}
+    {#if tab === 'style' && !profile.photo}
       <section class="card pane">
         <h2>Аватар</h2>
         <div class="avatars" role="radiogroup" aria-label="Аватар">
           {#each Array(12) as _, i (i)}
-            <button type="button" role="radio" aria-checked={profile.avatar === i} aria-label="Аватар {i + 1}" class:on={profile.avatar === i} onclick={() => setAvatar(i)}>
+            <button type="button" role="radio" aria-checked={profile.avatar === i} aria-label={CHARACTERS[i].name} title={CHARACTERS[i].name} class:on={profile.avatar === i} onclick={() => setAvatar(i)}>
               <Avatar avatar={i} size={44} />
             </button>
           {/each}
@@ -124,6 +135,7 @@
       </section>
     {/if}
 
+    {#if tab === 'playback'}
     <section class="card pane">
       <h2>Анимации</h2>
       <label class="switch">
@@ -132,6 +144,9 @@
       </label>
     </section>
 
+    {/if}
+    {#if tab === 'account'}
+    <div class="account-grid">
     <form class="card pane" onsubmit={saveName}>
       <h2>Имя</h2>
       <label class="field"><span>Как вас видят другие</span><input class="input" bind:value={name} maxlength="60" /></label>
@@ -143,11 +158,14 @@
       {#if !me.hasPassword}
         <p class="muted small">Сейчас вы входите только из приложения на этом компьютере. Задайте пароль, чтобы управлять сайтом с телефона.</p>
       {:else}
-        <label class="field"><span>Текущий пароль</span><input class="input" type="password" bind:value={old} autocomplete="current-password" /></label>
+        <div class="field"><PasswordInput caption="Текущий пароль" bind:value={old} autocomplete="current-password" /></div>
       {/if}
-      <label class="field"><span>Новый пароль</span><input class="input" type="password" bind:value={fresh} minlength="6" autocomplete="new-password" required /></label>
+      <div class="field"><PasswordInput caption="Новый пароль" bind:value={fresh} minlength={6} autocomplete="new-password" required /></div>
       <button class="btn">Сохранить пароль</button>
     </form>
+    <EmailSettings />
+    </div>
+    {/if}
     {#if err}<p class="error">{err}</p>{/if}
     {#if !me.window}
       <button class="btn danger" onclick={logout}><Icon name="logout" size={16} /> Выйти</button>
@@ -256,4 +274,14 @@
       justify-content: center;
     }
   }
+
+  .narrow { max-width: 1280px; }
+  .hero { padding: clamp(22px, 4vw, 44px); background: radial-gradient(ellipse at 90% 0, #697ba52a, transparent 65%), var(--panel); border-radius: 26px; }
+  h1 { font-size: clamp(26px, 3vw, 42px); }
+  .profile-tabs { display: flex; gap: 6px; padding: 6px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); overflow-x: auto; }
+  .profile-tabs button { border: 0; border-radius: 12px; padding: 12px 20px; background: transparent; color: var(--muted); white-space: nowrap; cursor: pointer; }
+  .profile-tabs button.active { background: #dbe3f5; color: #10131a; }
+  .account-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+  @media(max-width: 720px) { .account-grid { grid-template-columns: minmax(0, 1fr); } .hero { flex-wrap: wrap; } }
+
 </style>

@@ -17,9 +17,45 @@ pub async fn health() -> Json<Value> {
     Json(json!({"ok": true, "version": crate::VERSION}))
 }
 
+#[derive(Deserialize)]
+pub struct NightBody {
+    action: String,
+    #[serde(default)]
+    lights: bool,
+}
+pub async fn night(State(app): State<Arc<App>>, v: Viewer, Json(body): Json<NightBody>) -> ApiResult<Json<Value>> {
+    if !v.local {
+        return Err(ApiError::not_found());
+    }
+    if !matches!(body.action.as_str(), "off" | "restore" | "probe") {
+        return Err(ApiError::bad("action", "Неизвестная команда ночного режима"));
+    }
+    let host = app.host.clone();
+    let result =
+        tokio::task::spawn_blocking(move || host.night(&body.action, body.lights)).await.map_err(ApiError::internal)?;
+    Ok(Json(result))
+}
+
+#[derive(Deserialize)]
+pub struct FullscreenBody {
+    enabled: bool,
+}
+pub async fn fullscreen(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Json(body): Json<FullscreenBody>,
+) -> ApiResult<Json<Value>> {
+    if !v.local {
+        return Err(ApiError::not_found());
+    }
+    Ok(Json(json!({"native":app.host.fullscreen(body.enabled)})))
+}
+
 fn site_json(app: &App) -> Value {
     json!({
         "name": app.site_name(),
+        "metadataLanguage": app.db.setting_or("meta.language", "ru"),
+        "emailRecovery": super::mail::ready(app),
         "registration": app.db.setting_or("site.registration", crate::api::account::REGISTRATION_DEFAULT),
         "downloads": app.db.setting_or("site.downloads", "1") == "1",
         "version": crate::VERSION,
@@ -74,11 +110,11 @@ pub async fn login(
     let pw = b.password;
     let ok = match row.clone() {
         Some((_, Some(hash), false)) => {
-            tokio::task::spawn_blocking(move || auth::verify_password(&pw, &hash)).await.unwrap_or(false)
+            auth::password_job(move || auth::verify_password(&pw, &hash)).await.unwrap_or(false)
         }
         _ => {
             // То же время ответа, что и с паролем: не выдаём, есть ли такой логин.
-            let _ = tokio::task::spawn_blocking(move || auth::hash_password(&pw)).await;
+            let _ = auth::password_job(move || auth::hash_password(&pw)).await;
             false
         }
     };
@@ -137,7 +173,7 @@ pub struct RegisterBody {
     password: String,
 }
 
-/// Регистрация по умолчанию — открытая: друзья заводят аккаунт сами, без приглашений
+/// Регистрация по умолчанию - открытая: друзья заводят аккаунт сами, без приглашений
 /// (просьба владельца, 0.4). Хост может включить «по приглашениям» или закрыть.
 pub const REGISTRATION_DEFAULT: &str = "open";
 
@@ -156,7 +192,7 @@ pub async fn register(
             "Слишком много попыток. Подождите 10 минут",
         ));
     }
-    // Новых аккаунтов с одного адреса — не больше 5 за 10 минут (от ботов при открытой регистрации).
+    // Новых аккаунтов с одного адреса - не больше 5 за 10 минут (от ботов при открытой регистрации).
     let signups = format!("signup:{ip}");
     if app.signup_limit.blocked(&signups) {
         return Err(ApiError::new(
@@ -171,7 +207,7 @@ pub async fn register(
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "closed",
-            "Регистрация закрыта — попросите приглашение у хоста",
+            "Регистрация закрыта - попросите приглашение у хоста",
         ));
     }
     if need_invite && !code.as_deref().map(|c| invite_ok(&app, c)).transpose()?.unwrap_or(false) {
@@ -182,7 +218,7 @@ pub async fn register(
     let login = auth::check_login(&b.login)?;
     auth::check_password(&b.password)?;
     let pw = b.password.clone();
-    let hash = tokio::task::spawn_blocking(move || auth::hash_password(&pw)).await.map_err(ApiError::internal)?;
+    let hash = auth::password_job(move || auth::hash_password(&pw)).await.map_err(ApiError::internal)?;
     let id = app.db.tx(|tx| {
         let taken: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM users WHERE login = ?)", [&login], |r| r.get(0))?;
         if taken {
@@ -257,7 +293,7 @@ pub struct MeBody {
     autoplay: Option<bool>,
 }
 
-/// Имя (у аккаунта и профиля — одно), рисованный аватар, автозапуск следующей серии.
+/// Имя (у аккаунта и профиля - одно), рисованный аватар, автозапуск следующей серии.
 pub async fn update_me(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<MeBody>) -> ApiResult<Json<Value>> {
     let name = b.name.as_deref().map(auth::check_name).transpose()?;
     app.db.tx(|tx| {
@@ -302,14 +338,18 @@ pub async fn password(
         app.db.with(|c| c.query_row("SELECT pass FROM users WHERE id = ?", [v.id], |r| r.get(0)))?;
     if let Some(hash) = current {
         let old = b.old.unwrap_or_default();
-        let ok = tokio::task::spawn_blocking(move || auth::verify_password(&old, &hash)).await.unwrap_or(false);
+        let ok = auth::password_job(move || auth::verify_password(&old, &hash)).await.unwrap_or(false);
         if !ok {
             app.login_limit.fail(&key);
             return Err(ApiError::bad("bad_password", "Текущий пароль не подошёл"));
         }
     }
     let new = b.new;
-    let hash = tokio::task::spawn_blocking(move || auth::hash_password(&new)).await.map_err(ApiError::internal)?;
-    app.db.with(|c| c.execute("UPDATE users SET pass = ? WHERE id = ?", params![hash, v.id]))?;
+    let hash = auth::password_job(move || auth::hash_password(&new)).await.map_err(ApiError::internal)?;
+    app.db.tx(|c| {
+        c.execute("UPDATE users SET pass = ? WHERE id = ?", params![hash, v.id])?;
+        c.execute("DELETE FROM account_tokens WHERE user_id=?", [v.id])?;
+        Ok(())
+    })?;
     Ok(Json(json!({"ok": true, "login": v.login})))
 }

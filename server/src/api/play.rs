@@ -30,7 +30,7 @@ pub struct FileRow {
     pub trickplay: Option<String>,
 }
 
-/// Файл, который этот профиль может смотреть (скрытое и «взрослое» в детском профиле — нет).
+/// Файл, который этот профиль может смотреть (скрытое и «взрослое» в детском профиле - нет).
 pub fn file_row(app: &App, v: &Viewer, id: i64) -> ApiResult<FileRow> {
     let sql = format!(
         "SELECT f.path, f.probe, t.title, t.id, t.kind, f.season, f.episode, f.name, f.trickplay
@@ -60,7 +60,7 @@ pub fn file_row(app: &App, v: &Viewer, id: i64) -> ApiResult<FileRow> {
 pub struct Markers {
     pub intro: Option<(f64, f64)>,
     pub credits: Option<f64>,
-    /// Отметил хост (иначе — из глав файла).
+    /// Отметил хост (иначе - из глав файла).
     pub manual: bool,
 }
 
@@ -112,7 +112,7 @@ pub async fn info(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -
             i.and_then(|i| ids.get(i + 1).copied()),
         ))
     })?;
-    // С какого места продолжить (досмотренное — сначала).
+    // С какого места продолжить (досмотренное - сначала).
     let position: f64 = app
         .db
         .with(|c| {
@@ -129,24 +129,26 @@ pub async fn info(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -
         .as_deref()
         .and_then(|t| serde_json::from_str(t).ok())
         .filter(|t: &Value| t["count"].as_i64().unwrap_or(0) > 0);
-    let next_still: Option<Value> = match next {
+    type EpisodePreview = (Option<i32>, Option<i32>, Option<String>, Option<String>);
+    let next_file: Option<EpisodePreview> = match next {
         Some(n) => app
             .db
             .with(|c| {
                 c.query_row("SELECT season, episode, name, still FROM files WHERE id = ?", [n], |r| {
-                    Ok(json!({
-                        "label": super::catalog::episode_label(r.get(0)?, r.get(1)?, r.get::<_, Option<String>>(2)?.as_deref()),
-                        "still": super::img(r.get(3)?),
-                    }))
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
                 })
             })
             .ok(),
         None => None,
     };
+    let next_still = next_file.map(|(season, episode, name, still)| json!({
+        "label": super::catalog::episode_label(season, episode, crate::episode_locale::localized(&app, name.as_deref()).as_deref()),
+        "still": super::img(still),
+    }));
     Ok(Json(json!({
         "play": info, "titleId": f.title_id, "kind": f.kind, "title": f.title,
         "season": f.season,
-        "episode": super::catalog::episode_label(f.season, f.episode, f.name.as_deref()),
+        "episode": super::catalog::episode_label(f.season, f.episode, crate::episode_locale::localized(&app, f.name.as_deref()).as_deref()),
         "prev": prev, "next": next, "nextInfo": next_still, "position": position,
         "markers": markers_for(&app, &f), "trickplay": trickplay,
         "hls": has_ff && f.probe.as_ref().is_some_and(|p| p.video.is_some() && p.duration.is_some()),
@@ -177,6 +179,94 @@ pub async fn download(
     Ok(stream::file(&f.path, &headers, Some(&name)).await?)
 }
 
+#[derive(Deserialize)]
+pub struct PackQuery {
+    season: Option<i32>,
+}
+
+/// Канал в поток ответа: архив пишется в отдельном потоке, кусочками по 1 МБ.
+struct ChanWriter {
+    tx: tokio::sync::mpsc::Sender<std::io::Result<axum::body::Bytes>>,
+    buf: Vec<u8>,
+}
+
+impl std::io::Write for ChanWriter {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(b);
+        if self.buf.len() >= 1 << 20 {
+            self.flush()?;
+        }
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
+        let chunk = axum::body::Bytes::from(std::mem::take(&mut self.buf));
+        // Скачивание прервали - прекращаем читать файлы.
+        self.tx.blocking_send(Ok(chunk)).map_err(|_| std::io::Error::from(std::io::ErrorKind::BrokenPipe))
+    }
+}
+
+/// Скачать фильм (все части) или сериал (весь или сезон) одним архивом ZIP - потоком, без
+/// временных файлов. Внутри - «Сезон N/имя файла».
+pub async fn download_all(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Path(id): Path<i64>,
+    Query(q): Query<PackQuery>,
+) -> ApiResult<Response> {
+    if !(app.db.setting_or("site.downloads", "1") == "1" && v.can_download) {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "no_downloads", "Хост не разрешил скачивание"));
+    }
+    let card =
+        super::cards(&app, v.profile.kids, "t.id = ?", "t.id", 1, &[&id])?.pop().ok_or_else(ApiError::not_found)?;
+    let rows: Vec<(String, Option<i32>)> = app.db.with(|c| {
+        let mut st = c.prepare(
+            "SELECT path, season FROM files WHERE title_id = ?1 AND missing = 0 AND (?2 IS NULL OR season = ?2)
+             ORDER BY season, episode, path",
+        )?;
+        let r = st.query_map(params![id, q.season], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        r.collect()
+    })?;
+    let series = card.kind == "series";
+    let mut entries = Vec::new();
+    for (path, season) in rows {
+        let p = PathBuf::from(&path);
+        let Ok(meta) = std::fs::metadata(&p) else { continue };
+        let file = p.file_name().and_then(|n| n.to_str()).unwrap_or("video").to_string();
+        let name = match (series, season) {
+            (true, Some(s)) => format!("Сезон {s}/{file}"),
+            _ => file,
+        };
+        entries.push(crate::zipstream::Entry { name, path: p, size: meta.len() });
+    }
+    if entries.is_empty() {
+        return Err(ApiError::not_found());
+    }
+    let total = crate::zipstream::total(&entries);
+    let clean: String = card.title.chars().map(|c| if r#"\/:*?"<>|"#.contains(c) { '_' } else { c }).collect();
+    let name = match q.season {
+        Some(s) => format!("{clean} - {s} сезон.zip"),
+        None => format!("{clean}.zip"),
+    };
+    let (tx, rx) = tokio::sync::mpsc::channel(4);
+    tokio::task::spawn_blocking(move || {
+        let mut w = ChanWriter { tx: tx.clone(), buf: Vec::with_capacity(1 << 20) };
+        if let Err(e) = crate::zipstream::write(&entries, &mut w) {
+            let _ = tx.blocking_send(Err(e));
+        }
+    });
+    let chunks = futures_util::stream::unfold(rx, |mut rx| async move { rx.recv().await.map(|c| (c, rx)) });
+    let body = axum::body::Body::from_stream(chunks);
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(header::CONTENT_LENGTH, total)
+        .header(header::CONTENT_DISPOSITION, crate::util::content_disposition("attachment", &name))
+        .body(body)
+        .map_err(ApiError::internal)
+}
+
 fn no_ffmpeg() -> ApiError {
     ApiError::new(
         StatusCode::NOT_IMPLEMENTED,
@@ -189,7 +279,7 @@ pub fn busy() -> ApiError {
     ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,
         "busy",
-        "Компьютер хоста сейчас перекодирует другие видео — попробуйте через минуту",
+        "Компьютер хоста сейчас перекодирует другие видео - попробуйте через минуту",
     )
 }
 
@@ -199,7 +289,7 @@ pub struct RemuxQuery {
     t: f64,
     #[serde(default)]
     audio: usize,
-    /// Браузер умеет HEVC (Safari) — видео не перекодируем.
+    /// Браузер умеет HEVC (Safari) - видео не перекодируем.
     #[serde(default)]
     hevc: u8,
     /// Своё ограничение высоты при перекодировании (медленный интернет).
@@ -237,20 +327,20 @@ pub async fn remux(
 
 #[derive(Deserialize)]
 pub struct CopyQuery {
-    /// С какого места начнут смотреть: ответ — когда оно уже готово.
+    /// С какого места начнут смотреть: ответ - когда оно уже готово.
     #[serde(default)]
     from: f64,
 }
 
-/// Видео копируется как есть: H.264 (8 бит) или HEVC; остальное — только перекодированием.
+/// Видео копируется как есть: H.264 (8 бит) или HEVC; остальное - только перекодированием.
 fn copy_source(app: &App, v: &Viewer, id: i64, audio: usize) -> ApiResult<(FileRow, crate::copy::Key, bool, bool)> {
     let f = file_row(app, v, id)?;
     let p =
-        f.probe.as_ref().ok_or_else(|| ApiError::bad("not_ready", "Файл ещё разбирается — попробуйте через минуту"))?;
+        f.probe.as_ref().ok_or_else(|| ApiError::bad("not_ready", "Файл ещё разбирается - попробуйте через минуту"))?;
     let vid = p.video.as_ref().ok_or_else(|| ApiError::bad("no_video", "В файле нет видео"))?;
     let hevc = vid.codec == "hevc";
     if !(hevc || vid.codec == "h264" && !vid.pix_fmt.contains("10")) {
-        return Err(ApiError::bad("transcode", "Этот файл нужно перекодировать — включите адаптивное качество"));
+        return Err(ApiError::bad("transcode", "Этот файл нужно перекодировать - включите адаптивное качество"));
     }
     let audio = audio.min(p.audio.len().saturating_sub(1));
     let copy_audio = p.audio.get(audio).is_some_and(|a| a.codec == "aac");
@@ -301,7 +391,7 @@ fn hls_source(app: &App, v: &Viewer, id: i64) -> ApiResult<(FileRow, f64, i64)> 
     }
     let f = file_row(app, v, id)?;
     let p =
-        f.probe.as_ref().ok_or_else(|| ApiError::bad("not_ready", "Файл ещё разбирается — попробуйте через минуту"))?;
+        f.probe.as_ref().ok_or_else(|| ApiError::bad("not_ready", "Файл ещё разбирается - попробуйте через минуту"))?;
     let duration =
         p.duration.filter(|d| *d > 0.0).ok_or_else(|| ApiError::bad("not_ready", "Неизвестна длительность"))?;
     let height = p
@@ -433,7 +523,7 @@ pub struct MarkersBody {
     credits: Option<f64>,
 }
 
-/// Хост отмечает заставку и титры прямо в плеере — на весь сезон.
+/// Хост отмечает заставку и титры прямо в плеере - на весь сезон.
 pub async fn set_markers(
     State(app): State<Arc<App>>,
     m: Manager,
@@ -466,4 +556,22 @@ pub async fn set_markers(
         }
     })?;
     Ok(Json(json!({"ok": true, "markers": markers_for(&app, &f)})))
+}
+
+/// Где этот зритель остановился в файле - для другого устройства (открытый там плеер сверяется,
+/// не досмотрели ли дальше здесь).
+pub async fn get_progress(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
+    file_row(&app, &v, id)?;
+    let row: Option<(f64, f64, i64)> = app.db.with(|c| {
+        c.query_row(
+            "SELECT position, duration, updated_at FROM progress WHERE profile_id = ? AND file_id = ?",
+            params![v.profile.id, id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+    })?;
+    Ok(Json(match row {
+        Some((position, duration, at)) => json!({"position": position, "duration": duration, "updatedAt": at}),
+        None => json!({"position": null, "duration": null, "updatedAt": null}),
+    }))
 }

@@ -1,10 +1,12 @@
 <script lang="ts">
   import '../app.css';
-  import { afterNavigate, goto, onNavigate } from '$app/navigation';
-  import { applyMotion, motionOn } from '$lib/motion';
-  import { page } from '$app/state';
+  import { goto } from '$app/navigation';
+  import Loading from '$lib/ui/Loading.svelte';
+  import { applyMotion } from '$lib/motion';
+  import { page, navigating } from '$app/state';
   import Ask from '$lib/ui/Ask.svelte';
   import Header from '$lib/ui/Header.svelte';
+  import Intro from '$lib/ui/Intro.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Logo from '$lib/ui/Logo.svelte';
   import Toasts from '$lib/ui/Toasts.svelte';
@@ -14,10 +16,10 @@
 
   let { children } = $props();
 
-  const AUTH = ['/login', '/join', '/register'];
+  const AUTH = ['/login', '/join', '/register', '/forgot-password', '/reset-password', '/verify-email', '/legal'];
   const path = $derived(page.url.pathname);
   const auth = $derived(AUTH.some((p) => path.startsWith(p)));
-  const bare = $derived(auth || path.startsWith('/watch'));
+  const bare = $derived(auth || path.startsWith('/watch') || path.startsWith('/room'));
 
   $effect(() => {
     if (auth || session.me) {
@@ -37,12 +39,12 @@
   });
 
   // Esc никогда не выводит окно приложения на Mac из полноэкранного режима (необработанный Esc
-  // WebKit отдаёт системе). Окна и меню закрываются своими обработчиками, плеер — выходит в сервис.
+  // WebKit отдаёт системе). Окна и меню закрываются своими обработчиками, плеер - выходит в сервис.
   $effect(() => {
     const hold = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       e.preventDefault();
-      // Без стандартного действия окно <dialog> само не закроется — закрываем верхнее.
+      // Без стандартного действия окно <dialog> само не закроется - закрываем верхнее.
       const open = [...document.querySelectorAll<HTMLDialogElement>('dialog[open]')].pop();
       open?.dispatchEvent(new Event('cancel', { cancelable: true })) && open.close();
     };
@@ -50,19 +52,11 @@
     return () => window.removeEventListener('keydown', hold);
   });
 
-  // Смена страниц: старая быстро гаснет (120 мс), новая всплывает (.page в app.css). Без View
-  // Transitions — те держали снимок экрана, пока грузится новая страница, и всё «тормозило».
-  let leaving = $state(false);
+  // Навигация без искусственной задержки; появление новой страницы задано в app.css.
+  const leaving = false;
   $effect(() => applyMotion());
-  onNavigate((nav) => {
-    if (!nav.to || nav.from?.url.pathname === nav.to.url.pathname) return;
-    if (!motionOn()) return;
-    leaving = true;
-    return new Promise((r) => setTimeout(r, 120));
-  });
-  afterNavigate(() => (leaving = false));
 
-  // Окно приложения хоста: перетаскивают файлы — подсказка, бросили — что сделано.
+  // Окно приложения хоста: перетаскивают файлы - подсказка, бросили - что сделано.
   let dragging = $state(false);
   $effect(() => {
     if (!session.me?.window) return;
@@ -86,6 +80,7 @@
   const full = $derived(/^\/chats\/\d/.test(path));
 </script>
 
+{#if navigating.to}<div class="navigation-progress" role="status" aria-label="Открываем страницу"></div>{/if}
 <Ask />
 <Toasts />
 
@@ -101,13 +96,14 @@
 
 {#if net.down}
   <div class="down" role="status">
-    <Icon name="offline" size={18} /> Компьютер хоста сейчас недоступен — фильмы вернутся, когда он включится
+    <Icon name="offline" size={18} /> Компьютер хоста сейчас недоступен - фильмы вернутся, когда он включится
   </div>
 {/if}
 
 {#if bare}
   {@render children()}
 {:else if session.me}
+  <Intro />
   <Header />
   <main class:leaving>{@render children()}</main>
   {#if !full}
@@ -117,6 +113,7 @@
         <nav aria-label="Ссылки">
           <a href="/?tab=movies">Фильмы</a>
           <a href="/?tab=series">Сериалы</a>
+          <a href="/?tab=anime">Аниме</a>
           <a href="/discover">Обзор</a>
           <a href="/lists">Списки</a>
           <a href="/people">Люди</a>
@@ -125,15 +122,18 @@
         </nav>
       </div>
       <p class="faint">
-        © {new Date().getFullYear()} {session.me.site.name} · фильмы с компьютера {session.me.site.name === 'Nova' ? 'хоста' : `«${session.me.site.name}»`} · описания — IMDb · версия {session.me.site.version}
+        © {new Date().getFullYear()} {session.me.site.name} - хорошие истории становятся ближе · {session.me.site.version}
       </p>
+      <p class="legal-links"><a href="/legal/terms">Правила использования</a><a href="/legal/privacy">Конфиденциальность</a></p>
     </footer>
   {/if}
 {:else if session.loading}
-  <div class="boot"><Logo /></div>
+  <div class="boot"><Loading label="Готовим ваш кинозал" /></div>
 {/if}
 
 <style>
+  .navigation-progress { position:fixed;z-index:1000;top:0;left:0;width:40%;height:2px;background:#fff;box-shadow:0 0 8px #ffffff50;animation:navigation-slide .7s ease-in-out infinite alternate;pointer-events:none; }
+  @keyframes navigation-slide { from {transform:translateX(-30%)} to {transform:translateX(180%)} }
   /* Подвал всегда ниже первого экрана: пока страница грузится, он не прыгает вниз (CLS). */
   main {
     min-height: 100dvh;
@@ -180,6 +180,7 @@
     text-align: center;
     font-size: 11.5px;
   }
+  .legal-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 24px; color: var(--muted); }
   .dropping {
     position: fixed;
     inset: 0;
@@ -210,6 +211,9 @@
       opacity: 0;
     }
   }
+  main { animation: service-entry .35s ease-out both; }
+  @keyframes service-entry { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { main { animation: none; } }
   .boot {
     min-height: 100dvh;
     display: grid;

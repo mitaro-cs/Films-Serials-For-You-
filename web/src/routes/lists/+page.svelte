@@ -4,14 +4,14 @@
   import PosterRow from '$lib/discover/PosterRow.svelte';
   import { extSheet } from '$lib/discover/sheet.svelte';
   import NewList from '$lib/social/NewList.svelte';
-  import type { MarkItem, SharedList } from '$lib/types';
+  import type { Marks, SharedList } from '$lib/types';
   import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
 
-  // Мои списки: «Буду смотреть» и «Просмотрел» (с сервиса и из ленты IMDb), ниже — общие
-  // списки с друзьями.
+  // Мои списки: «Смотрю», «Буду смотреть» и «Просмотрел» (с сервиса и из ленты IMDb), ниже -
+  // общие списки с друзьями.
   let lists = $state<SharedList[] | null>(null);
-  let marks = $state<{ want: MarkItem[]; watched: MarkItem[] } | null>(null);
+  let marks = $state<Marks | null>(null);
   let error = $state('');
   let creating = $state(false);
 
@@ -20,7 +20,7 @@
     // Вместе: иначе общие списки сдвигались бы, когда приходят «Буду смотреть» (CLS).
     Promise.all([
       api<SharedList[]>('/api/lists'),
-      api<{ want: MarkItem[]; watched: MarkItem[] }>('/api/me/marks').catch(() => ({ want: [], watched: [] })),
+      api<Marks>('/api/me/marks').catch(() => ({ want: [], watching: [], watched: [] })),
     ]).then(
       ([l, m]) => {
         marks = m;
@@ -38,11 +38,12 @@
   {:else if marks === null || lists === null}
     <div class="ph-row skeleton"></div>
   {:else}
+    {#if marks.watching.length}<PosterRow title="Смотрю" items={marks.watching} />{/if}
     {#if marks.want.length}<PosterRow title="Буду смотреть" items={marks.want} />{/if}
     {#if marks.watched.length}<PosterRow title="Просмотрел" items={marks.watched} />{/if}
-    {#if !marks.want.length && !marks.watched.length}
+    {#if !marks.want.length && !marks.watched.length && !marks.watching.length}
       <p class="muted hint">
-        Отмечайте фильмы «Буду смотреть» и «Просмотрел» — на странице фильма или в <a href="/discover">Обзоре</a>, они соберутся здесь.
+        Отмечайте фильмы «Буду смотреть» и «Просмотрел» - на странице фильма или в <a href="/discover">Обзоре</a>, они соберутся здесь.
       </p>
     {/if}
 
@@ -53,7 +54,7 @@
   <p class="muted lead">Общие списки с друзьями: добавляйте фильмы и отмечайте, что уже посмотрели вместе.</p>
 
   {#if lists.length === 0}
-    <div class="empty"><Icon name="users" size={40} /> Пока нет ни одного списка — создайте первый и позовите друга.</div>
+    <div class="empty"><Icon name="users" size={40} /> Пока нет ни одного списка - создайте первый и позовите друга.</div>
   {:else}
     <div class="grid">
       {#each lists as l (l.id)}

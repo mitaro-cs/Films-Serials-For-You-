@@ -4,7 +4,7 @@
   import Icon from '$lib/ui/Icon.svelte';
   import type { Status } from './types';
 
-  // Самый простой путь добавить фильмы: своя папка (положил — появилось), загрузка из
+  // Самый простой путь добавить фильмы: своя папка (положил - появилось), загрузка из
   // браузера с любого устройства, перетаскивание в окно приложения хоста.
   let { status, window: inWindow, reload }: { status: Status; window: boolean; reload: () => void } = $props();
 
@@ -25,7 +25,7 @@
 
   const EPISODE = /s\d{1,2}[ ._-]*e\d{1,3}|\d{1,2}x\d{2,3}|сезон|серия/i;
 
-  /** Одиночный файл: фильм — в свою папку («Начало.2010.1080p»), серия с «S01E02» — как есть. */
+  /** Одиночный файл: фильм - в свою папку («Начало.2010.1080p»), серия с «S01E02» - как есть. */
   const folderOf = (f: File) =>
     EPISODE.test(f.name) ? '' : f.name.replace(/\.[^.]+$/, '').replace(/\.(ru|en|rus|eng)$/i, '');
 
@@ -50,7 +50,7 @@
       return { file, dir: rel ? rel.split('/').slice(0, -1).join('/') : null };
     });
 
-  // Перетащили папку — обходим её целиком (с подпапками сезонов).
+  // Перетащили папку - обходим её целиком (с подпапками сезонов).
   async function dropped(dt: DataTransfer) {
     const entries = [...dt.items].map((i) => i.webkitGetAsEntry?.()).filter((e): e is FileSystemEntry => !!e);
     if (!entries.some((e) => e.isDirectory)) return add(loose(dt.files));
@@ -137,7 +137,7 @@
       <div>
         <b>Своя папка</b>
         <code>{status.inbox}</code>
-        <small class="muted">Положите сюда фильмы и сериалы — появятся на сайте сами, за несколько секунд.</small>
+        <small class="muted">Положите сюда фильмы и сериалы - появятся на сайте сами, за несколько секунд.</small>
       </div>
       {#if inWindow}<button class="btn sm" onclick={reveal}><Icon name="folder" size={14} /> Открыть</button>{/if}
     </div>
@@ -163,7 +163,7 @@
   >
     <Icon name="download" size={26} />
     <b>Перетащите видео или папку с сериалом</b>
-    <small class="muted">или нажмите, чтобы выбрать файлы. С телефона и другого компьютера — тоже.</small>
+    <small class="muted">или нажмите, чтобы выбрать файлы. С телефона и другого компьютера - тоже.</small>
     <input type="file" multiple accept="video/*,.mkv,.avi,.srt,.ass,.vtt" onchange={(e) => add(loose((e.currentTarget as HTMLInputElement).files))} hidden />
   </label>
   <label class="btn folder-pick">

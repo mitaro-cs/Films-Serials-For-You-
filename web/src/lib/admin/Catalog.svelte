@@ -4,6 +4,7 @@
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Modal from '$lib/ui/Modal.svelte';
+  import { ask } from '$lib/ui/dialogs.svelte';
 
   interface Row {
     id: number;
@@ -151,6 +152,27 @@
     load();
   }
 
+  // Фильм без файлов (импорт с сайтов, пустая карточка) - убрать из каталога.
+  async function removeTitle(r: Row) {
+    if (!(await ask(`Убрать «${r.title}» из каталога?`, 'Убрать', true))) return;
+    try {
+      await api(`/api/admin/titles/${r.id}`, { method: 'DELETE' });
+      load();
+    } catch (x) {
+      error = errorText(x);
+    }
+  }
+  const empty = $derived(rows.filter((r) => r.files === 0).length);
+  async function removeEmpty() {
+    if (!(await ask(`Убрать из каталога все фильмы без файлов (${empty})? Файлы на диске это не трогает.`, 'Убрать', true))) return;
+    try {
+      await api('/api/admin/titles/empty', { method: 'DELETE' });
+      load();
+    } catch (x) {
+      error = errorText(x);
+    }
+  }
+
   async function toggleHidden(r: Row) {
     r.hidden = !r.hidden;
     await patch(`/api/admin/titles/${r.id}`, { hidden: r.hidden }).catch(() => (r.hidden = !r.hidden));
@@ -169,6 +191,7 @@
     <option value="manual">Выбрано вручную</option>
     <option value="hidden">Скрытые</option>
   </select>
+  {#if empty}<button class="btn sm danger" onclick={removeEmpty}><Icon name="trash" size={14} /> Убрать все без файлов ({empty})</button>{/if}
 </div>
 {#if error}<p class="error">{error}</p>{/if}
 
@@ -190,6 +213,7 @@
         <button class="btn sm icon" aria-label={r.hidden ? 'Показать' : 'Скрыть'} title={r.hidden ? 'Показать зрителям' : 'Скрыть от зрителей'} onclick={() => toggleHidden(r)}>
           <Icon name={r.hidden ? 'eyeoff' : 'eye'} size={15} />
         </button>
+        {#if r.files === 0}<button class="btn sm icon danger" aria-label="Убрать из каталога" title="Убрать из каталога" onclick={() => removeTitle(r)}><Icon name="trash" size={15} /></button>{/if}
       </div>
     </li>
   {:else}
@@ -208,7 +232,7 @@
       </label>
     </div>
     <label class="field">
-      <span>Возраст — для детских профилей (0+, 6+, 12+, 16+, 18+, PG-13…)</span>
+      <span>Возраст - для детских профилей (0+, 6+, 12+, 16+, 18+, PG-13…)</span>
       <input class="input" bind:value={form.age} maxlength="8" placeholder="Не указан" />
     </label>
     <label class="field"><span>Описание</span><textarea class="input" bind:value={form.overview}></textarea></label>

@@ -21,6 +21,7 @@ axum = { version = "0.8", features = ["macros"] }
 base64 = "0.22"
 futures-util = "0.3"
 hex = "0.4"
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls", "ring", "webpki-roots"] }
 mime_guess = "2"
 parking_lot = "0.12"
 rand = "0.8"
@@ -41,6 +42,9 @@ notify = { version = "8", default-features = false, features = ["macos_fsevent"]
 zip = { version = "2", default-features = false, features = ["deflate"] }
 flate2 = "1"
 tar = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "3"

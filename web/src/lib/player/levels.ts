@@ -1,6 +1,6 @@
 import type { Trickplay } from '$lib/types';
 
-/** Ступени качества HLS — так же, как на сервере (`hls::levels`). */
+/** Ступени качества HLS - так же, как на сервере (`hls::levels`). */
 export function levels(sourceHeight: number | null): number[] {
   const h = sourceHeight ?? 1080;
   if (h < 360) return [h - (h % 2)];

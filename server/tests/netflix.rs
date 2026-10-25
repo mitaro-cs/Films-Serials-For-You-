@@ -31,7 +31,7 @@ fn start_time(bytes: &[u8], dir: &std::path::Path) -> f64 {
 #[tokio::test(flavor = "multi_thread")]
 async fn profiles_taste_hls_trickplay_markers() {
     if !ffmpeg() {
-        eprintln!("нет ffmpeg — пропуск");
+        eprintln!("нет ffmpeg - пропуск");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -67,7 +67,7 @@ async fn profiles_taste_hls_trickplay_markers() {
     host.send("PATCH", &format!("/api/admin/titles/{glavy}"), json!({"genres": ["Комедия", "Драма"]})).await;
     assert!(until(|| async { host.json("/api/admin/status").await["unprobed"] == 0 }).await);
 
-    // ---------- один аккаунт — один профиль (выбора «Кто смотрит?» нет) ----------
+    // ---------- один аккаунт - один профиль (выбора «Кто смотрит?» нет) ----------
     let me = host.json("/api/me").await;
     assert_eq!(me["user"]["profile"]["kids"], false);
     assert!(me.get("profiles").is_none() && me["user"].get("profileChosen").is_none());
@@ -101,7 +101,7 @@ async fn profiles_taste_hls_trickplay_markers() {
     let list = host.json("/api/titles").await;
     assert_eq!(find(&list, "Комедия")["myRating"], 2);
     assert_eq!(find(&list, "Комедия")["matchPct"], 99, "комедии по вкусу");
-    assert!(find(&list, "Главы")["matchPct"].as_i64().is_none_or(|p| p < 99), "драма — «не для меня», совпадение ниже");
+    assert!(find(&list, "Главы")["matchPct"].as_i64().is_none_or(|p| p < 99), "драма - «не для меня», совпадение ниже");
     let home = host.json("/api/home").await;
     let new_row = home["rows"].as_array().unwrap().iter().find(|r| r["key"] == "new").unwrap();
     assert!(!ids(&new_row["items"]).contains(&"Взрослый".to_string()), "«не для меня» не предлагаем");
@@ -127,17 +127,23 @@ async fn profiles_taste_hls_trickplay_markers() {
         .json()
         .await
         .unwrap();
-    assert_eq!(done["done"], true, "начались титры — досмотрено");
+    assert_eq!(done["done"], true, "начались титры - досмотрено");
 
     // ---------- адаптивный HLS ----------
     let master = host.get(&format!("/api/files/{glavy_file}/hls/master.m3u8")).await.text().await.unwrap();
     assert!(master.contains("240/index.m3u8?audio=0"), "{master}");
     let variant = host.get(&format!("/api/files/{glavy_file}/hls/240/index.m3u8")).await.text().await.unwrap();
     assert_eq!(variant.matches("#EXTINF").count(), 4);
-    // Перемотка: сразу третий кусочек, потом первый — время у кусочков то же, что в плейлисте.
-    let seg2 = host.get(&format!("/api/files/{glavy_file}/hls/240/2.ts")).await;
-    assert_eq!(seg2.status(), 200);
-    let t2 = start_time(&seg2.bytes().await.unwrap(), dir.path());
+    // Перемотка: сразу третий кусочек, потом первый - время у кусочков то же, что в плейлисте.
+    let segment_path = format!("/api/files/{glavy_file}/hls/240/2.ts");
+    let segments = futures_util::future::join_all((0..50).map(|_| async {
+        let response = host.get(&segment_path).await;
+        assert_eq!(response.status(), 200);
+        response.bytes().await.unwrap()
+    }))
+    .await;
+    assert!(segments.iter().all(|bytes| bytes == &segments[0]));
+    let t2 = start_time(&segments[0], dir.path());
     let seg0 = host.get(&format!("/api/files/{glavy_file}/hls/240/0.ts")).await.bytes().await.unwrap();
     let t0 = start_time(&seg0, dir.path());
     assert!(((t2 - t0) - 12.0).abs() < 0.3, "кусочек 2 начинается через 12 с после первого: {t0} → {t2}");
@@ -150,6 +156,15 @@ async fn profiles_taste_hls_trickplay_markers() {
         .output()
         .unwrap();
     assert!(out.status.success(), "ffmpeg: {}", String::from_utf8_lossy(&out.stderr));
+
+    let copy_path = format!("/api/files/{glavy_file}/copy/0/index.m3u8");
+    let copies = futures_util::future::join_all((0..50).map(|_| async {
+        let response = host.get(&copy_path).await;
+        assert_eq!(response.status(), 200);
+        assert!(response.text().await.unwrap().contains("#EXTINF"));
+    }))
+    .await;
+    assert_eq!(copies.len(), 50);
 
     // ---------- кадры для перемотки и лёгкие постеры ----------
     assert!(

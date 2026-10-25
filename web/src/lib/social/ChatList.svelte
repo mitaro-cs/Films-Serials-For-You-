@@ -5,7 +5,7 @@
   import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
 
-  // Собеседники: все друзья, сверху — с последними сообщениями. Обновляется раз в 15 с.
+  // Собеседники: все друзья, сверху - с последними сообщениями. Обновляется раз в 15 с.
   let { current = null }: { current?: number | null } = $props();
 
   interface Item {
@@ -18,17 +18,24 @@
   let error = $state('');
 
   $effect(() => {
-    const load = () =>
-      api<{ items: Item[] }>('/api/chats').then(
-        (r) => (items = r.items),
-        (e) => (error = errorText(e)),
-      );
+    const controller = new AbortController();
+    let pending = false;
+    const load = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        const r = await api<{ items: Item[] }>('/api/chats', { signal: controller.signal });
+        if (!controller.signal.aborted) { items = r.items; error = ''; }
+      } catch (e) {
+        if (!controller.signal.aborted) error = errorText(e);
+      } finally { pending = false; }
+    };
     load();
     const t = setInterval(() => document.visibilityState === 'visible' && load(), 15_000);
-    return () => clearInterval(t);
+    return () => { clearInterval(t); controller.abort(); };
   });
 
-  // Открыли переписку — у неё больше нет непрочитанных.
+  // Открыли переписку - у неё больше нет непрочитанных.
   $effect(() => {
     const c = current;
     if (c && items) for (const i of items) if (i.person.id === c) i.unread = 0;
@@ -43,7 +50,7 @@
   {:else if items.length === 0}
     <div class="pad none">
       <Icon name="users" size={32} />
-      <p>Переписка — с друзьями. <a href="/people">Найдите друзей в «Людях»</a>.</p>
+      <p>Переписка - с друзьями. <a href="/people">Найдите друзей в «Людях»</a>.</p>
     </div>
   {:else}
     {#each items as i (i.person.id)}

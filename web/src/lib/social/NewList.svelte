@@ -48,7 +48,7 @@
       {#if friends === null}
         <div class="skeleton ph"></div>
       {:else if friends.length === 0}
-        <p class="muted small">Друзей пока нет — добавьте их в разделе «Люди», а пока список будет только вашим.</p>
+        <p class="muted small">Друзей пока нет - добавьте их в разделе «Люди», а пока список будет только вашим.</p>
       {:else}
         <ul class="who">
           {#each friends as f (f.id)}

@@ -1,9 +1,13 @@
 <script lang="ts">
+  import MailSettings from './MailSettings.svelte';
+  import NightMode from './NightMode.svelte';
+  import SiteImport from './SiteImport.svelte';
   import { api, errorText, post, put } from '$lib/api';
   import { loadMe } from '$lib/session.svelte';
   import Icon from '$lib/ui/Icon.svelte';
 
   interface S {
+    metadataLanguage: 'ru' | 'source';
     siteName: string;
     registration: 'invite' | 'open' | 'closed';
     downloads: boolean;
@@ -11,6 +15,7 @@
     tmdbKeySet: boolean;
     kpKeySet: boolean;
     vkTokenSet: boolean;
+    sites: string[];
     tmdbApi: string;
     tmdbImages: string;
     ffmpegPath: string;
@@ -22,6 +27,7 @@
   let tmdbKey = $state('');
   let kpKey = $state('');
   let vkToken = $state('');
+  let site = $state('');
   let msg = $state('');
   let error = $state('');
 
@@ -43,6 +49,18 @@
     }
   }
 
+  // Свои видеосайты: ссылки с них открываются в плеере Nova (видео ищется на странице).
+  function addSite(e: SubmitEvent) {
+    e.preventDefault();
+    const v = site.trim();
+    if (!s || !v) return;
+    save({ sites: [...s.sites, v] }, 'Сайт добавлен');
+    site = '';
+  }
+  function dropSite(d: string) {
+    if (s) save({ sites: s.sites.filter((x) => x !== d) }, 'Сайт убран');
+  }
+
   async function refreshAll() {
     const r = await post<{ count: number }>('/api/admin/meta/refresh').catch(() => null);
     msg = r ? `Обновляем описания: ${r.count}` : '';
@@ -50,11 +68,14 @@
 </script>
 
 {#if s}
+  <NightMode />
+  <SiteImport />
   {#if msg}<p class="ok">{msg}</p>{/if}
   {#if error}<p class="error">{error}</p>{/if}
 
   <section class="card pane">
     <h3>Сайт</h3>
+    <label class="field"><span>Язык описаний</span><select class="input" value={s.metadataLanguage} onchange={(e) => save({ metadataLanguage: e.currentTarget.value })}><option value="ru">Русский - без английских заглушек</option><option value="source">Разрешить текст на языке источника</option></select></label>
     <form class="line" onsubmit={(e) => (e.preventDefault(), save({ siteName: s!.siteName }))}>
       <label class="field grow"><span>Название</span><input class="input" bind:value={s.siteName} maxlength="60" /></label>
       <button class="btn">Сохранить</button>
@@ -63,8 +84,8 @@
       <span>Регистрация</span>
       <select class="input" value={s.registration} onchange={(e) => save({ registration: (e.target as HTMLSelectElement).value })}>
         <option value="invite">Только по приглашению</option>
-        <option value="open">Открытая — любой, у кого есть адрес</option>
-        <option value="closed">Закрыта — только те, кого добавили вы</option>
+        <option value="open">Открытая - любой, у кого есть адрес</option>
+        <option value="closed">Закрыта - только те, кого добавили вы</option>
       </select>
     </label>
     <label class="check">
@@ -76,7 +97,7 @@
   <section class="card pane">
     <h3>Описания, постеры и актёры</h3>
     <div class="providers">
-      {#each [['imdb', 'IMDb', 'Без ключа. Рейтинг IMDb, актёры, кадры; сюжет — на английском'], ['tmdb', 'TMDB', 'Нужен бесплатный ключ. Описания на русском, фоны, логотипы'], ['kinopoisk', 'Кинопоиск', 'Ключ api.kinopoisk.dev. Всё на русском, 200 запросов в день'], ['off', 'Выключено', 'Только названия из имён файлов']] as [id, name, note] (id)}
+      {#each [['imdb', 'IMDb', 'Без ключа. Рейтинг IMDb, актёры, кадры; сюжет - на английском'], ['tmdb', 'TMDB', 'Нужен бесплатный ключ. Описания на русском, фоны, логотипы'], ['kinopoisk', 'Кинопоиск', 'Ключ api.kinopoisk.dev. Всё на русском, 200 запросов в день'], ['off', 'Выключено', 'Только названия из имён файлов']] as [id, name, note] (id)}
         <button class="prov" class:on={s.provider === id} onclick={() => save({ provider: id })}>
           <b>{name}</b><span class="muted">{note}</span>
         </button>
@@ -125,6 +146,25 @@
     </form>
   </section>
 
+  <section class="card pane" aria-labelledby="own-sites">
+    <h3 id="own-sites">Свои сайты</h3>
+    <p class="muted">
+      Сайты с видео, которым вы доверяете: ссылку со страницы такого сайта можно вставить у фильма - Nova найдёт
+      на странице видео и откроет его в своём плеере (через этот компьютер). Не нашлось - ссылка откроется на сайте.
+    </p>
+    {#if s.sites.length}
+      <ul class="sites">
+        {#each s.sites as d (d)}
+          <li><Icon name="globe" size={15} /><span>{d}</span><button class="btn sm ghost" aria-label="Убрать {d}" onclick={() => dropSite(d)}><Icon name="close" size={14} /></button></li>
+        {/each}
+      </ul>
+    {/if}
+    <form class="line" onsubmit={addSite}>
+      <label class="field grow"><span>Адрес сайта</span><input class="input" bind:value={site} placeholder="kino.example или https://kino.example/film/1" autocomplete="off" /></label>
+      <button class="btn" disabled={!site.trim()}><Icon name="plus" size={14} /> Добавить</button>
+    </form>
+  </section>
+
   <section class="card pane">
     <h3>ffmpeg</h3>
     <p class="muted">
@@ -136,6 +176,8 @@
     </form>
   </section>
 {/if}
+
+<MailSettings />
 
 <style>
   .pane {
@@ -191,6 +233,8 @@
     margin: 0;
   }
   code {
+    /* Путь Windows длинный и без пробелов - переносится где угодно, иначе распирал страницу. */
+    overflow-wrap: anywhere;
     padding: 1px 6px;
     border-radius: 5px;
     background: rgba(0, 0, 0, 0.35);
@@ -203,5 +247,26 @@
     cursor: pointer;
     font-size: 13px;
     margin-bottom: 10px;
+  }
+  .sites {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+  .sites li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 6px 6px 12px;
+    border-radius: 10px;
+    background: var(--surface-2);
+    min-width: 0;
+  }
+  .sites span {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 </style>

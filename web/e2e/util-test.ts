@@ -1,6 +1,6 @@
 import { test as base, expect } from '@playwright/test';
 
-// Любая ошибка JavaScript на странице — провал теста (а не «страница просто пустая»).
+// Любая ошибка JavaScript на странице - провал теста (а не «страница просто пустая»).
 export const test = base.extend<{ errors: string[] }>({
   errors: [
     async ({ page }, use) => {

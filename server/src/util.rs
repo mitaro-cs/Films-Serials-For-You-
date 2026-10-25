@@ -4,13 +4,13 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Миллисекунды Unix (UTC) — так время хранится в базе и отдаётся в API.
+/// Миллисекунды Unix (UTC) - так время хранится в базе и отдаётся в API.
 pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
 /// Время для записей, порядок которых важен (прогресс): строго растёт даже внутри одной
-/// миллисекунды — иначе «последнее просмотренное» при одинаковом времени выбиралось наугад.
+/// миллисекунды - иначе «последнее просмотренное» при одинаковом времени выбиралось наугад.
 pub fn tick_ms() -> i64 {
     use std::sync::atomic::{AtomicI64, Ordering};
     static LAST: AtomicI64 = AtomicI64::new(0);
@@ -33,7 +33,7 @@ pub fn token(bytes: usize) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
 }
 
-/// Код без похожих символов (0/O, 1/I/l) — для приглашений.
+/// Код без похожих символов (0/O, 1/I/l) - для приглашений.
 pub fn human_code(len: usize) -> String {
     const ABC: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let mut b = vec![0u8; len];

@@ -79,7 +79,7 @@
 
 <form class="card pane add" onsubmit={add}>
   <h3><Icon name="folder" size={18} /> Подключить папку как есть</h3>
-  <p class="muted">Своя коллекция на этом компьютере или внешнем диске — без копирования. Подпапки тоже просматриваются, новое подхватывается само.</p>
+  <p class="muted">Своя коллекция на этом компьютере или внешнем диске - без копирования. Подпапки тоже просматриваются, новое подхватывается само.</p>
   <div class="line">
     {#if status.canPick && inWindow}
       <button type="button" class="btn" onclick={pick}><Icon name="folder" size={16} /> Выбрать…</button>
@@ -124,10 +124,10 @@
 <section class="card pane tips">
   <h3><Icon name="info" size={18} /> Как называть файлы</h3>
   <ul class="names">
-    <li><code>Начало (2010)/Inception.2010.1080p.mkv</code> — фильм</li>
-    <li><code>Во все тяжкие/Сезон 1/Breaking.Bad.S01E01.mkv</code> — серия</li>
-    <li><code>Кухня/2 сезон/Серия 7.mp4</code> — тоже понятно</li>
-    <li><code>Фильм.ru.srt</code> рядом с видео — субтитры, <code>poster.jpg</code> — свой постер</li>
+    <li><code>Начало (2010)/Inception.2010.1080p.mkv</code> - фильм</li>
+    <li><code>Во все тяжкие/Сезон 1/Breaking.Bad.S01E01.mkv</code> - серия</li>
+    <li><code>Кухня/2 сезон/Серия 7.mp4</code> - тоже понятно</li>
+    <li><code>Фильм.ru.srt</code> рядом с видео - субтитры, <code>poster.jpg</code> - свой постер</li>
   </ul>
   <p class="muted small">Ошиблись с разбором? Исправьте во вкладке «Каталог».</p>
 </section>

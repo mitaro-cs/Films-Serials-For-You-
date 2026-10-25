@@ -7,6 +7,7 @@ const PAGES = [
   ['/', 'главная'],
   ['/?tab=movies', 'фильмы'],
   ['/?tab=series', 'сериалы'],
+  ['/?tab=anime', 'аниме'],
   ['/?tab=movies&status=want', 'хочу посмотреть'],
   ['/?tab=movies&status=watching', 'смотрю'],
   ['/?tab=movies&status=watched', 'просмотрено'],
@@ -15,6 +16,7 @@ const PAGES = [
   ['/lists', 'списки'],
   ['/discover', 'обзор'],
   ['/discover?chart=top_movies', 'топ-250'],
+  ['/discover?kind=series', 'обзор: сериалы'],
   ['/admin?tab=wishes', 'просьбы'],
   ['/admin', 'управление'],
   ['/admin?tab=folders', 'папки'],
@@ -59,4 +61,26 @@ test('вёрстка: вход (без сессии)', async ({ browser }) => {
   await page.goto(env().publicURL + '/login');
   await expectClean(page, 'вход');
   await ctx.close();
+});
+
+// Другие экраны: маленький телефон, телефон боком, ноутбук, Full HD и 2K (на компьютерном проекте -
+// размеры задаём сами).
+test('вёрстка: любые размеры экрана', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'размеры задаёт сам тест');
+  test.setTimeout(240_000);
+  const sizes = [
+    [320, 640],
+    [844, 390],
+    [1024, 700],
+    [1920, 1080],
+    [2560, 1440],
+  ];
+  const paths = ['/', '/?tab=series', '/discover', '/search?q=на', '/lists', '/profile', `/title/${env().ids['Тьма']}`, `/title/${env().ids['Ла-Ла Ленд']}`];
+  for (const [width, height] of sizes) {
+    await page.setViewportSize({ width, height });
+    for (const path of paths) {
+      await page.goto(url(path));
+      await expectClean(page, `${path} на ${width}×${height}`);
+    }
+  }
 });

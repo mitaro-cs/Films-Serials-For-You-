@@ -1,14 +1,17 @@
 //! Картинки (постеры, фоны, кадры): файлы `<sha256>.<ext>` в каталоге `images`.
-//! Имя — хеш содержимого, поэтому файлы можно кешировать навсегда.
+//! Имя - хеш содержимого, поэтому файлы можно кешировать навсегда.
 
 use anyhow::Context;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
 pub struct Images {
     dir: PathBuf,
     http: reqwest::Client,
+    downloads: Arc<tokio::sync::Semaphore>,
+    urls: Arc<parking_lot::Mutex<HashMap<String, String>>>,
 }
 
 pub const MAX_IMAGE: usize = 15 * 1024 * 1024;
@@ -39,11 +42,11 @@ pub fn valid_name(name: &str) -> bool {
 impl Images {
     pub fn new(dir: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&dir)?;
-        let http = reqwest::Client::builder()
+        let http = crate::outbound::builder()
             .timeout(Duration::from_secs(30))
             .user_agent(concat!("fsfy/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Self { dir, http })
+        Ok(Self { dir, http, downloads: Arc::new(tokio::sync::Semaphore::new(6)), urls: Arc::default() })
     }
 
     pub fn path(&self, name: &str) -> Option<PathBuf> {
@@ -69,14 +72,28 @@ impl Images {
     }
 
     pub async fn download(&self, url: &str) -> anyhow::Result<String> {
+        anyhow::ensure!(crate::outbound::valid_url(&reqwest::Url::parse(url)?), "внутренний адрес запрещён");
+        if let Some(name) = self.urls.lock().get(url).cloned() {
+            return Ok(name);
+        }
+        let _permit = self.downloads.acquire().await?;
+        if let Some(name) = self.urls.lock().get(url).cloned() {
+            return Ok(name);
+        }
         let res = self.http.get(url).send().await?.error_for_status()?;
         if res.content_length().is_some_and(|l| l as usize > MAX_IMAGE) {
             anyhow::bail!("картинка больше 15 МБ");
         }
-        let bytes = res.bytes().await?;
+        let bytes = crate::outbound::limited(res, MAX_IMAGE).await?;
         anyhow::ensure!(bytes.len() <= MAX_IMAGE, "картинка больше 15 МБ");
         let me = self.clone();
-        tokio::task::spawn_blocking(move || me.save(&bytes)).await?
+        let name = tokio::task::spawn_blocking(move || me.save(&bytes)).await??;
+        let mut cache = self.urls.lock();
+        if cache.len() >= 2048 {
+            cache.clear();
+        }
+        cache.insert(url.into(), name.clone());
+        Ok(name)
     }
 
     /// Картинки рядом с видео: poster.jpg, folder.jpg, cover.jpg / fanart.jpg, backdrop.jpg.
@@ -92,7 +109,7 @@ impl Images {
 }
 
 /// Цвет карточки по постеру (как низ билета на макете): преобладающий оттенок картинки,
-/// приглушённый и тёмный — белый текст на нём всегда читается. `rgb` — пиксели RGB подряд.
+/// приглушённый и тёмный - белый текст на нём всегда читается. `rgb` - пиксели RGB подряд.
 pub fn accent(rgb: &[u8]) -> String {
     const BUCKETS: usize = 12;
     let mut sum = [[0.0f64; 4]; BUCKETS];
@@ -199,7 +216,7 @@ mod tests {
     #[test]
     fn accent_follows_poster_and_keeps_text_readable() {
         let fill = |r: u8, g: u8, b: u8| [r, g, b].repeat(200);
-        // Красный постер — красноватый низ, серый — серый.
+        // Красный постер - красноватый низ, серый - серый.
         let red = accent(&fill(200, 40, 30));
         assert!(u8::from_str_radix(&red[1..3], 16).unwrap() > u8::from_str_radix(&red[3..5], 16).unwrap());
         let grey = accent(&fill(128, 128, 128));

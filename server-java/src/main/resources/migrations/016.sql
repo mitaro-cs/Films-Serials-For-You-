@@ -1,0 +1,2 @@
+
+CREATE TABLE person_info (id TEXT PRIMARY KEY, data TEXT NOT NULL, at INTEGER NOT NULL);

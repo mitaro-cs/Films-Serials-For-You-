@@ -1,4 +1,4 @@
-//! IMDb без ключа: поиск — подсказки `v3.sg.media-imdb.com`, описание — GraphQL, которым
+//! IMDb без ключа: поиск - подсказки `v3.sg.media-imdb.com`, описание - GraphQL, которым
 //! пользуется сам сайт IMDb (`caching.graphql.imdb.com`). Название берём русское из «akas»,
 //! если оно есть; сюжет у IMDb обычно на английском.
 //!
@@ -55,7 +55,7 @@ const MAIN: &str = r#"query T($id: ID!) { title(id: $id) {
   genres { genres { text } } runtime { seconds } certificate { rating }
   primaryImage { url width height }
   countriesOfOrigin { countries { id text } } spokenLanguages { spokenLanguages { id text } }
-  principalCredits { category { id text } credits { name { nameText { text } primaryImage { url } } } }
+  principalCredits { category { id text } credits { name { id nameText { text } primaryImage { url } } } }
 } }"#;
 
 const EXTRA: &str = r#"query X($id: ID!) { title(id: $id) {
@@ -63,14 +63,18 @@ const EXTRA: &str = r#"query X($id: ID!) { title(id: $id) {
   akas(first: 80) { edges { node { text country { id } language { id } } } }
   images(first: 40) { edges { node { url width height } } }
   cast: credits(first: 12, filter: { categories: ["actor", "actress"] }) {
-    edges { node { name { nameText { text } primaryImage { url } } ... on Cast { characters { name } } } }
+    edges { node { name { id nameText { text } primaryImage { url } } ... on Cast { characters { name } } } }
   }
-  episodes { seasons { value } }
+  episodes { seasons { number } }
 } }"#;
 
-const EPISODES: &str = r#"query E($id: ID!, $season: String!) { title(id: $id) { episodes {
+/// Серии сезона (с оценкой и длительностью). У сезона IMDb - `seasons { number }`: старое
+/// `seasons { value }` IMDb убрал, и весь дополнительный запрос (русское название, актёры,
+/// кадры) падал с ошибкой.
+pub const EPISODES: &str = r#"query E($id: ID!, $season: String!) { title(id: $id) { episodes {
   episodes(first: 250, filter: { includeSeasons: [$season] }) { edges { node {
-    titleText { text } plot { plotText { plainText } } primaryImage { url }
+    titleText { text } plot { plotText { plainText } } primaryImage { url } runtime { seconds }
+    ratingsSummary { aggregateRating }
     releaseDate { day month year } series { episodeNumber { episodeNumber seasonNumber } }
   } } }
 } } }"#;
@@ -210,7 +214,8 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
         for c in group["credits"].as_array().into_iter().flatten() {
             if let Some(name) = text(&c["name"]["nameText"]["text"]) {
                 let photo = text(&c["name"]["primaryImage"]["url"]).map(|u| sized(&u, 128));
-                people.push(Person { name, role: None, job: job.into(), photo });
+                let id = text(&c["name"]["id"]).filter(|i| i.starts_with("nm"));
+                people.push(Person { name, role: None, job: job.into(), photo, id });
             }
         }
     }
@@ -221,6 +226,7 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
                 role: c["characters"][0]["name"].as_str().map(String::from),
                 job: "actor".into(),
                 photo: text(&c["name"]["primaryImage"]["url"]).map(|u| sized(&u, 128)),
+                id: text(&c["name"]["id"]).filter(|i| i.starts_with("nm")),
             })
         })
         .collect();
@@ -229,7 +235,7 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
         people.extend(cast);
     }
 
-    // Фон и галерея — широкие кадры из «images».
+    // Фон и галерея - широкие кадры из «images».
     let mut wide: Vec<(String, i64)> = edges(&x["images"])
         .filter_map(|i| {
             let (w, h) = (i["width"].as_i64()?, i["height"].as_i64()?);
@@ -237,7 +243,8 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
         })
         .collect();
     wide.dedup_by(|a, b| a.0 == b.0);
-    let backdrop = wide.first().map(|(u, _)| sized(u, 1600));
+    wide.sort_by_key(|(_, width)| std::cmp::Reverse(*width));
+    let backdrop = wide.first().map(|(u, width)| sized(u, (*width as u32).min(3840)));
     let gallery = wide.iter().skip(1).take(8).map(|(u, _)| sized(u, 640)).collect();
 
     Details {
@@ -277,6 +284,13 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
         gallery,
         aka,
         imdb_id: text(&t["id"]),
+        seasons: x["episodes"]["seasons"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|s| s["number"].as_i64().map(|n| n as i32))
+            .filter(|n| *n > 0)
+            .collect(),
         ..Default::default()
     }
 }
@@ -292,6 +306,8 @@ pub fn parse_episodes(t: &Value) -> Vec<Episode> {
                 overview: text(&e["plot"]["plotText"]["plainText"]),
                 still: text(&e["primaryImage"]["url"]).map(|u| sized(&u, 400)),
                 air_date: date(&e["releaseDate"]),
+                rating: e["ratingsSummary"]["aggregateRating"].as_f64(),
+                runtime: e["runtime"]["seconds"].as_i64().map(|s| s / 60).filter(|m| *m > 0),
             })
         })
         .collect()
@@ -337,7 +353,8 @@ mod tests {
                 {"node": {"url": "https://m.media-amazon.com/images/M/w._V1_.jpg", "width": 2000, "height": 1000}},
                 {"node": {"url": "https://m.media-amazon.com/images/M/tall._V1_.jpg", "width": 1000, "height": 1500}}
             ]},
-            "cast": {"edges": [{"node": {"name": {"nameText": {"text": "Emma Stone"}}, "characters": [{"name": "Mia"}]}}]}
+            "cast": {"edges": [{"node": {"name": {"nameText": {"text": "Emma Stone"}}, "characters": [{"name": "Mia"}]}}]},
+            "episodes": {"seasons": [{"number": 1}, {"number": 2}, {"number": -1}]}
         });
         let d = parse_details(&t, &x);
         assert_eq!(d.title, "Ла-Ла Ленд");
@@ -345,9 +362,10 @@ mod tests {
         assert_eq!(d.runtime, Some(128));
         assert_eq!(d.genres, vec!["Комедия", "Драма"]);
         assert_eq!(d.release_date.as_deref(), Some("2016-12-25"));
-        assert!(d.backdrop.unwrap().contains("UX1600"));
+        assert!(d.backdrop.unwrap().contains("UX2000"));
         assert_eq!(d.people.iter().filter(|p| p.job == "actor").count(), 1);
         assert_eq!(d.people[1].role.as_deref(), Some("Mia"));
+        assert_eq!(d.seasons, vec![1, 2]);
     }
 
     #[test]

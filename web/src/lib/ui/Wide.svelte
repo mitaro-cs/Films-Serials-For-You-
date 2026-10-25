@@ -2,35 +2,49 @@
   import { fadeIn } from '$lib/ui/fade';
   import { caption, percent } from '$lib/library';
   import type { Card } from '$lib/types';
+  import { drop } from '$lib/marks';
   import { placeholder } from './art';
-  import Icon from './Icon.svelte';
+  import QuickMarks from './QuickMarks.svelte';
 
-  // Широкая карточка как у Apple TV: кадр 16:9 со скруглением, под ним — название и подпись
-  // («Недавно добавлено», где остановился, статус). Размер задан заранее — ничего не прыгает.
-  let { card, eager = false, i = null }: { card: Card; eager?: boolean; i?: number | null } = $props();
+  // Широкая карточка как у Apple TV: кадр 16:9 со скруглением, под ним - название и подпись
+  // («Недавно добавлено», где остановился, статус), поверх - быстрые отметки. В «Продолжить» -
+  // ещё крестик «Больше не смотрю». Размер задан заранее - ничего не прыгает.
+  let {
+    card,
+    eager = false,
+    i = null,
+    droppable = false,
+  }: { card: Card; eager?: boolean; i?: number | null; droppable?: boolean } = $props();
 
   const src = $derived(card.backdropSmall ?? card.backdrop ?? card.poster);
   const r = $derived(card.status === 'watching' ? card.resume : null);
 </script>
 
-<a class="wide" class:rise={i !== null} style:--i={i} href="/title/{card.id}" style:--tint={card.accent ?? '#2c2c2e'}>
-  <span class="art" style:background={src ? undefined : placeholder(card.title)}>
-    {#if src}
-      <img use:fadeIn {src} alt="" loading={eager ? 'eager' : 'lazy'} decoding="async" width="640" height="360" class:poster={!card.backdropSmall && !card.backdrop} />
-    {/if}
-    {#if card.logo}
-      <img use:fadeIn class="mark" src={card.logo} alt="" loading="lazy" decoding="async" />
-    {:else if !src}
-      <span class="ph">{card.title}</span>
-    {/if}
-    {#if card.status === 'watched'}<span class="done" title="Просмотрено"><Icon name="check" size={14} stroke={3} /></span>{/if}
-    {#if r}<span class="bar" aria-hidden="true"><i style:width="{percent(r.position, r.duration)}%"></i></span>{/if}
-  </span>
-  <span class="name">{card.title}</span>
-  <span class="sub">{caption(card)}</span>
-</a>
+<div class="tile" class:rise={i !== null} style:--i={i}>
+  <a class="wide" href="/title/{card.id}" style:--tint={card.accent ?? '#2c2c2e'}>
+    <span class="art" style:background={src ? undefined : placeholder(card.title)}>
+      {#if src}
+        <img use:fadeIn {src} alt="" loading={eager ? 'eager' : 'lazy'} decoding="async" width="640" height="360" class:poster={!card.backdropSmall && !card.backdrop} />
+      {/if}
+      {#if card.logo}
+        <img use:fadeIn class="mark" src={card.logo} alt="" loading="lazy" decoding="async" />
+      {:else if !src}
+        <span class="ph">{card.title}</span>
+      {/if}
+      {#if r}<span class="bar" aria-hidden="true"><i style:width="{percent(r.position, r.duration)}%"></i></span>{/if}
+    </span>
+    <span class="name">{card.title}</span>
+    <span class="local-label">На Nova</span>
+    <span class="sub">{caption(card)}</span>
+  </a>
+  <QuickMarks {card} kind={card.kind} title={card.title} ratio="16 / 9" ondrop={droppable && card.status === 'watching' ? () => drop(card, card.title) : undefined} />
+</div>
 
 <style>
+  .tile {
+    position: relative;
+    min-width: 0;
+  }
   .wide {
     display: grid;
     gap: 2px;
@@ -48,7 +62,7 @@
     box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.9);
     transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
-  .wide:hover .art,
+  .tile:hover .art,
   .wide:focus-visible .art {
     transform: scale(1.04);
   }
@@ -66,7 +80,7 @@
     height: 100%;
     object-fit: cover;
   }
-  /* Без кадра — постер по центру поверх его же цвета. */
+  /* Без кадра - постер по центру поверх его же цвета. */
   .art img.poster {
     object-position: center 20%;
   }
@@ -91,18 +105,6 @@
     text-transform: uppercase;
     text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
     overflow: hidden;
-  }
-  .done {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.92);
-    color: #000;
   }
   .bar {
     position: absolute;
@@ -131,4 +133,6 @@
     font-size: 13.5px;
     color: rgba(255, 255, 255, 0.5);
   }
+
+  .local-label { font-size: 10px; text-transform: uppercase; letter-spacing: .12em; color: var(--brand); }
 </style>

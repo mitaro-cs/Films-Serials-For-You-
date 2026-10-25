@@ -1,5 +1,5 @@
-//! Последний выпуск на GitHub — для обновления приложения хоста, когда в выпуске нет файлов
-//! автообновления Tauri (`latest.json` подписывается секретом; без него — эта дорога): узнать
+//! Последний выпуск на GitHub - для обновления приложения хоста, когда в выпуске нет файлов
+//! автообновления Tauri (`latest.json` подписывается секретом; без него - эта дорога): узнать
 //! версию, выбрать установщик под систему, скачать его. Ставит приложение (`desktop/update.rs`).
 
 use futures_util::StreamExt;
@@ -35,7 +35,7 @@ struct Asset {
     browser_download_url: String,
 }
 
-/// 1.10.0 > 1.9.3; хвост вроде `-beta.1` — младше выпуска.
+/// 1.10.0 > 1.9.3; хвост вроде `-beta.1` - младше выпуска.
 pub fn newer(candidate: &str, current: &str) -> bool {
     fn parts(v: &str) -> (Vec<u64>, bool) {
         let v = v.trim().trim_start_matches('v');
@@ -53,7 +53,7 @@ pub fn newer(candidate: &str, current: &str) -> bool {
     !ap && bp
 }
 
-/// Установщик под систему: Windows — `*-setup.exe`, Mac — `.dmg` своей архитектуры.
+/// Установщик под систему: Windows - `*-setup.exe`, Mac - `.dmg` своей архитектуры.
 pub fn pick(names: &[String], os: &str, arch: &str) -> Option<usize> {
     let mac_arch = if arch == "aarch64" { "aarch64" } else { "x64" };
     names.iter().position(|n| match os {

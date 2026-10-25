@@ -9,7 +9,7 @@
   import { toast } from '$lib/ui/toast.svelte';
 
   // Оформление личной страницы: обложка, свой цвет, «о себе», до шести любимых фильмов
-  // (выбираются из «Буду смотреть» и «Просмотрел» — с сервиса и из Обзора).
+  // (выбираются из «Буду смотреть» и «Просмотрел» - с сервиса и из Обзора).
   let { profileId }: { profileId: number } = $props();
 
   const COLORS = ['#f5f5f7', '#ff453a', '#ff9f0a', '#ffd60a', '#30d158', '#64d2ff', '#0a84ff', '#5e5ce6', '#bf5af2', '#ff375f'];
@@ -57,7 +57,8 @@
     if (!decor) return;
     const k = keyOf(i);
     if (favKeys.includes(k)) decor.favorites = decor.favorites.filter((f) => f.key !== k);
-    else if (decor.favorites.length >= MAX) return void toast(`Любимых — не больше ${MAX}`);
+    else if (decor.favorites.filter((x) => (x.card ?? x.ext)?.kind === (i.card ?? i.ext)?.kind).length >= MAX)
+      return void toast(`Любимых ${(i.card ?? i.ext)?.kind === 'series' ? 'сериалов' : 'фильмов'} - не больше ${MAX}`);
     else decor.favorites = [...decor.favorites, { key: k, card: i.card, ext: i.ext }];
     const keys = decor.favorites.map((f) => f.key);
     save({ favorites: keys });
@@ -67,7 +68,7 @@
   // Любимые режиссёры: из тех, чьи фильмы смотрел, или любое имя вручную.
   function setDirectors(list: string[]) {
     if (!decor) return;
-    if (list.length > MAX) return void toast(`Любимых режиссёров — не больше ${MAX}`);
+    if (list.length > MAX) return void toast(`Любимых режиссёров - не больше ${MAX}`);
     decor.directors = list;
     save({ directors: list });
   }
@@ -172,12 +173,12 @@
     </div>
 
     <div class="field">
-      <span>Любимое <small class="faint">{decor.favorites.length}/{MAX}</small></span>
+      <span>Любимое <small class="faint">фильмы {decor.favorites.filter((x) => (x.card ?? x.ext)?.kind === 'movie').length}/{MAX} · сериалы {decor.favorites.filter((x) => (x.card ?? x.ext)?.kind === 'series').length}/{MAX}</small></span>
       {#if pool.length}
         <div class="pool">
           {#each pool as i (keyOf(i))}
             <div class="pick" class:on={favKeys.includes(keyOf(i))}>
-              <Poster card={i.ext} local={i.card ?? null} />
+              <Poster card={i.ext} local={i.card ?? null} marks={false} />
               <button class="star" aria-pressed={favKeys.includes(keyOf(i))} aria-label="В любимое" title="В любимое" onclick={() => toggleFav(i)}>
                 <Icon name="heart" size={15} />
               </button>
@@ -185,9 +186,21 @@
           {/each}
         </div>
       {:else}
-        <p class="muted small">Отметьте фильмы «Буду смотреть» или «Просмотрел» — их можно будет выбрать сюда.</p>
+        <p class="muted small">Отметьте фильмы «Буду смотреть» или «Просмотрел» - их можно будет выбрать сюда.</p>
       {/if}
     </div>
+    <label class="share">
+      <input
+        type="checkbox"
+        checked={decor.showActivity}
+        onchange={(e) => {
+          if (!decor) return;
+          decor.showActivity = e.currentTarget.checked;
+          save({ showActivity: decor.showActivity }, decor.showActivity ? 'Друзья видят, что вы смотрите' : 'Что вы смотрите - теперь видно только вам');
+        }}
+      />
+      <span><b>Показывать друзьям, что я смотрю</b> - «Сейчас смотрит» на вашей странице, «Друзья смотрят» в Обзоре и у фильмов.</span>
+    </label>
   {:else}
     <div class="ph skeleton"></div>
   {/if}
@@ -349,5 +362,26 @@
   .ph {
     height: 200px;
     border-radius: 12px;
+  }
+  .share {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-size: 14px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .share b {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .share input {
+    margin-top: 3px;
+    width: 18px;
+    height: 18px;
+    accent-color: #fff;
+    flex: none;
   }
 </style>

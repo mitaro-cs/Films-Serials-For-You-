@@ -15,6 +15,10 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
+// Автообновление (GitHub) с 1.0 выключено: выпуски собираются у владельца, новая версия ставится
+// установщиком поверх. Код оставлен - включить снова, если выпуски вернутся на GitHub.
+mod night;
+#[allow(dead_code)]
 mod update;
 
 pub const TITLE: &str = "Nova";
@@ -27,21 +31,26 @@ struct DesktopHost {
 }
 
 impl Host for DesktopHost {
+    fn night(&self, action: &str, lights: bool) -> serde_json::Value {
+        self.app
+            .get()
+            .map(|app| night::action(app, action, lights))
+            .unwrap_or_else(|| serde_json::json!({"ok":false,"error":"Окно хоста недоступно"}))
+    }
+    fn fullscreen(&self, enabled: bool) -> bool {
+        self.app
+            .get()
+            .and_then(|app| app.get_webview_window("main"))
+            .is_some_and(|window| window.set_fullscreen(enabled).is_ok())
+    }
+    // Обновления - новым установщиком (см. `mod update`): «Управление → Версия» так и пишет.
     fn update_info(&self) -> Option<fsfy::host::UpdateInfo> {
-        Some(self.app.get()?.state::<update::Updates>().info())
+        None
     }
 
-    fn update_check(&self) {
-        if let Some(app) = self.app.get() {
-            update::from_page(app, false);
-        }
-    }
+    fn update_check(&self) {}
 
-    fn update_install(&self) {
-        if let Some(app) = self.app.get() {
-            update::from_page(app, true);
-        }
-    }
+    fn update_install(&self) {}
 
     fn can_pick(&self) -> bool {
         true
@@ -53,7 +62,7 @@ impl Host for DesktopHost {
     }
 
     fn media_dir(&self) -> Option<PathBuf> {
-        // «Фильмы» на Mac, «Видео» на Windows; нет — домашняя папка.
+        // «Фильмы» на Mac, «Видео» на Windows; нет - домашняя папка.
         let app = self.app.get()?;
         app.path().video_dir().or_else(|_| app.path().home_dir()).ok()
     }
@@ -139,8 +148,6 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(update::Updates::default())
         .setup(|app| {
             let handle = app.handle().clone();
             let host = Arc::new(DesktopHost::default());
@@ -165,11 +172,20 @@ fn main() {
 
             let hidden = std::env::args().any(|a| a == "--hidden");
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(entry))
+                .initialization_script("Object.defineProperty(window, '__NOVA_DESKTOP__', { value: true });")
                 .title(TITLE)
                 .inner_size(1360.0, 860.0)
                 .min_inner_size(960.0, 620.0)
                 .background_color(tauri::window::Color(0, 0, 0, 255))
                 .visible(!hidden)
+                .on_new_window(|url, _| {
+                    // WebView2's PiP settings point at an Edge-only page.
+                    if matches!(url.scheme(), "edge" | "chrome") {
+                        tauri::webview::NewWindowResponse::Deny
+                    } else {
+                        tauri::webview::NewWindowResponse::Allow
+                    }
+                })
                 .build()?;
 
             // Трей: сайт работает, пока работает приложение, даже с закрытым окном.
@@ -184,12 +200,25 @@ fn main() {
                 app.autolaunch().is_enabled().unwrap_or(false),
                 None::<&str>,
             )?;
-            let upd = MenuItem::with_id(app, "update", "Проверить обновления", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Выключить сайт и выйти", true, None::<&str>)?;
+            let night = MenuItem::with_id(
+                app,
+                "night",
+                "Погасить экран · сайт работает",
+                cfg!(target_os = "windows"),
+                None::<&str>,
+            )?;
+            let lights = MenuItem::with_id(
+                app,
+                "lights",
+                "Восстановить подсветку MSI",
+                cfg!(target_os = "windows"),
+                None::<&str>,
+            )?;
             let sep = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
-            let menu = Menu::with_items(app, &[&open, &link, &browser, &sep, &autostart, &upd, &sep2, &quit])?;
-            app.state::<update::Updates>().set_item(upd);
+            let menu =
+                Menu::with_items(app, &[&open, &link, &browser, &sep, &night, &lights, &autostart, &sep2, &quit])?;
             *host.link_item.lock() = Some(link);
             // Адрес мог прийти раньше, чем появилось меню.
             let v = running.app.access.view(&running.app);
@@ -220,8 +249,22 @@ fn main() {
                         let _ = if on { al.disable() } else { al.enable() };
                         let _ = auto.set_checked(al.is_enabled().unwrap_or(false));
                     }
-                    "update" => update::menu(app),
                     "quit" => app.exit(0),
+                    "night" | "lights" => {
+                        let handle = app.clone();
+                        let action = if e.id().as_ref() == "night" { "off" } else { "restore" };
+                        std::thread::spawn(move || {
+                            let result = night::action(&handle, action, false);
+                            if result["ok"] != true {
+                                handle
+                                    .dialog()
+                                    .message(result["error"].as_str().unwrap_or("Не удалось выполнить команду"))
+                                    .title("Ночной режим Nova")
+                                    .kind(MessageDialogKind::Error)
+                                    .show(|_| {});
+                            }
+                        });
+                    }
                     _ => {}
                 })
                 .build(app)?;
@@ -237,20 +280,16 @@ fn main() {
                 .ok();
 
             app.manage(State { running: Mutex::new(Some(running)), _host: host, _awake: Mutex::new(awake) });
-            // В сборке для разработки обновлений нет: версия там не из выпуска.
-            if !cfg!(debug_assertions) {
-                update::start(handle.clone());
-            }
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            // Закрыли окно — сайт продолжает работать в трее.
+            // Закрыли окно - сайт продолжает работать в трее.
             WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
             }
             // Перетащили фильмы в окно: папки подключаются, файлы копируются в свою папку.
-            // Странице — событие `fsfy-drag` (подсветка) и `fsfy-drop` (что сделано).
+            // Странице - событие `fsfy-drag` (подсветка) и `fsfy-drop` (что сделано).
             WindowEvent::DragDrop(e) => drag_drop(window, e),
             _ => {}
         })

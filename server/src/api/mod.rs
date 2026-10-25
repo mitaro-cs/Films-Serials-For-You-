@@ -1,16 +1,25 @@
-//! HTTP API. Права: `Viewer` — любой вошедший, `Manager` — хост или администратор.
+//! HTTP API. Права: `Viewer` - любой вошедший, `Manager` - хост или администратор.
 
 pub(crate) mod account;
+mod activity;
 mod admin;
 mod catalog;
 mod discover;
-mod links;
+pub(crate) mod links;
 mod lists;
+pub(crate) mod mail;
+mod next_episode;
 mod play;
+mod previews;
 mod profile;
 mod profiles;
+mod resume;
+mod rooms;
+pub(crate) mod site_import;
 mod social;
+pub(crate) mod stream_link;
 
+pub use links::backfill_thumbs as backfill_link_thumbs;
 pub use play::busy;
 
 use crate::App;
@@ -23,15 +32,24 @@ use tower_http::compression::Predicate;
 
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
+        .route("/api/host/sites/import", post(site_import::import))
         .route("/api/health", get(account::health))
         .route("/api/site", get(account::site))
         .route("/api/site/wall", get(discover::wall))
         .route("/api/site/wall/{name}", get(discover::wall_image))
         .route("/api/auth/login", post(account::login))
         .route("/api/auth/logout", post(account::logout))
+        .route("/api/auth/forgot-password", post(mail::forgot))
+        .route("/api/auth/reset-password", post(mail::reset))
+        .route("/api/auth/verify-email", post(mail::verify))
+        .route("/api/me/email", get(mail::email).post(mail::request_verify))
+        .route("/api/admin/mail", get(mail::settings).put(mail::save_settings))
+        .route("/api/admin/mail/test", post(mail::test_mail))
         .route("/api/auth/register", post(account::register))
         .route("/api/invites/{code}", get(account::invite))
         .route("/api/host/enter", get(account::enter))
+        .route("/api/host/fullscreen", post(account::fullscreen))
+        .route("/api/host/night", post(account::night))
         .route("/api/me", get(account::me).patch(account::update_me))
         .route("/api/me/password", put(account::password))
         // каталог
@@ -43,7 +61,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/titles/{id}/rating", put(catalog::set_rating))
         .route("/api/list/{id}", put(catalog::set_list))
         .route("/api/library", get(catalog::library))
+        .route("/api/continue", get(resume::list))
         .route("/api/titles/{id}/watched", put(catalog::set_watched))
+        .route("/api/titles/{id}/status", put(catalog::set_status))
+        .route("/api/friends/activity", get(activity::friends))
         .route("/img/{name}", get(catalog::image))
         // люди
         .route("/api/titles/{id}/reviews", get(social::reviews).post(social::add_review))
@@ -57,11 +78,22 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/lists/{id}/move", put(lists::move_item))
         .route("/api/discover", get(discover::feed))
         .route("/api/discover/search", get(discover::search))
+        .route("/api/discover/poster/{id}", get(discover::poster))
+        .route("/api/discover/art", get(crate::media_meta::image))
         .route("/api/discover/chart/{key}", get(discover::chart))
         .route("/api/discover/title/{id}", get(discover::title))
+        .route("/api/discover/title/{id}/trailer", get(previews::trailer))
+        .route("/api/discover/title/{id}/trailer/hd", get(previews::trailer_hd))
         .route("/api/discover/title/{id}/mark", put(discover::mark))
         .route("/api/discover/title/{id}/wish", put(discover::wish))
         .route("/api/discover/title/{id}/lists", get(lists::ext_lists))
+        .route("/api/discover/title/{id}/episodes", get(discover::episodes))
+        .route("/api/discover/title/{id}/ratings", get(discover::ratings))
+        .route("/api/people/imdb", get(discover::director))
+        .route("/api/franchise", get(discover::franchise))
+        .route("/api/discover/title/{id}/seen", put(discover::seen))
+        .route("/api/discover/title/{id}/reviews", get(social::ext_reviews).post(social::add_ext_review))
+        .route("/api/discover/title/{id}/stars", delete(social::clear_ext_stars))
         .route("/api/me/marks", get(discover::my_marks))
         .route("/api/me/profile", patch(profile::set_decor))
         .route("/api/me/favorites", put(profile::set_favorite))
@@ -76,7 +108,15 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/admin/discover/refresh", post(discover::refresh))
         .route("/api/links", get(links::list).post(links::add))
         .route("/api/links/search", get(links::search))
+        .route("/api/links/thumbnail", get(links::thumbnail))
         .route("/api/links/{id}", get(links::one).delete(links::delete))
+        .route("/api/links/{id}/progress", put(links::progress))
+        .route("/api/links/{id}/resume", get(links::resume))
+        .route("/api/links/{id}/wrong", post(links::wrong))
+        .route("/api/links/{id}/next", get(next_episode::next))
+        .route("/api/links/{id}/stream/source", get(stream_link::source))
+        .route("/api/links/{id}/stream/index.m3u8", get(stream_link::index))
+        .route("/api/links/{id}/stream/p", get(stream_link::part))
         .route("/api/lists/{id}", get(lists::list).patch(lists::rename).delete(lists::delete))
         .route("/api/lists/{id}/members", post(lists::invite))
         .route("/api/lists/{id}/items/{title}", put(lists::item))
@@ -99,6 +139,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/files/{id}/info", get(play::info))
         .route("/api/files/{id}/raw", get(play::raw))
         .route("/api/files/{id}/download", get(play::download))
+        .route("/api/titles/{id}/download", get(play::download_all))
         .route("/api/files/{id}/play", get(play::remux))
         .route("/api/files/{id}/subs/{sid}", get(play::subs))
         .route("/api/files/{id}/copy/{audio}/index.m3u8", get(play::copy_playlist))
@@ -108,7 +149,17 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/files/{id}/hls/{h}/{seg}", get(play::hls_segment))
         .route("/api/files/{id}/trickplay/{sheet}", get(play::trickplay))
         .route("/api/files/{id}/markers", put(play::set_markers))
-        .route("/api/progress/{id}", put(play::save_progress).delete(play::clear_progress))
+        .route("/api/progress/{id}", get(play::get_progress).put(play::save_progress).delete(play::clear_progress))
+        // смотреть вместе
+        .route("/api/rooms", post(rooms::create))
+        .route("/api/rooms/{id}", get(rooms::info))
+        .route("/api/rooms/{id}/events", get(rooms::events))
+        .route("/api/rooms/{id}/state", post(rooms::set_state))
+        .route("/api/rooms/{id}/chat", post(rooms::chat))
+        .route("/api/rooms/{id}/react", post(rooms::react))
+        .route("/api/rooms/{id}/invite", post(rooms::invite))
+        .route("/api/rooms/{id}/voice", post(rooms::voice))
+        .route("/api/rooms/{id}/signal", post(rooms::signal))
         // управление
         .route("/api/admin/status", get(admin::status))
         .route("/api/admin/settings", get(admin::settings).put(admin::save_settings))
@@ -122,7 +173,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/admin/upload", put(admin::upload).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/api/admin/meta/refresh", post(admin::refresh_all))
         .route("/api/admin/titles", get(admin::titles))
-        .route("/api/admin/titles/{id}", patch(admin::edit_title))
+        .route("/api/admin/titles/{id}", patch(admin::edit_title).delete(admin::delete_title))
+        .route("/api/admin/titles/empty", delete(admin::delete_empty_titles))
         .route("/api/admin/titles/{id}/search", get(admin::search_meta))
         .route("/api/admin/titles/{id}/match", post(admin::match_meta))
         .route("/api/admin/titles/{id}/refresh", post(admin::refresh_title))
@@ -147,6 +199,8 @@ pub fn router(app: Arc<App>) -> Router {
             tower_http::compression::CompressionLayer::new().gzip(true).compress_when(
                 tower_http::compression::predicate::SizeAbove::new(1024)
                     .and(tower_http::compression::predicate::NotForContentType::new("video/"))
+                    // Поток событий комнаты сжатие копило бы - события приходили бы пачками.
+                    .and(tower_http::compression::predicate::NotForContentType::new("text/event-stream"))
                     .and(tower_http::compression::predicate::NotForContentType::IMAGES),
             ),
         )
@@ -184,9 +238,9 @@ pub struct Card {
     pub country: Option<String>,
     pub director: Option<String>,
     pub accent: Option<String>,
-    /// Кадр 640 px для широкой карточки (нет — кадр серии или большой кадр).
+    /// Кадр 640 px для широкой карточки (нет - кадр серии или большой кадр).
     pub backdrop_small: Option<String>,
-    /// Статус профиля: want («Хочу посмотреть»), watching, watched; None — ничего.
+    /// Статус профиля: want («Хочу посмотреть»), watching, watched; None - ничего.
     pub status: Option<&'static str>,
     /// Когда отмечено «Просмотрено» (для белого билета).
     pub watched_at: Option<i64>,
@@ -195,7 +249,7 @@ pub struct Card {
 }
 
 pub fn img(name: Option<String>) -> Option<String> {
-    name.map(|n| format!("/img/{n}"))
+    name.map(|n| if n.starts_with('/') { n } else { format!("/img/{n}") })
 }
 
 pub fn json_list(s: Option<String>) -> Vec<String> {
@@ -203,7 +257,7 @@ pub fn json_list(s: Option<String>) -> Vec<String> {
 }
 
 /// Видно зрителям: не скрыто и хотя бы один файл на месте.
-pub const VISIBLE: &str = "t.hidden = 0 AND EXISTS (SELECT 1 FROM files f WHERE f.title_id = t.id AND f.missing = 0)";
+pub const VISIBLE: &str = "t.hidden = 0 AND (EXISTS (SELECT 1 FROM files f WHERE f.title_id = t.id AND f.missing = 0) OR EXISTS (SELECT 1 FROM links l WHERE l.title_id=t.id))";
 
 /// Детский профиль: возраст до 12+ или мультфильмы и семейное.
 pub const KIDS: &str = "((t.age_min IS NOT NULL AND t.age_min <= 12) OR EXISTS (SELECT 1 FROM json_each(t.genres)
@@ -220,7 +274,7 @@ pub fn visible(kids: bool) -> String {
 pub const CARD_COLS: &str = "t.id, t.kind, t.title, t.original_title, t.year, COALESCE(t.poster_sm, t.poster), t.poster,
     COALESCE(t.backdrop_md, t.backdrop, (SELECT f.still FROM files f WHERE f.title_id = t.id AND f.still IS NOT NULL ORDER BY f.season, f.episode LIMIT 1)),
     t.logo, t.rating, t.genres, t.overview,
-    -- Без описания из интернета длительность фильма — по самому файлу.
+    -- Без описания из интернета длительность фильма - по самому файлу.
     COALESCE(t.runtime, CASE WHEN t.kind = 'movie' THEN (SELECT CAST(ROUND(SUM(f.duration) / 60.0) AS INTEGER)
       FROM files f WHERE f.title_id = t.id AND f.missing = 0 AND f.duration > 0) END),
     t.age, t.added_at,
@@ -246,7 +300,7 @@ pub fn card(r: &Row) -> rusqlite::Result<Card> {
         backdrop: img(r.get(7)?),
         logo: img(r.get(8)?),
         rating: r.get(9)?,
-        genres: json_list(r.get(10)?),
+        genres: crate::meta::genres_ru(json_list(r.get(10)?)),
         overview: r.get(11)?,
         runtime: r.get(12)?,
         age: r.get(13)?,

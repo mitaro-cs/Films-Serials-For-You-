@@ -14,7 +14,7 @@ pub fn make_video(path: &Path, audio: &str) {
     make_video_with(path, audio, 4, None);
 }
 
-/// Видео длиной `secs` секунд; `chapters` — файл FFMETADATA с главами.
+/// Видео длиной `secs` секунд; `chapters` - файл FFMETADATA с главами.
 pub fn make_video_with(path: &Path, audio: &str, secs: u32, chapters: Option<&Path>) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let mut c = Command::new("ffmpeg");

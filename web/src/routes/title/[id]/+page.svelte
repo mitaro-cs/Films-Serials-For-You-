@@ -1,4 +1,10 @@
 <script lang="ts">
+  import { countriesRu, languagesRu } from '$lib/countries';
+  import MobileHero from '$lib/title/MobileHero.svelte';
+  import Modal from '$lib/ui/Modal.svelte';
+  import { untrack } from 'svelte';
+  import { progressSync } from '$lib/progressSync.svelte';
+  import { localized } from '$lib/localized.svelte';
   import { fadeIn } from '$lib/ui/fade';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -7,8 +13,14 @@
   import { rate, toggleList, toggleWatched } from '$lib/cards.svelte';
   import { count, date, kindLabel, runtime, size, votes } from '$lib/fmt';
   import { day, left, percent } from '$lib/library';
+  import { drop, toggle } from '$lib/marks';
   import { session } from '$lib/session.svelte';
+  import FriendsStrip from '$lib/social/FriendsStrip.svelte';
   import Reviews from '$lib/social/Reviews.svelte';
+  import Downloads from '$lib/title/Downloads.svelte';
+  import Franchise from '$lib/title/Franchise.svelte';
+  import RatingsGrid from '$lib/title/RatingsGrid.svelte';
+  import SeriesHero, { type Ep } from '$lib/title/SeriesHero.svelte';
   import ListPicker from '$lib/social/ListPicker.svelte';
   import ShareTitle from '$lib/social/ShareTitle.svelte';
   import StarInput from '$lib/social/StarInput.svelte';
@@ -16,23 +28,26 @@
   import LinkCard from '$lib/links/LinkCard.svelte';
   import LinkFinder from '$lib/links/LinkFinder.svelte';
   import type { FileItem, Person, Review, Reviews as ReviewsData, TitleDetail, VideoLink } from '$lib/types';
+  import { personHref } from '$lib/people';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
+  import TrailerBanner from '$lib/title/TrailerBanner.svelte';
 
   // Страница фильма по референсу: большой кадр, постер и «Смотреть», панель действий
-  // (хочу / просмотрено / нравится, оценка, обсудить, отзыв), ниже — лист: оценки и отзывы,
+  // (хочу / просмотрено / нравится, оценка, обсудить, отзыв), ниже - лист: оценки и отзывы,
   // серии, актёры, отзывы, похожие, сюжет, детали.
   let t = $state<TitleDetail | null>(null);
   let rv = $state<ReviewsData | null>(null);
   let error = $state('');
-  let season = $state<number | null>(null);
   let castAll = $state(false);
   let shot = $state<number | null>(null);
   let sharing = $state(false);
   let picking = $state(false);
+  let moreOpen = $state(false);
   let reviewsBox = $state<ReturnType<typeof Reviews>>();
   let links = $state<VideoLink[]>([]);
+  let sourceEpisode = $state<Ep | null>(null);
   let finding = $state(false);
 
   function loadLinks() {
@@ -45,10 +60,11 @@
 
   const id = $derived(Number(page.params.id));
 
-  // Фильм и отзывы — вместе: если отзывы придут позже, разделы под ними сдвинутся (CLS).
+  // Фильм и отзывы - вместе: если отзывы придут позже, разделы под ними сдвинутся (CLS).
   $effect(() => {
     const want = id;
     t = null;
+    sourceEpisode = null;
     rv = null;
     error = '';
     const empty: ReviewsData = { average: null, votes: 0, total: 0, items: [], canWrite: false };
@@ -62,12 +78,34 @@
         rv = r;
         links = l;
         t = d;
-        const cur = d.files.find((f) => f.id === d.next?.fileId);
-        season = cur?.season ?? d.seasons[0] ?? null;
         if (page.url.searchParams.get('play') && d.next) goto(`/watch/${d.next.fileId}`, { replaceState: true });
       },
       (e) => (error = errorText(e)),
     );
+  });
+
+  // Смотрели на другом устройстве - тихо обновить место («Продолжить», серии), без заглушки.
+  $effect(() => {
+    if (!t?.metadataPending) return;
+    const want = id;
+    const controller = new AbortController();
+    let busy = false;
+    const timer = setInterval(async () => {
+      if (busy || document.visibilityState !== 'visible') return;
+      busy = true;
+      try {
+        const detail = await api<TitleDetail>(`/api/titles/${want}`, { signal: controller.signal });
+        if (!controller.signal.aborted && want === id) t = detail;
+      } catch { /* Keep the already visible card during a network interruption. */ }
+      finally { busy = false; }
+    }, 5000);
+    return () => { clearInterval(timer); controller.abort(); };
+  });
+
+  $effect(() => {
+    if (!progressSync.stamp) return;
+    const want = untrack(() => id);
+    api<TitleDetail>('/api/titles/' + want).then((d) => { if (want === id && t) t = d; }, () => {});
   });
 
   const c = $derived(t?.card);
@@ -75,10 +113,10 @@
   const crew = $derived(people.filter((p) => p.job === 'director' || p.job === 'creator'));
   const cast = $derived(people.filter((p) => p.job === 'actor'));
   const team = $derived([...crew.map((p) => ({ ...p, role: p.job === 'creator' ? 'Создатель' : 'Режиссёр' })), ...cast]);
-  const episodes = $derived((t?.files ?? []).filter((f) => season === null || f.season === season));
   const isSeries = $derived(c?.kind === 'series');
+  const next = $derived(t?.next ?? null);
   const started = $derived(!!t?.next && t.next.position > 5);
-  /** Своя оценка — последняя из своих отзывов со звёздами. */
+  /** Своя оценка - последняя из своих отзывов со звёздами. */
   const mine = $derived(rv?.items.find((r) => r.mine && r.stars) ?? null);
 
   async function setStars(v: number | null) {
@@ -107,18 +145,60 @@
     setTimeout(() => reviewsBox?.focus(), 400);
   }
 
-  function epLabel(f: FileItem) {
-    if (f.episode === null) return f.fileName;
-    return f.episodeEnd ? `${f.episode}–${f.episodeEnd}` : String(f.episode);
-  }
-
   function pct(f: FileItem) {
     if (!f.progress) return 0;
     if (f.progress.done) return 100;
     return Math.min(100, (f.progress.position / f.progress.duration) * 100);
   }
 
-  // Обложка и фон — прямо отсюда, без файлов в папке фильма (хост и администраторы).
+  // Серии для ленты сериала (как у HBO GO): все сезоны подряд, текущая - та, что запустит «Смотреть».
+  const eps = $derived<Ep[]>(
+    (t?.files ?? []).map((f) => {
+      const p = pct(f);
+      const name = f.name ?? (f.episode !== null ? `${f.episode} серия` : f.fileName);
+      return {
+        key: String(f.id),
+        season: f.season ?? 1,
+        episode: f.episodeEnd ? null : f.episode,
+        name: f.episodeEnd ? `${f.episode}-${f.episodeEnd}. ${name}` : name,
+        overview: f.overview,
+        still: f.still,
+        minutes: f.duration && f.duration >= 60 ? Math.round(f.duration / 60) : null,
+        rating: f.rating,
+        date: f.airDate,
+        pct: p,
+        done: !!f.progress?.done,
+        left: f.progress && !f.progress.done && f.progress.position > 5 ? left(f.progress.position, f.progress.duration) : null,
+        href: `/watch/${f.id}`,
+        current: f.id === t?.next?.fileId,
+      };
+    }),
+  );
+  const selectedSourceEpisode = $derived(sourceEpisode ?? eps.find((e) => e.current) ?? eps[0] ?? null);
+  const seriesProgress = $derived.by(() => {
+    if (!t || !isSeries || !t.next) return null;
+    const done = t.files.filter((f) => f.progress?.done).length;
+    if (!done && !started) return null;
+    const cur = t.files.find((f) => f.id === t?.next?.fileId);
+    const label = cur?.season !== null && cur?.episode !== null && cur ? `S${String(cur.season).padStart(2, '0')} E${String(cur.episode).padStart(2, '0')}` : '';
+    return { label, pct: (done / Math.max(1, t.files.length)) * 100 };
+  });
+
+  // Смотреть вместе: комната на то, что запустит «Смотреть», с того же места.
+  let roomBusy = $state(false);
+  async function together() {
+    if (!t?.next || roomBusy) return;
+    roomBusy = true;
+    try {
+      const r = await post<{ id: string }>('/api/rooms', { fileId: t.next.fileId, position: t.next.position });
+      goto(`/room/${r.id}`);
+    } catch (x) {
+      toast(errorText(x));
+      roomBusy = false;
+    }
+  }
+
+  // Обложка и фон - прямо отсюда, без файлов в папке фильма (хост и администраторы).
   let artBusy = $state('');
   async function setArt(which: 'poster' | 'backdrop', e: Event) {
     const input = e.currentTarget as HTMLInputElement;
@@ -150,61 +230,58 @@
 {#if error}
   <div class="page empty"><Icon name="info" size={40} /> {error}</div>
 {:else if t && c}
-  <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
-    <div class="bg" aria-hidden="true">
-      {#key c.backdrop}
-        {#if c.backdrop}<img use:fadeIn src={c.backdrop} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
-      {/key}
-    </div>
-    {#if session.me?.manage}
-      <div class="art-edit">
-        <label class="glass" class:busy={artBusy === 'poster'}>
-          <Icon name="image" size={15} /> {artBusy === 'poster' ? 'Загружаем…' : 'Обложка'}
-          <input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => setArt('poster', e)} hidden />
-        </label>
-        <label class="glass" class:busy={artBusy === 'backdrop'}>
-          <Icon name="image" size={15} /> {artBusy === 'backdrop' ? 'Загружаем…' : 'Фон'}
-          <input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => setArt('backdrop', e)} hidden />
-        </label>
-      </div>
-    {/if}
-    <div class="wrap">
-      <div class="poster-col">
-        <div class="poster" style:background={c.posterLarge ? undefined : placeholder(c.title)}>
-          {#if c.posterLarge}<img use:fadeIn src={c.posterLarge} alt={c.title} width="460" height="690" decoding="async" />{:else}<span>{c.title}</span>{/if}
+  {#if isSeries}
+    <MobileHero
+      title={c.title}
+      art={c.backdrop ?? c.posterLarge ?? c.poster}
+      fallback={c.poster}
+      tall={!c.backdrop}
+      imdbId={t.imdbId}
+      meta={[c.year ? `С ${c.year}` : '', c.genres[0] ?? '', countriesRu(t.countries)[0] ?? '', count(c.seasons || 1, 'сезон', 'сезона', 'сезонов'), c.age ?? ''].filter(Boolean)}
+      rating={c.rating}
+      badge={c.status === 'watching' ? 'Смотрю' : c.status === 'watched' ? 'Просмотрено' : c.status === 'want' ? 'В планах' : null}
+      overview={c.overview ? localized(c.overview, '') : ''}
+      play={next ? { label: next.label ? next.label.replace(/^(\d+) сезон, (\d+) серия$/, 'Сезон $1, серия $2') : started ? 'Продолжить' : 'Смотреть', href: `/watch/${next.fileId}` } : null}
+      wanted={c.status === 'want'}
+      wantDisabled={c.status === 'watching' || c.status === 'watched'}
+      onwant={() => toggleList(c)}
+      onclose={() => (history.length > 1 ? history.back() : goto('/'))}
+    />
+    <SeriesHero
+      slim
+      title={c.title}
+      art={c.backdrop}
+      meta={[c.genres[0], c.year ? String(c.year) : '', count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')].filter(Boolean)}
+      rating={c.rating}
+      age={c.age}
+      tagline={t.tagline ?? c.overview}
+      progress={seriesProgress}
+      episodes={eps}
+      seasons={t.seasons}
+      onsource={(episode) => { sourceEpisode = episode; finding = true; }}
+    >
+      {#snippet actions()}
+        {#if next}
+          <a class="btn white go" href="/watch/{next.fileId}"><Icon name="play" size={16} /> {started || seriesProgress ? 'Продолжить' : 'Смотреть'}</a>
+        {/if}
+        <button class="btn want" class:on={c.status === 'want'} aria-pressed={c.status === 'want'} onclick={() => toggle(c, 'want')}>
+          <Icon name={c.status === 'want' ? 'check' : 'plus'} size={16} /> Хочу
+        </button>
+        <div class="iconbar">
+          <button class="ib" class:on={c.status === 'watching'} aria-pressed={c.status === 'watching'} aria-label="Смотрю" title="Смотрю" onclick={() => toggle(c, 'watching')}><Icon name="tv" size={16} /><span>Смотрю</span></button>
+          <button class="ib" class:on={c.status === 'watched'} aria-pressed={c.status === 'watched'} aria-label="Просмотрено" title="Просмотрено" onclick={() => toggle(c, 'watched')}><Icon name="check" size={16} /><span>Просмотрено</span></button>
+          <button class="ib" class:on={c.myRating === 2} aria-pressed={c.myRating === 2} aria-label="Нравится" title="Нравится" onclick={() => rate(c, 2)}><Icon name="heart" size={16} /><span>Нравится</span></button>
+          <button class="ib" class:on={isFavorite(`t:${c.id}`)} aria-pressed={isFavorite(`t:${c.id}`)} aria-label="Любимый" title="Любимый" onclick={() => toggleFavorite(`t:${c.id}`)}><Icon name="star" size={16} /><span>Любимый</span></button>
+          {#if next}<button class="ib" aria-label="Смотреть вместе" title="Смотреть вместе" disabled={roomBusy} onclick={together}><Icon name="party" size={16} /><span>Вместе</span></button>{/if}
+          <button class="ib" aria-label="В общий список" title="В общий список" onclick={() => (picking = true)}><Icon name="users" size={16} /><span>В список</span></button>
+          <button class="ib" aria-label="Обсудить с другом" title="Обсудить с другом" onclick={() => (sharing = true)}><Icon name="share" size={16} /><span>Обсудить</span></button>
+          {#if c.status === 'watching'}<button class="ib" aria-label="Больше не смотрю" title="Больше не смотрю" onclick={() => drop(c, c.title)}><Icon name="ban" size={16} /><span>Бросил</span></button>{/if}
         </div>
-        {#if t.next}
-          <a class="btn white block watch" href="/watch/{t.next.fileId}">
-            <Icon name="play" size={16} /> {started ? 'Продолжить' : 'Смотреть'}
-          </a>
-        {/if}
-      </div>
-
-      <div class="info">
-        <h1>{c.title}</h1>
-        <p class="meta">
-          {#if c.year}<span>{c.year}</span>{/if}
-          {#if c.runtime}<span>{runtime(c.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
-          {#if isSeries}<span>{count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')}</span>{/if}
-          {#if c.age}<span class="age">{c.age}</span>{/if}
-        </p>
-        {#if t.tagline}<p class="tagline">{t.tagline}</p>{/if}
-        {#if c.overview}<p class="overview">{c.overview}</p>{/if}
-        {#if t.next && (started || (isSeries && t.next.label && c.status === 'watching'))}
-          <!-- Где остановились: место в фильме или следующая серия сериала. -->
-          <div class="where">
-            <span>{t.next.label || 'Вы остановились'}{started ? ` · ${left(t.next.position, t.next.duration)}` : ' · дальше'}</span>
-            {#if started}<span class="pbar"><i style:width="{percent(t.next.position, t.next.duration)}%"></i></span>{/if}
-          </div>
-        {/if}
-        {#if c.genres.length}
-          <div class="genres">
-            {#each c.genres as g (g)}<a class="pill" href="/search?q={encodeURIComponent(g)}">{g}</a>{/each}
-          </div>
-        {/if}
-      </div>
-
-      <aside class="panel" aria-label="Действия">
+      {/snippet}
+      {#snippet extra()}<FriendsStrip friends={t?.friends ?? []} />{/snippet}
+    </SeriesHero>
+  {:else}
+  {#snippet panelBody()}
         <div class="box">
         <div class="acts">
           <button class:on={c.status === 'watched'} aria-pressed={c.status === 'watched'} onclick={() => toggleWatched(c)}>
@@ -233,58 +310,125 @@
         </div>
         <button class="btn block" onclick={() => (picking = true)}><Icon name="users" size={15} /> В общий список</button>
         <button class="btn block" onclick={() => (sharing = true)}><Icon name="share" size={15} /> Обсудить с другом</button>
+        {#if t?.next}<button class="btn block" disabled={roomBusy} onclick={together}><Icon name="party" size={15} /> Смотреть вместе</button>{/if}
         <button class="btn block" onclick={writeReview}><Icon name="edit" size={15} /> Написать отзыв</button>
         {#if c.status === 'watched' && c.watchedAt}<p class="stub">Просмотрено {day(c.watchedAt)}</p>{/if}
-      </aside>
+  {/snippet}
+  <MobileHero
+    title={c.title}
+    art={c.backdrop ?? c.posterLarge ?? c.poster}
+    fallback={c.poster}
+    tall={!c.backdrop}
+    imdbId={t.imdbId}
+    meta={[c.year ? String(c.year) : '', c.genres[0] ?? '', countriesRu(t.countries)[0] ?? '', c.runtime ? runtime(c.runtime) : '', c.age ?? ''].filter(Boolean)}
+    rating={c.rating}
+    badge={c.status === 'watching' ? 'Смотрю' : c.status === 'watched' ? 'Просмотрено' : null}
+    overview={c.overview ? localized(c.overview, '') : ''}
+    play={t.next ? { label: started ? 'Продолжить' : 'Смотреть', href: `/watch/${t.next.fileId}`, note: started ? `${t.next.label || 'Вы остановились'} · ${left(t.next.position, t.next.duration)}` : undefined } : null}
+    wanted={c.status === 'want'}
+    wantDisabled={c.status === 'watching' || c.status === 'watched'}
+    onwant={() => toggleList(c)}
+    onmore={() => (moreOpen = true)}
+    onclose={() => (history.length > 1 ? history.back() : goto('/'))}
+  />
+  <Modal bind:open={moreOpen} title={c.title}><div class="panel in-sheet">{@render panelBody()}</div></Modal>
+  <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
+    <div class="bg" aria-hidden="true">
+      {#key c.backdrop}
+        {#if c.backdrop}<img use:fadeIn src={c.backdrop} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
+      {/key}
+    </div>
+    {#if session.me?.manage}
+      <div class="art-edit">
+        <label class="glass" class:busy={artBusy === 'poster'}>
+          <Icon name="image" size={15} /> {artBusy === 'poster' ? 'Загружаем…' : 'Обложка'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => setArt('poster', e)} hidden />
+        </label>
+        <label class="glass" class:busy={artBusy === 'backdrop'}>
+          <Icon name="image" size={15} /> {artBusy === 'backdrop' ? 'Загружаем…' : 'Фон'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => setArt('backdrop', e)} hidden />
+        </label>
+      </div>
+    {/if}
+    <div class="cinema-stage"><TrailerBanner imdbId={t.imdbId} poster={c.backdrop ?? c.posterLarge ?? c.poster} /></div>
+    <div class="wrap">
+      <div class="poster-col">
+        <div class="poster" style:background={c.posterLarge ? undefined : placeholder(c.title)}>
+          {#if c.posterLarge}<img use:fadeIn src={c.posterLarge} alt={c.title} width="460" height="690" decoding="async" />{:else}<span>{c.title}</span>{/if}
+        </div>
+        {#if t.next}
+          <a class="btn white block watch" href="/watch/{t.next.fileId}">
+            <Icon name="play" size={16} /> {started ? 'Продолжить' : 'Смотреть'}
+          </a>
+        {/if}
+      </div>
+
+      <div class="info">
+        <h1>{c.title}</h1>
+        <p class="meta">
+          {#if c.year}<span>{c.year}</span>{/if}
+          {#if c.runtime}<span>{runtime(c.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
+          {#if isSeries}<span>{count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')}</span>{/if}
+          {#if c.age}<span class="age">{c.age}</span>{/if}
+        </p>
+        {#if t.tagline}<p class="tagline">{localized(t.tagline, 'Описание на русском пока недоступно')}</p>{/if}
+        {#if c.overview}<p class="overview">{localized(c.overview, 'Описание на русском пока недоступно')}</p>{/if}
+        {#if t.next && (started || (isSeries && t.next.label && c.status === 'watching'))}
+          <!-- Где остановились: место в фильме или следующая серия сериала. -->
+          <div class="where">
+            <span>{t.next.label || 'Вы остановились'}{started ? ` · ${left(t.next.position, t.next.duration)}` : ' · дальше'}</span>
+            {#if started}<span class="pbar"><i style:width="{percent(t.next.position, t.next.duration)}%"></i></span>{/if}
+          </div>
+        {/if}
+        {#if c.status === 'watching'}
+          <button class="btn sm ghost stop" onclick={() => drop(c, c.title)}><Icon name="ban" size={14} /> Больше не смотрю</button>
+        {/if}
+        {#if c.genres.length}
+          <div class="genres">
+            {#each c.genres as g (g)}<a class="pill" href="/search?q={encodeURIComponent(g)}">{g}</a>{/each}
+          </div>
+        {/if}
+        <FriendsStrip friends={t.friends ?? []} />
+      </div>
+
+      <aside class="panel" aria-label="Действия">{@render panelBody()}</aside>
     </div>
   </section>
+  {/if}
 
   <main class="sheet">
     <section class="block summary" aria-labelledby="s-rating">
       <h2 id="s-rating">Оценки и отзывы</h2>
       <div class="score">
-        <span class="big"><Icon name="star" size={22} /> {rv?.average ? rv.average.toFixed(1).replace('.', ',') : '—'}</span>
+        <span class="big"><Icon name="star" size={22} /> {rv?.average ? rv.average.toFixed(1).replace('.', ',') : '-'}</span>
         <span class="muted">{rv ? (rv.votes ? count(rv.votes, 'оценка', 'оценки', 'оценок') : 'оценок пока нет') : ''}</span>
         <span class="grow"></span>
         {#if c.rating}<span class="chip-o"><b class="imdb">IMDb</b> {c.rating.toFixed(1)}</span>{/if}
         {#if t.votes}<span class="chip-o"><Icon name="users" size={14} /> {votes(t.votes)}</span>{/if}
         {#if c.matchPct}<span class="chip-o match">{c.matchPct}% совпадение</span>{/if}
       </div>
+      {#if isSeries}
+        <!-- У сериала панели справа нет (наверху - лента серий): оценка - здесь. -->
+        <div class="rate-s">
+          <small class="muted">Ваша оценка</small>
+          <StarInput value={mine?.stars ?? null} onchange={setStars} size={24} label="Ваша оценка" />
+          <button class="unrate" class:hidden={!mine} disabled={!mine} onclick={() => setStars(null)}>Убрать оценку</button>
+          <button class="btn sm" onclick={writeReview}><Icon name="edit" size={14} /> Написать отзыв</button>
+        </div>
+      {/if}
     </section>
 
-    {#if isSeries}
-      <section class="block" aria-labelledby="s-eps">
-        <div class="eps-head">
-          <h2 id="s-eps">Серии</h2>
-          {#if t.seasons.length > 1}
-            <div class="seasons" role="tablist" aria-label="Сезоны">
-              {#each t.seasons as s (s)}
-                <button class="chip" class:on={season === s} role="tab" aria-selected={season === s} onclick={() => (season = s)}>{s} сезон</button>
-              {/each}
-            </div>
-          {/if}
-        </div>
-        <ol class="eps">
-          {#each episodes as f (f.id)}
-            <li>
-              <a class="still" href="/watch/{f.id}" style:background={f.still ? undefined : placeholder(c.title + f.id)}>
-                {#if f.still}<img use:fadeIn src={f.still} alt="" loading="lazy" decoding="async" />{/if}
-                <span class="p"><Icon name="play" size={16} /></span>
-                {#if pct(f)}<span class="pbar"><i style:width="{pct(f)}%"></i></span>{/if}
-              </a>
-              <div class="ep">
-                <a href="/watch/{f.id}" class="ept"><b>{epLabel(f)}.</b> {f.name ?? `${f.episode ?? ''} серия`}</a>
-                {#if f.overview}<p>{f.overview}</p>{/if}
-                <div class="epmeta faint">
-                  {#if f.duration && f.duration >= 60}<span>{Math.round(f.duration / 60)} мин</span>{/if}
-                  {#if f.airDate}<span>{date(f.airDate)}</span>{/if}
-                  {#if f.progress?.done}<span class="ok"><Icon name="check" size={13} /> Просмотрено</span>{/if}
-                  {#if t.canDownload}<a href="/api/files/{f.id}/download" download class="dl"><Icon name="download" size={13} /> {size(f.size)}</a>{/if}
-                </div>
-              </div>
-            </li>
-          {/each}
-        </ol>
+    {#if isSeries && t.imdbId}
+      <section class="block" aria-labelledby="s-grid">
+        <h2 id="s-grid">Оценки серий</h2>
+        <RatingsGrid imdbId={t.imdbId} />
+      </section>
+    {/if}
+
+    {#if t.canDownload && t.files.length}
+      <section class="block" aria-labelledby="s-dl">
+        <h2 id="s-dl">Скачать</h2>
+        <Downloads titleId={c.id} title={c.title} kind={c.kind} files={t.files} />
       </section>
     {/if}
 
@@ -294,11 +438,13 @@
         <ul class="cast">
           {#each castAll ? team : team.slice(0, 10) as p, i (i)}
             <li>
-              <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
-                {#if p.photo}<img use:fadeIn src={p.photo} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p)}{/if}
-              </span>
-              <b>{p.name}</b>
-              {#if p.role}<small>{p.role}</small>{/if}
+              <a class="pl" href={personHref(p)} title="{p.name} - фильмография">
+                <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
+                  {#if p.photo}<img use:fadeIn src={p.photo} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p)}{/if}
+                </span>
+                <b>{p.name}</b>
+                {#if p.role}<small>{p.role}</small>{/if}
+              </a>
             </li>
           {/each}
         </ul>
@@ -311,13 +457,13 @@
     <section class="block" id="reviews" aria-labelledby="s-reviews">
       <h2 id="s-reviews">Отзывы {#if rv?.total}<span class="faint">{rv.total}</span>{/if}</h2>
       {#if rv}
-        <Reviews bind:this={reviewsBox} titleId={c.id} bind:data={rv} manage={!!session.me?.manage} />
+        <Reviews bind:this={reviewsBox} base="/api/titles/{c.id}" bind:data={rv} manage={!!session.me?.manage} />
       {:else}
         <div class="sk-reviews skeleton"></div>
       {/if}
     </section>
 
-    <section class="block" aria-labelledby="s-links">
+    {#if !isSeries}<section class="block" aria-labelledby="s-links">
       <div class="lhead">
         <h2 id="s-links">Видео по ссылке {#if links.length}<span class="faint">{links.length}</span>{/if}</h2>
         <button class="btn sm ghost" onclick={() => (finding = true)}><Icon name="link" size={14} /> Добавить</button>
@@ -329,9 +475,12 @@
           {/each}
         </div>
       {:else}
-        <p class="muted none">Трейлер, другая озвучка или серия с Rutube и VK Видео — вставьте ссылку, видео откроется в плеере Nova.</p>
+        <p class="muted none">Трейлер, другая озвучка или серия с Rutube и VK Видео - вставьте ссылку, видео откроется в плеере Nova.</p>
       {/if}
     </section>
+
+    {/if}
+    {#if t.imdbId}<Franchise imdb={t.imdbId} />{/if}
 
     {#if t.similar.length}
       <section class="block" aria-labelledby="s-similar">
@@ -354,7 +503,7 @@
         <div class="story">
           <b>{c.title}</b>
           <small>{[kindLabel(c.kind), ...c.genres.slice(0, 3)].join(' · ')}</small>
-          {#if c.overview}<p>{c.overview}</p>{/if}
+          {#if c.overview}<p>{localized(c.overview, 'Описание на русском пока недоступно')}</p>{/if}
         </div>
       </section>
     {/if}
@@ -362,7 +511,7 @@
     <section class="block details" aria-labelledby="s-details">
       <h2 id="s-details">Детали</h2>
       <dl>
-        {#if t.countries.length}<dt>Страна</dt><dd>{t.countries.join(', ')}</dd>{/if}
+        {#if t.countries.length}<dt>Страна</dt><dd>{countriesRu(t.countries).join(', ')}</dd>{/if}
         {#if t.languages.length}<dt>Язык</dt><dd>{t.languages.slice(0, 3).join(', ')}</dd>{/if}
         {#if t.releaseDate}<dt>Премьера</dt><dd>{date(t.releaseDate)}</dd>{/if}
         {#if c.originalTitle && c.originalTitle !== c.title}<dt>Оригинал</dt><dd>{c.originalTitle}</dd>{/if}
@@ -370,9 +519,6 @@
         {#if isSeries}<dt>На сайте</dt><dd>{count(t.files.length, 'серия', 'серии', 'серий')}</dd>{/if}
       </dl>
       <div class="links">
-        {#if t.canDownload && !isSeries && t.files[0]}
-          <a class="btn sm" href="/api/files/{t.files[0].id}/download" download><Icon name="download" size={14} /> Скачать · {size(t.files[0].size)}</a>
-        {/if}
         {#if t.imdbId}
           <a class="btn sm" href="https://www.imdb.com/title/{t.imdbId}/" target="_blank" rel="noopener noreferrer"><b class="imdb">IMDb</b> Открыть</a>
         {/if}
@@ -404,13 +550,20 @@
   <div class="sk-hero skeleton" aria-busy="true"></div>
 {/if}
 
-{#if t}<LinkFinder bind:open={finding} query={t.card.title} titleId={t.card.id} onadded={loadLinks} />{/if}
+{#if t}<LinkFinder bind:open={finding} query={isSeries && selectedSourceEpisode ? `${t.card.title} ${selectedSourceEpisode.season} сезон ${selectedSourceEpisode.episode} серия` : t.card.title} titleId={t.card.id}
+  season={isSeries ? selectedSourceEpisode?.season ?? null : null}
+  episode={isSeries ? selectedSourceEpisode?.episode ?? null : null}
+  saved={links.filter((l) => !isSeries || (l.season === selectedSourceEpisode?.season && l.episode === selectedSourceEpisode?.episode))}
+  onadded={loadLinks} />{/if}
 
 <style>
+  .cinema-stage { height: clamp(260px,60svh,680px); position: relative; margin: 0 calc(-1 * var(--gutter)) 32px; }
+  /* Та же раскладка, что у страницы фильма с сервиса (title/[id]). */
+
   /* ---------- большой кадр ---------- */
   .hero {
     position: relative;
-    padding: calc(var(--header) + clamp(120px, 22vw, 260px)) var(--gutter) 34px;
+    padding: var(--header) var(--gutter) 34px;
     overflow: hidden;
     isolation: isolate;
   }
@@ -445,7 +598,8 @@
   }
   .bg {
     position: absolute;
-    inset: 0;
+    inset: 0 0 auto;
+    height: clamp(350px,60vw,800px);
     z-index: -1;
   }
   .bg img,
@@ -478,7 +632,7 @@
     display: grid;
     grid-template-columns: clamp(200px, 17vw, 260px) minmax(0, 1fr) clamp(220px, 18vw, 270px);
     gap: 32px;
-    align-items: end;
+    align-items: start;
   }
   .poster-col {
     display: grid;
@@ -519,7 +673,7 @@
     min-width: 0;
     animation: rise 0.45s 0.06s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
-  /* Название как у Rewind: крупно, но не во весь экран — длинное в две строки, без переносов в три. */
+  /* Название как у Rewind: крупно, но не во весь экран - длинное в две строки, без переносов в три. */
   h1 {
     font-size: clamp(28px, 3.2vw, 44px);
     line-height: 1.08;
@@ -612,7 +766,7 @@
   }
 
   /* Панель действий справа, как у Rewind: карточка «Смотрел / Нравится / Хочу / Любимый» и
-     оценка, под ней — отдельные кнопки-капсулы. */
+     оценка, под ней - отдельные кнопки-капсулы. */
   .panel {
     display: grid;
     gap: 8px;
@@ -684,7 +838,7 @@
     color: var(--muted);
     font-size: 11px;
   }
-  /* Место под кнопку занято всегда — оценку поставили или сняли, панель не прыгает. */
+  /* Место под кнопку занято всегда - оценку поставили или сняли, панель не прыгает. */
   .unrate {
     padding: 0;
     border: 0;
@@ -701,7 +855,7 @@
   .unrate.hidden {
     visibility: hidden;
   }
-  /* padding — явно: класс .block у разделов листа совпадает с .btn.block. */
+  /* padding - явно: класс .block у разделов листа совпадает с .btn.block. */
   .panel .btn {
     height: 36px;
     padding: 0 16px;
@@ -977,112 +1131,76 @@
     transform: scale(1.05);
   }
 
-  /* ---------- серии ---------- */
-  .eps-head {
+  /* ---------- сериал: кнопки под названием (как у HBO GO) ---------- */
+  .go {
+    height: 46px;
+    padding: 0 26px;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+  .want {
+    height: 46px;
+    padding: 0 22px;
+    border-radius: 8px;
+    background: rgba(60, 60, 64, 0.85);
+  }
+  .btn.on {
+    background: #fff;
+    color: #0a0a0a;
+  }
+  .iconbar {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 14px;
-  }
-  .eps-head h2 {
-    margin: 0;
-  }
-  .seasons {
-    display: flex;
     gap: 6px;
-    overflow-x: auto;
-    max-width: 100%;
   }
-  .eps {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 10px;
-  }
-  .eps li {
-    display: grid;
-    grid-template-columns: 180px minmax(0, 1fr);
-    gap: 16px;
-    padding: 8px;
-    border-radius: 14px;
-    transition: background 0.15s;
-  }
-  .eps li:hover {
-    background: #232325;
-  }
-  .still {
-    position: relative;
-    aspect-ratio: 16 / 9;
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  .still img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .still .p {
-    position: absolute;
-    inset: 0;
-    margin: auto;
-    width: 38px;
-    height: 38px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.55);
-    opacity: 0;
-    transform: scale(0.8);
-    transition:
-      opacity 0.15s,
-      transform 0.2s;
-  }
-  .eps li:hover .p {
-    opacity: 1;
-    transform: none;
-  }
-  .still .pbar {
-    position: absolute;
-    inset: auto 0 0;
-    border-radius: 0;
-  }
-  .ep {
-    display: grid;
-    align-content: start;
-    gap: 4px;
-    min-width: 0;
-  }
-  .ept {
-    font-weight: 600;
-    overflow-wrap: anywhere;
-  }
-  .ep p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-  .epmeta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    font-size: 12px;
-  }
-  .epmeta span,
-  .epmeta a {
+  /* Кнопки с подписью - понятно, что делает каждая. */
+  .ib {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    cursor: pointer;
+    transition:
+      background 0.2s,
+      color 0.2s,
+      transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.5);
   }
-  .ok {
-    color: var(--ok);
+  .ib:hover {
+    background: rgba(255, 255, 255, 0.22);
+    transform: translateY(-2px);
+  }
+  .ib:active {
+    transform: scale(0.88);
+  }
+  .ib.on {
+    background: #fff;
+    color: #0a0a0a;
+    animation: ib-pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.6);
+  }
+  @keyframes ib-pop {
+    40% {
+      transform: scale(1.18);
+    }
+  }
+  .stop {
+    justify-self: start;
+    margin-top: -4px;
+    color: var(--muted);
+  }
+  .rate-s {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    margin-top: 16px;
   }
 
   .sk-hero {
@@ -1112,7 +1230,7 @@
   }
   @media (max-width: 640px) {
     .hero {
-      padding-top: calc(var(--header) + 90px);
+      padding-top: var(--header);
       padding-bottom: 20px;
     }
     .wrap {
@@ -1147,10 +1265,6 @@
       border-radius: 18px 18px 0 0;
       padding-bottom: 32px;
     }
-    .eps li {
-      grid-template-columns: 120px minmax(0, 1fr);
-      gap: 10px;
-    }
     .cast {
       grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     }
@@ -1161,5 +1275,56 @@
   }
   :global(.no-motion) :is(.bg img, .bg .ph, .poster-col, .info, .panel) {
     animation: none;
+  }
+  /* Актёр или режиссёр - ссылкой на его страницу (раскладка - как у самого пункта). */
+  .pl {
+    display: contents;
+  }
+  .pl:hover .ava {
+    transform: translateY(-3px) scale(1.05);
+  }
+  .pl:hover b {
+    text-decoration: underline;
+  }
+
+  .sheet { max-width: 1800px; width: calc(100% - var(--gutter) * 2); background: var(--panel); border: 1px solid var(--line); border-radius: 26px; }
+  @media(max-width: 640px) { .sheet { width: 100%; border-radius: 20px 20px 0 0; } }
+
+  .box, .pill, .panel .btn, .ib { background: #000; border: 1px solid #ffffff28; }
+  .ib.on { background: #000; color: #fff; outline: 1px solid #ffffff80; }
+  .hero > .bg { display: none; }
+  .wrap { align-items: start; }
+  @media (max-width: 640px) {
+    .wrap { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+    .poster-col { width: min(100%, 240px); justify-self: center; }
+    .info, .panel { width: 100%; min-width: 0; grid-column: 1; }
+    h1 { overflow-wrap: anywhere; }
+    .cinema-stage { height: clamp(220px, 38svh, 360px); margin-bottom: 24px; }
+  }
+  /* Soft typography and separation, retaining the AMOLED canvas. */
+  h1 { font-weight: 650; letter-spacing: -.025em; line-height: 1.15; }
+  .info { gap: 14px; animation-duration: 140ms; animation-delay: 0ms; }
+  .poster-col { animation-duration: 140ms; }
+  .poster { border-radius: 18px; box-shadow: 0 20px 48px -28px #000; }
+  .watch { border-radius: 18px; background: #ffffff0a; border-color: #ffffff20; font-weight: 550; }
+  .overview { color: #b6b6bd; font-weight: 400; line-height: 1.75; }
+  .meta { color: #9d9da5; font-weight: 400; }
+  .genres .pill { border-color: #ffffff12; background: #ffffff06; font-weight: 450; }
+  /* Телефон: верх как у Disney+ (MobileHero), действия - в окне «…». */
+  @media (max-width: 640px) {
+    .hero {
+      display: none;
+    }
+    .sheet {
+      margin-top: 10px;
+      padding: 0 16px 32px;
+      background: none;
+      border: 0;
+      border-radius: 0;
+    }
+  }
+  .in-sheet {
+    display: grid;
+    gap: 10px;
   }
 </style>

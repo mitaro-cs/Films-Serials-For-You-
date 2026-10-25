@@ -1,5 +1,5 @@
 //! Люди: отзывы и комментарии к фильмам (с оценкой по желанию), участники, друзья и переписка
-//! между друзьями (можно приложить фильм — «обсудить»). Действуют профили: у каждого человека в
+//! между друзьями (можно приложить фильм - «обсудить»). Действуют профили: у каждого человека в
 //! семейном аккаунте свои друзья и отзывы. Детские профили в общении не участвуют.
 
 use super::{card, img, visible, CARD_COLS};
@@ -61,7 +61,7 @@ fn social_profile(app: &App, id: i64) -> ApiResult<Person> {
 pub(super) fn text(s: &str, max: usize, what: &str) -> ApiResult<String> {
     let t = s.trim();
     if t.chars().count() > max {
-        return Err(ApiError::bad("too_long", format!("{what} — не длиннее {max} символов")));
+        return Err(ApiError::bad("too_long", format!("{what} - не длиннее {max} символов")));
     }
     Ok(t.to_string())
 }
@@ -73,7 +73,7 @@ pub(super) fn text(s: &str, max: usize, what: &str) -> ApiResult<String> {
 pub struct Review {
     pub id: i64,
     pub author: Person,
-    /// 1..10 — половинки звезды; None — просто комментарий.
+    /// 1..10 - половинки звезды; None - просто комментарий.
     pub stars: Option<i32>,
     pub body: String,
     pub created_at: i64,
@@ -124,30 +124,68 @@ pub(super) fn title_visible(app: &App, v: &Viewer, id: i64) -> ApiResult<()> {
     }
 }
 
+/// Чьи отзывы: фильм с сервиса и тот же фильм из ленты IMDb - отзывы у них общие.
+pub(super) struct Target {
+    /// Наш фильм (или -1) и id IMDb (или пусто) - для `(title_id = ? OR ext_id = ?)`.
+    title: i64,
+    ext: String,
+    /// Новый отзыв пишется сюда: к фильму с сервиса или к фильму из ленты.
+    own_ext: bool,
+}
+
+const ABOUT: &str = "(r.title_id = ?2 OR r.ext_id = ?3)";
+
+fn target_title(app: &App, v: &Viewer, id: i64) -> ApiResult<Target> {
+    title_visible(app, v, id)?;
+    let imdb: Option<String> =
+        app.db.with(|c| c.query_row("SELECT imdb_id FROM titles WHERE id = ?", [id], |r| r.get(0)))?;
+    Ok(Target { title: id, ext: imdb.unwrap_or_default(), own_ext: false })
+}
+
+fn target_ext(app: &App, v: &Viewer, id: &str) -> ApiResult<Target> {
+    let card = super::discover::ext_card(app, v, id)?;
+    Ok(Target { title: card.local.unwrap_or(-1), ext: card.id, own_ext: true })
+}
+
 /// Средняя оценка: последняя оценка каждого человека; звёзды 0,5..5.
-fn rating_of(app: &App, title: i64) -> rusqlite::Result<(Option<f64>, i64)> {
+fn rating_of(app: &App, t: &Target) -> rusqlite::Result<(Option<f64>, i64)> {
     app.db.with(|c| {
         c.query_row(
             "SELECT AVG(stars) / 2.0, COUNT(*) FROM (
-               SELECT stars FROM reviews r WHERE title_id = ?1 AND stars IS NOT NULL
-                 AND r.id = (SELECT MAX(id) FROM reviews x WHERE x.title_id = ?1 AND x.profile_id = r.profile_id AND x.stars IS NOT NULL))",
-            [title],
+               SELECT stars FROM reviews r WHERE (r.title_id = ?1 OR r.ext_id = ?2) AND stars IS NOT NULL
+                 AND r.id = (SELECT MAX(id) FROM reviews x WHERE (x.title_id = ?1 OR x.ext_id = ?2)
+                               AND x.profile_id = r.profile_id AND x.stars IS NOT NULL))",
+            params![t.title, t.ext],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
     })
 }
 
-pub async fn reviews(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
-    title_visible(&app, &v, id)?;
+fn reviews_of(app: &App, v: &Viewer, t: &Target) -> ApiResult<Value> {
     let items: Vec<Review> = app.db.with(|c| {
-        let mut st = c.prepare(&review_sql(&format!("r.title_id = ?2 AND {SOCIAL}")))?;
-        let r = st.query_map(params![v.profile.id, id], |r| review(r, v.profile.id))?;
+        let mut st = c.prepare(&review_sql(&format!("{ABOUT} AND {SOCIAL}")))?;
+        let r = st.query_map(params![v.profile.id, t.title, t.ext], |r| review(r, v.profile.id))?;
         r.collect()
     })?;
-    let (avg, votes) = rating_of(&app, id)?;
-    let total: i64 =
-        app.db.with(|c| c.query_row("SELECT COUNT(*) FROM reviews WHERE title_id = ?", [id], |r| r.get(0)))?;
-    Ok(Json(json!({ "average": avg, "votes": votes, "total": total, "items": items, "canWrite": !v.profile.kids })))
+    let (avg, votes) = rating_of(app, t)?;
+    let total: i64 = app.db.with(|c| {
+        c.query_row(
+            "SELECT COUNT(*) FROM reviews r WHERE r.title_id = ?1 OR r.ext_id = ?2",
+            params![t.title, t.ext],
+            |r| r.get(0),
+        )
+    })?;
+    Ok(json!({ "average": avg, "votes": votes, "total": total, "items": items, "canWrite": !v.profile.kids }))
+}
+
+pub async fn reviews(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
+    let t = target_title(&app, &v, id)?;
+    Ok(Json(reviews_of(&app, &v, &t)?))
+}
+
+pub async fn ext_reviews(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let t = target_ext(&app, &v, &id)?;
+    Ok(Json(reviews_of(&app, &v, &t)?))
 }
 
 #[derive(Deserialize)]
@@ -161,7 +199,7 @@ fn check_review(b: &ReviewBody) -> ApiResult<String> {
     let body = text(&b.body, MAX_REVIEW, "Отзыв")?;
     if let Some(s) = b.stars {
         if !(1..=10).contains(&s) {
-            return Err(ApiError::bad("bad_stars", "Оценка — от половины до пяти звёзд"));
+            return Err(ApiError::bad("bad_stars", "Оценка - от половины до пяти звёзд"));
         }
     }
     if body.is_empty() && b.stars.is_none() {
@@ -176,22 +214,37 @@ pub async fn add_review(
     Path(id): Path<i64>,
     Json(b): Json<ReviewBody>,
 ) -> ApiResult<Json<Review>> {
-    adult(&v)?;
-    title_visible(&app, &v, id)?;
-    let body = check_review(&b)?;
+    let t = target_title(&app, &v, id)?;
+    write_review(&app, &v, &t, &b).map(Json)
+}
+
+pub async fn add_ext_review(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Path(id): Path<String>,
+    Json(b): Json<ReviewBody>,
+) -> ApiResult<Json<Review>> {
+    let t = target_ext(&app, &v, &id)?;
+    write_review(&app, &v, &t, &b).map(Json)
+}
+
+fn write_review(app: &App, v: &Viewer, t: &Target, b: &ReviewBody) -> ApiResult<Review> {
+    adult(v)?;
+    let body = check_review(b)?;
     let me = v.profile.id;
+    let (title, ext) = if t.own_ext { (None, Some(&t.ext)) } else { (Some(t.title), None) };
     let review = app.db.with(|c| {
         c.execute(
-            "INSERT INTO reviews (title_id, profile_id, stars, body, created_at) VALUES (?, ?, ?, ?, ?)",
-            params![id, me, b.stars, body, now_ms()],
+            "INSERT INTO reviews (title_id, ext_id, profile_id, stars, body, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            params![title, ext, me, b.stars, body, now_ms()],
         )?;
         let rid = c.last_insert_rowid();
         c.query_row(&review_sql("r.id = ?2"), params![me, rid], |r| review(r, me))
     })?;
-    Ok(Json(review))
+    Ok(review)
 }
 
-/// Свой отзыв — править и удалять; чужой — удалять может хост или администратор.
+/// Свой отзыв - править и удалять; чужой - удалять может хост или администратор.
 fn own_review(app: &App, v: &Viewer, id: i64, moderate: bool) -> ApiResult<()> {
     let author: Option<i64> =
         app.db.with(|c| c.query_row("SELECT profile_id FROM reviews WHERE id = ?", [id], |r| r.get(0)).optional())?;
@@ -222,15 +275,28 @@ pub async fn edit_review(
     Ok(Json(review))
 }
 
-/// Убрать свою оценку фильму: у отзывов с текстом — только звёзды, отзывы из одних звёзд — целиком.
+/// Убрать свою оценку фильму: у отзывов с текстом - только звёзды, отзывы из одних звёзд - целиком.
 pub async fn clear_stars(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
-    adult(&v)?;
+    let t = target_title(&app, &v, id)?;
+    clear_stars_of(&app, &v, &t)
+}
+
+pub async fn clear_ext_stars(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let t = target_ext(&app, &v, &id)?;
+    clear_stars_of(&app, &v, &t)
+}
+
+fn clear_stars_of(app: &App, v: &Viewer, t: &Target) -> ApiResult<Json<Value>> {
+    adult(v)?;
     let me = v.profile.id;
     app.db.tx(|tx| {
-        tx.execute("DELETE FROM reviews WHERE title_id = ? AND profile_id = ? AND body = ''", params![id, me])?;
         tx.execute(
-            "UPDATE reviews SET stars = NULL WHERE title_id = ? AND profile_id = ? AND stars IS NOT NULL",
-            params![id, me],
+            "DELETE FROM reviews WHERE (title_id = ?1 OR ext_id = ?2) AND profile_id = ?3 AND body = ''",
+            params![t.title, t.ext, me],
+        )?;
+        tx.execute(
+            "UPDATE reviews SET stars = NULL WHERE (title_id = ?1 OR ext_id = ?2) AND profile_id = ?3 AND stars IS NOT NULL",
+            params![t.title, t.ext, me],
         )?;
         Ok(())
     })?;
@@ -304,7 +370,13 @@ fn members_of(app: &App, me: i64, filter: &str, p: &[&dyn rusqlite::ToSql]) -> A
     let rows: Vec<(Person, i64, i64)> = app.db.with(|c| {
         let mut st = c.prepare(&format!(
             "SELECT {PERSON_COLS},
-                    (SELECT COUNT(*) FROM watched w WHERE w.profile_id = p.id),
+                    (SELECT COUNT(*) FROM (
+                       SELECT COALESCE(NULLIF(t.imdb_id,''),'local:'||t.id) AS work
+                       FROM watched w JOIN titles t ON t.id=w.title_id WHERE w.profile_id=p.id AND t.kind='movie'
+                       UNION
+                       SELECT m.ext_id FROM ext_marks m JOIN ext_titles e ON e.id=m.ext_id
+                       WHERE m.profile_id=p.id AND m.status='watched' AND e.kind='movie'
+                    )),
                     (SELECT COUNT(*) FROM reviews r WHERE r.profile_id = p.id)
              FROM profiles p WHERE {SOCIAL} AND p.id != {me} AND ({filter}) ORDER BY p.name COLLATE NOCASE LIMIT 500"
         ))?;
@@ -352,7 +424,7 @@ pub async fn member(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>)
         Some(members_of(&app, me, "p.id = ?1", &[&id])?.pop().ok_or_else(ApiError::not_found)?)
     };
     let person = social_profile(&app, id)?;
-    let reviews: Vec<Value> = app.db.with(|c| {
+    let mut reviews: Vec<(i64, Value)> = app.db.with(|c| {
         let mut st = c.prepare(&format!(
             "SELECT r.id, r.stars, r.body, r.created_at, {CARD_COLS}
              FROM reviews r JOIN titles t ON t.id = r.title_id
@@ -361,11 +433,43 @@ pub async fn member(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>)
         ))?;
         let r = st.query_map([id], |r| {
             let c = card_at(r, 4)?;
-            Ok(json!({"id": r.get::<_, i64>(0)?, "stars": r.get::<_, Option<i32>>(1)?, "body": r.get::<_, String>(2)?,
-                      "createdAt": r.get::<_, i64>(3)?, "title": c}))
+            let at = r.get::<_, i64>(3)?;
+            Ok((
+                at,
+                json!({"id": r.get::<_, i64>(0)?, "stars": r.get::<_, Option<i32>>(1)?, "body": r.get::<_, String>(2)?,
+                      "createdAt": at, "title": c}),
+            ))
         })?;
         r.collect()
     })?;
+    // Отзывы к фильмам из ленты IMDb - ссылкой на их страницу.
+    let ext: Vec<(i64, Value)> = app.db.with(|c| {
+        let mut st = c.prepare(
+            "SELECT r.id, r.stars, r.body, r.created_at, e.id, e.kind, e.title, e.year, NULLIF(e.poster, '')
+             FROM reviews r JOIN ext_titles e ON e.id = r.ext_id
+             WHERE r.profile_id = ?1 ORDER BY r.created_at DESC LIMIT 20",
+        )?;
+        let r = st.query_map([id], |r| {
+            let at = r.get::<_, i64>(3)?;
+            Ok((
+                at,
+                json!({"id": r.get::<_, i64>(0)?, "stars": r.get::<_, Option<i32>>(1)?, "body": r.get::<_, String>(2)?,
+                      "createdAt": at, "ext": {"id": r.get::<_, String>(4)?, "kind": r.get::<_, String>(5)?,
+                      "title": r.get::<_, String>(6)?, "year": r.get::<_, Option<i32>>(7)?, "poster": img(r.get(8)?)}}),
+            ))
+        })?;
+        r.collect()
+    })?;
+    reviews.extend(ext);
+    reviews.sort_by_key(|r| std::cmp::Reverse(r.0));
+    reviews.truncate(20);
+    let reviews: Vec<Value> = reviews.into_iter().map(|r| r.1).collect();
+    let watching = if super::activity::visible_to(&app, me, id)? {
+        let now = super::activity::watching_now(&app, id)?;
+        super::activity::render(&app, &v, &now)?
+    } else {
+        vec![]
+    };
     let watched: Vec<super::Card> = app.db.with(|c| {
         let mut st = c.prepare(&format!(
             "SELECT {CARD_COLS} FROM watched w JOIN titles t ON t.id = w.title_id
@@ -376,11 +480,13 @@ pub async fn member(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>)
         r.collect()
     })?;
     let mut stats = super::profile::stats(&app, id, crate::util::now_ms())?;
-    stats["watched"] = json!(m.as_ref().map(|m| m.watched).unwrap_or(watched.len() as i64));
+    stats["watched"] = json!(stats["movies"].as_i64().unwrap_or(0) + stats["episodes"].as_i64().unwrap_or(0));
+    let decor = super::profile::decor(&app, &v, id)?;
+    crate::directors::warm(&app, super::json_list(Some(decor["directors"].to_string())));
     Ok(Json(json!({
         "person": person, "me": id == me, "relation": m.as_ref().map(|m| m.relation),
-        "stats": stats, "decor": super::profile::decor(&app, &v, id)?,
-        "reviews": reviews, "watched": watched,
+        "stats": stats, "decor": decor,
+        "reviews": reviews, "watched": watched, "watching": watching,
     })))
 }
 
@@ -390,7 +496,7 @@ fn card_at(r: &Row, at: usize) -> rusqlite::Result<Value> {
               "year": r.get::<_, Option<i32>>(at + 4)?, "poster": img(r.get(at + 5)?)}))
 }
 
-/// Подружиться: нет заявки — отправить; есть встречная — принять.
+/// Подружиться: нет заявки - отправить; есть встречная - принять.
 pub async fn befriend(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
     adult(&v)?;
     let me = v.profile.id;
@@ -443,12 +549,12 @@ pub struct Message {
 
 fn friends_only(app: &App, me: i64, other: i64) -> ApiResult<()> {
     if relation(app, me, other)? != "friend" {
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "not_friends", "Переписка — только с друзьями"));
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "not_friends", "Переписка - только с друзьями"));
     }
     Ok(())
 }
 
-/// Собеседники: все друзья, сверху — с последними сообщениями; число непрочитанных.
+/// Собеседники: все друзья, сверху - с последними сообщениями; число непрочитанных.
 pub async fn chats(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
     adult(&v)?;
     let me = v.profile.id;
@@ -552,7 +658,7 @@ pub async fn send(
     if !app.message_limit.blocked(&me.to_string()) {
         app.message_limit.fail(&me.to_string());
     } else {
-        return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Слишком часто — подождите минуту"));
+        return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "Слишком часто - подождите минуту"));
     }
     let at = now_ms();
     let (mid, title) = app.db.with(|c| {
@@ -575,7 +681,9 @@ pub async fn send(
 /// Для значков в шапке: просьбы дружбы и непрочитанные сообщения.
 pub async fn badges(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
     if v.profile.kids {
-        return Ok(Json(json!({"requests": 0, "unread": 0, "wishes": 0})));
+        return Ok(Json(
+            json!({"requests": 0, "unread": 0, "wishes": 0, "watchedAt": watched_at(&app, v.profile.id)?}),
+        ));
     }
     let me = v.profile.id;
     let (requests, unread): (i64, i64) = app.db.with(|c| {
@@ -588,9 +696,22 @@ pub async fn badges(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Va
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
     })?;
-    // Хосту и администраторам — сколько фильмов просят добавить.
+    // Хосту и администраторам - сколько фильмов просят добавить.
     let wishes = if v.manages() { super::discover::open_wishes(&app)? } else { 0 };
-    Ok(Json(json!({"requests": requests, "unread": unread, "wishes": wishes})))
+    Ok(Json(json!({"requests": requests, "unread": unread, "wishes": wishes, "watchedAt": watched_at(&app, me)?})))
+}
+
+/// Когда этот зритель последний раз сохранял место (файл или видео по ссылке): другие его
+/// устройства видят, что смотрели в другом месте, и обновляют «Продолжить» и плеер.
+fn watched_at(app: &App, profile: i64) -> ApiResult<i64> {
+    Ok(app.db.with(|c| {
+        c.query_row(
+            "SELECT MAX(COALESCE((SELECT MAX(updated_at) FROM progress WHERE profile_id = ?1), 0),
+                        COALESCE((SELECT MAX(updated_at) FROM link_progress WHERE profile_id = ?1), 0))",
+            [profile],
+            |r| r.get(0),
+        )
+    })?)
 }
 
 // ---------- фото профиля ----------
@@ -608,7 +729,7 @@ pub async fn set_photo(
     if crate::images::sniff(&body).is_none() {
         return Err(ApiError::bad("bad_image", "Нужна картинка: JPEG, PNG или WebP"));
     }
-    // Квадрат 256 px: аватар грузится мгновенно. Без ffmpeg — как есть.
+    // Квадрат 256 px: аватар грузится мгновенно. Без ffmpeg - как есть.
     let ffmpeg = app.tools.read().ffmpeg.clone();
     let a = app.clone();
     let raw = body.to_vec();

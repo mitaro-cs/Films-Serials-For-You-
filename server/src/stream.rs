@@ -30,7 +30,7 @@ pub fn mime(path: &Path) -> &'static str {
     }
 }
 
-/// `bytes=a-b`, `bytes=a-`, `bytes=-n` → [start, end] включительно. Несколько диапазонов — берём первый.
+/// `bytes=a-b`, `bytes=a-`, `bytes=-n` → [start, end] включительно. Несколько диапазонов - берём первый.
 pub fn parse_range(h: &str, len: u64) -> Option<Result<(u64, u64), ()>> {
     let spec = h.trim().strip_prefix("bytes=")?.split(',').next()?.trim();
     let (a, b) = spec.split_once('-')?;
@@ -54,7 +54,7 @@ pub fn parse_range(h: &str, len: u64) -> Option<Result<(u64, u64), ()>> {
     Some(Ok(r))
 }
 
-/// Файл с поддержкой Range. `download` — отдать как вложение с именем.
+/// Файл с поддержкой Range. `download` - отдать как вложение с именем.
 pub async fn file(path: &Path, headers: &HeaderMap, download: Option<&str>) -> std::io::Result<Response> {
     let mut f = tokio::fs::File::open(path).await?;
     let len = f.metadata().await?.len();
@@ -92,7 +92,7 @@ pub async fn file(path: &Path, headers: &HeaderMap, download: Option<&str>) -> s
 pub struct PlayInfo {
     /// Браузер сыграет файл как есть (с первой аудиодорожкой).
     pub direct: bool,
-    /// Есть ffmpeg — можно перепаковать и выбрать дорожку.
+    /// Есть ffmpeg - можно перепаковать и выбрать дорожку.
     pub remux: bool,
     /// Понадобится перекодирование видео (тяжело для компьютера).
     pub transcode: bool,
@@ -114,7 +114,7 @@ pub struct TrackInfo {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct SubInfo {
-    /// `f0` — файл рядом, `e0` — внутри видео.
+    /// `f0` - файл рядом, `e0` - внутри видео.
     pub id: String,
     pub label: String,
     pub lang: Option<String>,
@@ -294,7 +294,7 @@ fn distinct<'a>(labels: impl Iterator<Item = &'a mut String>) {
     }
 }
 
-/// Выход ffmpeg как поток ответа. Процесс завершается вместе с потоком (зритель ушёл — ffmpeg тоже).
+/// Выход ffmpeg как поток ответа. Процесс завершается вместе с потоком (зритель ушёл - ffmpeg тоже).
 struct FfStream {
     inner: ReaderStream<tokio::process::ChildStdout>,
     _child: tokio::process::Child,
@@ -388,7 +388,7 @@ pub fn decode_text(b: &[u8]) -> String {
     if let Ok(s) = std::str::from_utf8(b) {
         return s.to_string();
     }
-    const HI: &str = "ЂЃ‚ѓ„…†‡€‰Љ‹ЊЌЋЏђ‘’“”•–—\u{98}™љ›њќћџ\u{a0}ЎўЈ¤Ґ¦§Ё©Є«¬\u{ad}®Ї°±Ііґµ¶·ё№є»јЅѕї";
+    const HI: &str = "ЂЃ‚ѓ„…†‡€‰Љ‹ЊЌЋЏђ‘’“”•--\u{98}™љ›њќћџ\u{a0}ЎўЈ¤Ґ¦§Ё©Є«¬\u{ad}®Ї°±Ііґµ¶·ё№є»јЅѕї";
     let hi: Vec<char> = HI.chars().collect();
     b.iter()
         .map(|&x| match x {

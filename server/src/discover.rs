@@ -1,4 +1,4 @@
-//! Лента «как на IMDb»: подборки (популярное, топ-250) и поиск по всему IMDb — фильмы и сериалы,
+//! Лента «как на IMDb»: подборки (популярное, топ-250) и поиск по всему IMDb - фильмы и сериалы,
 //! которых может не быть на компьютере хоста. Их можно отметить «Буду смотреть»/«Просмотрел»,
 //! положить в свой список и попросить хоста добавить. Картинки сервер скачивает к себе: браузер
 //! ходит только к нам. Подборки обновляются раз в 12 часов, постеры докачиваются в фоне.
@@ -6,19 +6,148 @@
 use crate::meta::imdb::{sized, Imdb};
 use crate::util::now_ms;
 use crate::App;
-use rusqlite::params;
+use futures_util::StreamExt;
+use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Подборки: ключ у нас, тип у IMDb, подпись.
-pub const CHARTS: &[(&str, &str, &str)] = &[
-    ("popular_movies", "MOST_POPULAR_MOVIES", "Популярные фильмы"),
-    ("popular_series", "MOST_POPULAR_TV_SHOWS", "Популярные сериалы"),
-    ("top_movies", "TOP_RATED_MOVIES", "Топ-250 фильмов"),
-    ("top_series", "TOP_RATED_TV_SHOWS", "Лучшие сериалы"),
+/// Откуда подборка: готовый список IMDb, поиск IMDb по жанру и стране или «скоро в кино».
+pub enum Src {
+    Chart(&'static str),
+    /// Типы, жанр IMDb, страны, только вышедшее за последние дни, не меньше стольких оценок.
+    Search {
+        types: &'static [&'static str],
+        genre: Option<&'static str>,
+        countries: &'static [&'static str],
+        days: Option<i64>,
+        votes: i64,
+    },
+    Soon,
+}
+
+const MOVIE: &[&str] = &["movie"];
+const SERIES: &[&str] = &["tvSeries", "tvMiniSeries"];
+
+const fn genre(types: &'static [&'static str], g: &'static str, votes: i64) -> Src {
+    Src::Search { types, genre: Some(g), countries: &[], days: None, votes }
+}
+
+/// Подборки: ключ у нас (вкладки «Фильмы»/«Сериалы» берут `*_movies`/`*_series`), подпись, откуда.
+pub const FEEDS: &[(&str, &str, Src)] = &[
+    ("popular_movies", "Популярные фильмы", Src::Chart("MOST_POPULAR_MOVIES")),
+    ("popular_series", "Популярные сериалы", Src::Chart("MOST_POPULAR_TV_SHOWS")),
+    (
+        "new_movies",
+        "Новинки кино",
+        Src::Search { types: MOVIE, genre: None, countries: &[], days: Some(180), votes: 1000 },
+    ),
+    (
+        "new_series",
+        "Новые сериалы",
+        Src::Search { types: SERIES, genre: None, countries: &[], days: Some(180), votes: 1000 },
+    ),
+    ("soon_movies", "Скоро в кино", Src::Soon),
+    ("top_movies", "Топ-250 фильмов", Src::Chart("TOP_RATED_MOVIES")),
+    ("top_series", "Лучшие сериалы", Src::Chart("TOP_RATED_TV_SHOWS")),
+    (
+        "russian_movies",
+        "Российское кино",
+        Src::Search { types: MOVIE, genre: None, countries: &["RU", "SU"], days: None, votes: 3000 },
+    ),
+    (
+        "russian_series",
+        "Российские сериалы",
+        Src::Search { types: SERIES, genre: None, countries: &["RU"], days: None, votes: 1000 },
+    ),
+    ("comedy_movies", "Комедии", genre(MOVIE, "Comedy", 20000)),
+    ("action_movies", "Боевики", genre(MOVIE, "Action", 20000)),
+    ("thriller_movies", "Триллеры", genre(MOVIE, "Thriller", 20000)),
+    ("horror_movies", "Ужасы", genre(MOVIE, "Horror", 15000)),
+    ("scifi_movies", "Фантастика", genre(MOVIE, "Sci-Fi", 20000)),
+    ("drama_movies", "Драмы", genre(MOVIE, "Drama", 20000)),
+    ("romance_movies", "Мелодрамы", genre(MOVIE, "Romance", 15000)),
+    ("animation_movies", "Мультфильмы", genre(MOVIE, "Animation", 10000)),
+    ("family_movies", "Для всей семьи", genre(MOVIE, "Family", 10000)),
+    ("documentary_movies", "Документальное", genre(MOVIE, "Documentary", 3000)),
+    ("crime_series", "Криминальные сериалы", genre(SERIES, "Crime", 10000)),
+    ("comedy_series", "Комедийные сериалы", genre(SERIES, "Comedy", 10000)),
+    ("scifi_series", "Фантастические сериалы", genre(SERIES, "Sci-Fi", 10000)),
+    (
+        "anime_movies",
+        "Аниме-фильмы",
+        Src::Search { types: MOVIE, genre: Some("Animation"), countries: &["JP"], days: None, votes: 1000 },
+    ),
+    (
+        "anime_series",
+        "Аниме-сериалы",
+        Src::Search { types: SERIES, genre: Some("Animation"), countries: &["JP"], days: None, votes: 5000 },
+    ),
 ];
+
+const NODE: &str = "id titleText { text } originalTitleText { text } titleType { id isSeries }
+    releaseYear { year } ratingsSummary { aggregateRating voteCount }
+    primaryImage { url } genres { genres { text } }";
+
+fn search_query() -> String {
+    format!(
+        "query A($c: AdvancedTitleSearchConstraints!) {{ advancedTitleSearch(first: 50, constraints: $c,
+           sort: {{ sortBy: POPULARITY, sortOrder: ASC }}) {{ edges {{ node {{ title {{ {NODE} }} }} }} }} }}"
+    )
+}
+
+fn soon_query() -> String {
+    format!(
+        "query S($from: Date!) {{ comingSoon(first: 50, comingSoonType: MOVIE, releasingOnOrAfter: $from) {{
+           edges {{ node {{ {NODE} }} }} }} }}"
+    )
+}
+
+/// Дата `YYYY-MM-DD` по миллисекундам Unix (UTC).
+pub fn ymd(ms: i64) -> String {
+    let days = ms.div_euclid(86_400_000);
+    // Алгоритм Хиннанта: дни от 1970-01-01 → гражданская дата.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Подборка с IMDb в виде `chartTitles` (`edges[].node` - фильм).
+async fn fetch_feed(imdb: &Imdb, src: &Src) -> anyhow::Result<Value> {
+    let now = now_ms();
+    match src {
+        Src::Chart(chart) => imdb.data(CHART, json!({ "chart": chart }), "chartTitles").await,
+        Src::Soon => imdb.data(&soon_query(), json!({ "from": ymd(now) }), "comingSoon").await,
+        Src::Search { types, genre, countries, days, votes } => {
+            let mut c = json!({
+                "titleTypeConstraint": { "anyTitleTypeIds": types },
+                "userRatingsConstraint": { "ratingsCountRange": { "min": votes } },
+            });
+            if let Some(g) = genre {
+                c["genreConstraint"] = json!({ "allGenreIds": [g] });
+            }
+            if !countries.is_empty() {
+                c["originCountryConstraint"] = json!({ "anyPrimaryCountries": countries });
+            }
+            if let Some(d) = days {
+                c["releaseDateConstraint"] =
+                    json!({ "releaseDateRange": { "start": ymd(now - d * 86_400_000), "end": ymd(now) } });
+            }
+            let v = imdb.data(&search_query(), json!({ "c": c }), "advancedTitleSearch").await?;
+            let edges: Vec<Value> =
+                v["edges"].as_array().into_iter().flatten().map(|e| json!({ "node": e["node"]["title"] })).collect();
+            Ok(json!({ "edges": edges }))
+        }
+    }
+}
 
 const CHART: &str = r#"query C($chart: ChartTitleType!) { chartTitles(first: 250, chart: { chartType: $chart }) {
   edges { currentRank node {
@@ -36,9 +165,10 @@ const SIMILAR: &str = r#"query S($id: ID!) { title(id: $id) { moreLikeThisTitles
   } }
 } } }"#;
 
-/// Описание фильма из ленты в нынешнем виде (`ext_titles.detailed`): 1 — только сюжет (0.6),
-/// 2 — со своей страницей: кадр, актёры, кадры, похожие.
-pub const DETAILED: i64 = 2;
+/// Описание фильма из ленты в нынешнем виде (`ext_titles.detailed`): 1 - только сюжет (0.6),
+/// 2 - со своей страницей: кадр, актёры, кадры, похожие; 3 (1.0) - и сезоны сериала (второй
+/// запрос IMDb снова работает: актёры, кадры и русские названия - заново).
+pub const DETAILED: i64 = 4;
 
 const EVERY: Duration = Duration::from_secs(12 * 3600);
 
@@ -120,7 +250,7 @@ pub fn upsert(app: &App, items: &[Ext]) -> rusqlite::Result<()> {
                     e.year,
                     e.rating,
                     e.votes,
-                    serde_json::to_string(&e.genres).unwrap_or_else(|_| "[]".into()),
+                    serde_json::to_string(&crate::meta::genres_ru(&e.genres)).unwrap_or_else(|_| "[]".into()),
                     e.poster_url,
                     now
                 ],
@@ -145,8 +275,11 @@ pub async fn refresh(app: &Arc<App>) -> anyhow::Result<usize> {
     let imdb = Imdb::new(app.http.clone());
     let mut done = 0;
     let mut last = None;
-    for (key, chart, _) in CHARTS {
-        match imdb.data(CHART, json!({ "chart": chart }), "chartTitles").await {
+    for (key, _, src) in FEEDS {
+        match tokio::time::timeout(Duration::from_secs(8), fetch_feed(&imdb, src))
+            .await
+            .unwrap_or_else(|e| Err(e.into()))
+        {
             Ok(v) => {
                 let items = parse_chart(&v);
                 if !items.is_empty() {
@@ -157,9 +290,12 @@ pub async fn refresh(app: &Arc<App>) -> anyhow::Result<usize> {
             }
             Err(e) => last = Some(e),
         }
+        // IMDb не любит залпы: подборки - по очереди с паузой.
+        tokio::time::sleep(Duration::from_millis(300)).await;
     }
     if done > 0 {
         app.db.set_setting("discover.at", &now_ms().to_string())?;
+        app.db.set_setting("discover.feeds", &FEEDS.len().to_string())?;
         app.posters_kick.notify_one();
         Ok(done)
     } else {
@@ -167,12 +303,14 @@ pub async fn refresh(app: &Arc<App>) -> anyhow::Result<usize> {
     }
 }
 
-/// Подборки — раз в 12 часов (первый раз — через минуту после запуска).
+/// Подборки - раз в 12 часов (первый раз - через минуту после запуска).
 pub async fn worker(app: Arc<App>) {
-    tokio::time::sleep(Duration::from_secs(60)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     loop {
         let at: i64 = app.db.setting_or("discover.at", "0").parse().unwrap_or(0);
-        if now_ms() - at > EVERY.as_millis() as i64 {
+        // Новых подборок ещё нет (обновили программу) - сразу, не дожидаясь 12 часов.
+        let fresh_set = app.db.setting_or("discover.feeds", "0") == FEEDS.len().to_string();
+        if now_ms() - at > EVERY.as_millis() as i64 || !fresh_set {
             if let Err(e) = refresh(&app).await {
                 tracing::warn!(error = %e, "лента IMDb");
             }
@@ -181,7 +319,7 @@ pub async fn worker(app: Arc<App>) {
     }
 }
 
-/// Постеры ленты — по 6 за раз, пока есть нескачанные; затем ждём новых.
+/// Постеры ленты - по 6 за раз, пока есть нескачанные; затем ждём новых.
 pub async fn posters(app: Arc<App>) {
     loop {
         let n = posters_batch(&app, 6).await;
@@ -193,7 +331,7 @@ pub async fn posters(app: Arc<App>) {
     }
 }
 
-/// Скачать до `limit` постеров (сначала — из подборок по порядку). Сколько пробовали.
+/// Скачать до `limit` постеров (сначала - из подборок по порядку). Сколько пробовали.
 pub async fn posters_batch(app: &Arc<App>, limit: i64) -> usize {
     let todo: Vec<(String, String)> = app
         .db
@@ -230,7 +368,7 @@ pub async fn posters_of(app: &Arc<App>, ids: &[String]) -> usize {
 
 async fn fetch_posters(app: &Arc<App>, todo: Vec<(String, String)>) -> usize {
     let jobs = todo.iter().map(|(id, url)| async move {
-        // Не вышло — помечаем пустой строкой, чтобы не пробовать по кругу.
+        // Не вышло - помечаем пустой строкой, чтобы не пробовать по кругу.
         let name = app.images.download(url).await.unwrap_or_default();
         let _ = app.db.with(|c| c.execute("UPDATE ext_titles SET poster = ? WHERE id = ?", params![name, id]));
     });
@@ -238,68 +376,135 @@ async fn fetch_posters(app: &Arc<App>, todo: Vec<(String, String)>) -> usize {
     todo.len()
 }
 
-/// Картинка к себе (не дольше 8 с); не вышло — без неё.
-async fn grab(app: &App, url: Option<&str>) -> Option<String> {
-    let url = url?;
-    tokio::time::timeout(Duration::from_secs(8), app.images.download(url)).await.ok()?.ok()
-}
-
-/// Всё для страницы фильма из ленты — один раз: описание с IMDb, большой постер, кадр, актёры с
+/// Всё для страницы фильма из ленты - один раз: описание с IMDb, большой постер, кадр, актёры с
 /// фото, кадры и похожие (с постерами). Картинки качаются вместе, браузер получит их у нас.
 pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
     let imdb = Imdb::new(app.http.clone());
     let d = imdb.details(id, &[]).await?;
-    let similar = match imdb.data(SIMILAR, json!({ "id": id }), "title").await {
-        Ok(v) => parse_chart(&v["moreLikeThisTitles"]),
-        Err(_) => vec![],
-    };
     let e = Ext {
-        id: id.to_string(),
+        id: id.into(),
         series: d.series,
         title: d.title.clone(),
-        original: d.original.clone().filter(|o| *o != d.title),
+        original: d.original.clone(),
         year: d.year,
         rating: d.rating,
         votes: d.votes,
         genres: d.genres.clone(),
         poster_url: d.poster.as_deref().map(|u| sized(u, 342)),
     };
-    let similar: Vec<Ext> = similar.into_iter().filter(|s| s.id != id).collect();
-    upsert(app, &similar)?;
-    upsert(app, std::slice::from_ref(&e))?;
-
-    let people: Vec<_> = d.people.iter().take(16).collect();
-    let (poster, backdrop, gallery, photos, _) = tokio::join!(
-        grab(app, d.poster.as_deref()),
-        grab(app, d.backdrop.as_deref()),
-        futures_util::future::join_all(d.gallery.iter().take(6).map(|u| grab(app, Some(u)))),
-        futures_util::future::join_all(people.iter().map(|p| grab(app, p.photo.as_deref()))),
-        async {
-            let ids: Vec<String> = similar.iter().map(|s| s.id.clone()).chain([e.id.clone()]).collect();
-            posters_of(app, &ids).await
-        },
-    );
-    let extra = json!({
-        "tagline": d.tagline,
-        "age": d.age,
-        "countries": d.countries,
-        "languages": d.languages,
-        "releaseDate": d.release_date,
-        "aka": d.aka,
-        "poster": poster,
-        "people": people.iter().zip(photos).map(|(p, photo)| json!({
-            "name": p.name, "job": p.job, "role": p.role, "photo": photo,
-        })).collect::<Vec<_>>(),
-        "gallery": gallery.into_iter().flatten().collect::<Vec<_>>(),
-        "similar": similar.iter().map(|s| &s.id).collect::<Vec<_>>(),
+    upsert(app, &[e])?;
+    let mut extra = json!({"tagline":d.tagline,"age":d.age,"countries":d.countries,"languages":d.languages,"releaseDate":d.release_date,"aka":d.aka,
+      "poster":d.poster.as_deref().map(crate::media_meta::art),"people":d.people.iter().take(16).map(|p|json!({"name":p.name,"job":p.job,"role":p.role,"photo":p.photo.as_deref().map(crate::media_meta::art),"id":p.id})).collect::<Vec<_>>(),
+      "gallery":d.gallery.iter().take(6).map(|u|crate::media_meta::art(u)).collect::<Vec<_>>(),"similar":[],"seasons":d.seasons});
+    if extra["seasons"].as_array().is_some_and(|s| s.is_empty()) {
+        extra.as_object_mut().expect("extra object").remove("seasons");
+    }
+    app.db.with(|c|c.execute("UPDATE ext_titles SET overview=COALESCE(overview,?1),runtime=?2,backdrop=COALESCE(?3,NULLIF(backdrop,'')),extra=json_patch(COALESCE(extra,'{}'),?4),detailed=?5 WHERE id=?6",params![d.overview,d.runtime,d.backdrop.as_deref().map(crate::media_meta::art),extra.to_string(),DETAILED,id]))?;
+    let a = app.clone();
+    let id = id.to_string();
+    let rich_job = format!("rich:{id}");
+    app.detail_jobs.lock().insert(rich_job.clone());
+    tokio::spawn(async move {
+        let provider = Imdb::new(a.http.clone());
+        let (ru, related) = tokio::join!(
+            crate::ruwiki::overview(&a.http, &id),
+            tokio::time::timeout(Duration::from_secs(8), provider.data(SIMILAR, json!({"id":id}), "title"))
+        );
+        if let Some(ru) = ru {
+            let _ = a.db.with(|c| c.execute("UPDATE ext_titles SET overview=? WHERE id=?", params![ru, id]));
+        }
+        if let Ok(Ok(v)) = related {
+            let items = parse_chart(&v["moreLikeThisTitles"]).into_iter().filter(|e| e.id != id).collect::<Vec<_>>();
+            let _ = upsert(&a, &items);
+            let _ = a.db.with(|c| {
+                c.execute(
+                    "UPDATE ext_titles SET extra=json_set(extra,'$.similar',json(?)) WHERE id=?",
+                    params![json!(items.iter().map(|e| &e.id).collect::<Vec<_>>()).to_string(), id],
+                )
+            });
+            a.posters_kick.notify_one();
+        }
+        a.detail_jobs.lock().remove(&rich_job);
     });
-    app.db.with(|c| {
-        c.execute(
-            "UPDATE ext_titles SET overview = ?, runtime = ?, backdrop = ?, extra = ?, detailed = ? WHERE id = ?",
-            params![d.overview, d.runtime, backdrop, extra.to_string(), DETAILED, id],
-        )
-    })?;
     Ok(())
+}
+
+/// Сезон сериала из ленты уже есть и свежий: старые сезоны - навсегда, проверяем раз в неделю.
+pub fn season_fresh(app: &App, id: &str, season: i32) -> bool {
+    let at: Option<i64> = app
+        .db
+        .with(|c| {
+            c.query_row("SELECT at FROM ext_seasons WHERE ext_id = ? AND season = ?", params![id, season], |r| r.get(0))
+                .optional()
+        })
+        .ok()
+        .flatten();
+    at.is_some_and(|at| now_ms() - at < 7 * 86_400_000)
+}
+
+/// Серии одного сезона сериала из ленты - с IMDb (один раз в неделю), кадры - к себе.
+pub async fn season(app: &Arc<App>, id: &str, season: i32) -> anyhow::Result<()> {
+    season_data(app, id, season).await?;
+    stills(app, id, season).await;
+    Ok(())
+}
+
+/// Только серии сезона (названия, оценки, даты) - без кадров (сетке оценок кадры не нужны).
+/// true - сезон обновился.
+pub async fn season_data(app: &Arc<App>, id: &str, season: i32) -> anyhow::Result<bool> {
+    if season_fresh(app, id, season) {
+        return Ok(false);
+    }
+    let imdb = Imdb::new(app.http.clone());
+    let v = imdb.data(crate::meta::imdb::EPISODES, json!({ "id": id, "season": season.to_string() }), "title").await?;
+    let eps = crate::meta::imdb::parse_episodes(&v);
+    app.db.tx(|tx| {
+        for e in &eps {
+            tx.execute(
+                "INSERT INTO ext_episodes (ext_id, season, episode, name, overview, still_url, air_date, runtime, rating)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(ext_id, season, episode) DO UPDATE SET name = ?4, overview = ?5,
+                   still = CASE WHEN still_url IS NOT ?6 THEN NULL ELSE still END, still_url = ?6,
+                   air_date = ?7, runtime = ?8, rating = ?9",
+                params![id, e.season, e.episode, e.name, e.overview, e.still, e.air_date, e.runtime, e.rating],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO ext_seasons (ext_id, season, at) VALUES (?, ?, ?)
+             ON CONFLICT(ext_id, season) DO UPDATE SET at = excluded.at",
+            params![id, season, now_ms()],
+        )?;
+        Ok(())
+    })?;
+    Ok(true)
+}
+
+/// Кадры серий сезона, которых ещё нет у нас (по 6 разом, не дольше 12 с; остальные - в следующий раз).
+pub async fn stills(app: &Arc<App>, id: &str, season: i32) {
+    let todo: Vec<(i32, String)> = app
+        .db
+        .with(|c| {
+            let mut st = c.prepare(
+                "SELECT episode, still_url FROM ext_episodes
+                 WHERE ext_id = ? AND season = ? AND (still IS NULL OR still = '') AND still_url IS NOT NULL ORDER BY episode",
+            )?;
+            let r = st.query_map(params![id, season], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            r.collect()
+        })
+        .unwrap_or_default();
+    let work = futures_util::stream::iter(todo)
+        .map(|(ep, url)| async move {
+            let Ok(name) = app.images.download(&url).await else { return };
+            let _ = app.db.with(|c| {
+                c.execute(
+                    "UPDATE ext_episodes SET still = ? WHERE ext_id = ? AND season = ? AND episode = ?",
+                    params![name, id, season, ep],
+                )
+            });
+        })
+        .buffer_unordered(6)
+        .collect::<Vec<_>>();
+    let _ = tokio::time::timeout(Duration::from_secs(12), work).await;
 }
 
 /// Карточка фильма из ленты для интерфейса.
@@ -324,9 +529,12 @@ pub struct ExtCard {
 
 pub fn card_sql(kids: bool) -> String {
     format!(
-        "SELECT e.id, e.kind, e.title, e.original, e.year, e.rating, NULLIF(e.poster, ''), e.genres,
+        "SELECT e.id, e.kind, COALESCE((SELECT title FROM title_localizations l WHERE l.id=e.id),e.title),
+           COALESCE(e.original,CASE WHEN EXISTS(SELECT 1 FROM title_localizations l WHERE l.id=e.id AND l.title!=e.title) THEN e.title END), e.year, e.rating,
+           COALESCE(NULLIF(e.poster, ''),'/api/discover/poster/'||e.id), e.genres,
            (SELECT t.id FROM titles t WHERE t.imdb_id = e.id AND {} LIMIT 1),
-           (SELECT m.status FROM ext_marks m WHERE m.ext_id = e.id AND m.profile_id = ?1),
+           CASE WHEN EXISTS (SELECT 1 FROM ext_dropped d WHERE d.ext_id = e.id AND d.profile_id = ?1) THEN 'dropped'
+             ELSE (SELECT m.status FROM ext_marks m WHERE m.ext_id = e.id AND m.profile_id = ?1) END,
            EXISTS (SELECT 1 FROM wishes w WHERE w.ext_id = e.id AND w.profile_id = ?1 AND w.dismissed_at IS NULL)
          FROM ext_titles e",
         crate::api::visible(kids)
@@ -341,8 +549,14 @@ pub fn card(r: &rusqlite::Row) -> rusqlite::Result<ExtCard> {
         original: r.get(3)?,
         year: r.get(4)?,
         rating: r.get(5)?,
-        poster: crate::api::img(r.get(6)?),
-        genres: crate::api::json_list(r.get(7)?),
+        poster: r.get::<_, Option<String>>(6)?.and_then(|s| {
+            if s.starts_with('/') {
+                Some(s)
+            } else {
+                crate::api::img(Some(s))
+            }
+        }),
+        genres: crate::meta::genres_ru(crate::api::json_list(r.get(7)?)),
         local: r.get(8)?,
         mark: r.get(9)?,
         wished: r.get(10)?,
@@ -373,5 +587,16 @@ mod tests {
         assert!(c[0].poster_url.as_deref().unwrap().contains("UX342"));
         assert_eq!((c[1].series, c[1].original.as_deref()), (true, None));
         assert!(valid_id("tt0111161") && !valid_id("tt12") && !valid_id("../etc"));
+    }
+
+    #[test]
+    fn dates_and_feeds() {
+        assert_eq!(ymd(0), "1970-01-01");
+        assert_eq!(ymd(951_782_400_000), "2000-02-29");
+        assert_eq!(ymd(1_792_281_600_000), "2026-10-18");
+        // Ключи уникальны и с понятным разделом: вкладки берут `*_movies` и `*_series`.
+        let keys: std::collections::HashSet<_> = FEEDS.iter().map(|f| f.0).collect();
+        assert_eq!(keys.len(), FEEDS.len());
+        assert!(FEEDS.iter().all(|f| f.0.ends_with("_movies") || f.0.ends_with("_series")));
     }
 }

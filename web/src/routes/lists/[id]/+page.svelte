@@ -31,8 +31,8 @@
 
   const key = (i: SharedItem) => (i.ext ? i.ext.id : `t${i.card!.id}`);
   const path = (i: SharedItem) => (i.ext ? `/api/lists/${id}/ext/${i.ext.id}` : `/api/lists/${id}/items/${i.card!.id}`);
-  // Группы по порядку, «Без группы» — последней (или единственной, если групп нет).
-  // Внутри — сначала то, что ещё не смотрели.
+  // Группы по порядку, «Без группы» - последней (или единственной, если групп нет).
+  // Внутри - сначала то, что ещё не смотрели.
   const sections = $derived.by(() => {
     if (!l) return [];
     const order = (a: SharedItem, b: SharedItem) => Number(!!a.watchedAt) - Number(!!b.watchedAt);
@@ -198,7 +198,7 @@
               {/each}
             </div>
           {:else}
-            <p class="faint none">Пусто — переложите сюда фильмы выбором группы под постером.</p>
+            <p class="faint none">Пусто - переложите сюда фильмы выбором группы под постером.</p>
           {/if}
         </section>
       {/if}
@@ -231,7 +231,7 @@
       {/each}
     </ul>
   {:else}
-    <p class="muted">Все друзья уже здесь — или друзей пока нет. Добавьте их в разделе «Люди».</p>
+    <p class="muted">Все друзья уже здесь - или друзей пока нет. Добавьте их в разделе «Люди».</p>
   {/if}
 </Modal>
 

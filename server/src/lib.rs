@@ -1,24 +1,37 @@
-//! Nova (внутреннее имя — fsfy, бывший «Films & Serials For You») — домашний кинотеатр: сервер раздаёт фильмы и сериалы с компьютера
-//! хоста, интерфейс — в браузере у зрителей и в окне приложения у хоста.
+//! Nova (внутреннее имя - fsfy, бывший «Films & Serials For You») - домашний кинотеатр: сервер раздаёт фильмы и сериалы с компьютера
+//! хоста, интерфейс - в браузере у зрителей и в окне приложения у хоста.
 
 pub mod access;
 pub mod api;
 pub mod auth;
+pub mod catalog_search;
 pub mod cloudpub;
 pub mod copy;
 pub mod db;
+pub mod directors;
 pub mod discover;
+pub mod episode_locale;
 pub mod error;
+pub mod franchise;
 pub mod hls;
 pub mod host;
 pub mod images;
 pub mod library;
+pub mod media_meta;
 pub mod meta;
+pub mod monitor;
+pub mod outbound;
 pub mod release;
+pub mod rooms;
+pub mod ruwiki;
+mod site_sources;
 pub mod stream;
 pub mod taste;
 pub mod util;
+pub mod video_search;
+mod video_sources;
 pub mod web;
+pub mod zipstream;
 
 use anyhow::Context;
 use axum::Extension;
@@ -37,6 +50,7 @@ pub const DEFAULT_PORT: u16 = 17480;
 pub const DEFAULT_WINDOW_PORT: u16 = 17481;
 
 pub struct App {
+    pub detail_jobs: Mutex<std::collections::HashSet<String>>,
     pub db: db::Db,
     pub data: PathBuf,
     pub images: images::Images,
@@ -56,15 +70,17 @@ pub struct App {
     pub access: access::Access,
     pub login_limit: auth::Limiter,
     pub signup_limit: auth::Limiter,
-    /// Сообщений от профиля — не больше 30 в минуту.
+    /// Сообщений от профиля - не больше 30 в минуту.
     pub message_limit: auth::Limiter,
     pub entries: Mutex<HashMap<String, i64>>,
-    /// Перекодирование нагружает процессор — одновременно немного.
+    /// Перекодирование нагружает процессор - одновременно немного.
     pub transcode: Arc<Semaphore>,
     pub remux: Arc<Semaphore>,
     pub hls: hls::Hls,
     pub copies: copy::Copies,
     pub inbox: library::inbox::Inbox,
+    /// Комнаты совместного просмотра.
+    pub rooms: rooms::Rooms,
 }
 
 impl App {
@@ -116,7 +132,7 @@ pub fn default_data_dir() -> PathBuf {
     }
 }
 
-/// Занять порт; занят — соседний, потом любой. Выбранный запоминается: у окна хоста от порта
+/// Занять порт; занят - соседний, потом любой. Выбранный запоминается: у окна хоста от порта
 /// зависят сохранённые настройки браузера.
 async fn bind(ip: Ipv4Addr, wanted: u16) -> anyhow::Result<TcpListener> {
     for p in (wanted..wanted.saturating_add(20)).step_by(2) {
@@ -180,6 +196,7 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
     }
 
     let app = Arc::new(App {
+        detail_jobs: Mutex::default(),
         tools: RwLock::new(library::probe::Tools::find(db.setting("tools.ffmpeg").as_deref())),
         db,
         data: opts.data.clone(),
@@ -204,6 +221,7 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         hls: hls::Hls::default(),
         copies: copy::Copies::default(),
         inbox: library::inbox::Inbox::default(),
+        rooms: rooms::Rooms::default(),
     });
     auth::ensure_host(&app)?;
     backfill(&app)?;
@@ -218,6 +236,15 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
     tokio::spawn(copy::janitor(app.clone()));
     tokio::spawn(discover::worker(app.clone()));
     tokio::spawn(discover::posters(app.clone()));
+    tokio::spawn(rooms::janitor(app.clone()));
+    tokio::spawn(api::backfill_link_thumbs(app.clone()));
+    tokio::spawn(ruwiki::backfill(app.clone()));
+    // Жанры, сохранённые раньше по-английски или описательно (Викиданные), - к общему русскому списку.
+    match meta::normalize_stored_genres(&app.db) {
+        Ok(n) if n > 0 => tracing::info!("жанры по-русски: {n}"),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "жанры по-русски"),
+    }
     access::Access::restart(&app);
 
     let router = api::router(app.clone());
