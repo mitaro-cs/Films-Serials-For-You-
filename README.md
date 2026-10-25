@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Alpha 0.1" src="https://img.shields.io/badge/версия-Alpha%200.1-white?style=flat-square&labelColor=111">
+  <img alt="Alpha 0.2" src="https://img.shields.io/badge/версия-Alpha%200.2-white?style=flat-square&labelColor=111">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-white?style=flat-square&labelColor=111">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-axum-white?style=flat-square&labelColor=111">
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-white?style=flat-square&labelColor=111">
@@ -55,7 +55,7 @@
 
 ### Смотреть
 - **Любые файлы**: MP4 играет как есть, MKV, AVI, HEVC, AC3 - через ffmpeg (он уже в установщике).
-  Качество подстраивается под интернет, несколько озвучек и субтитров, `.srt` рядом с видео
+  Плеер замеряет скорость до вашего компьютера и сам выбирает качество, при подвисании - снижает; несколько озвучек и субтитров, `.srt` рядом с видео
   (в том числе в Windows-1251).
 - **Место запоминается на всех устройствах**: начали на ноутбуке - продолжите на компьютере
   или телефоне с той же секунды.
@@ -97,12 +97,13 @@
 
 ## Установка
 
-1. Скачайте `Nova_0.1.0-alpha_x64-setup.exe` (Windows 10 и 11, x64) и запустите.
+1. Скачайте `Nova_0.2.0-alpha_x64-setup.exe` со страницы [выпусков](https://github.com/mitaro-cs/Nova/releases/latest) (Windows 10 и 11, x64) и запустите.
 2. При первом запуске выберите папку с фильмами - Nova найдёт фильмы и сериалы сама.
 3. «Управление → Доступ» - включите ссылку для друзей и отправьте её.
 
 Данные хоста (база, картинки) лежат в `%APPDATA%\app.fsfy` и переживают переустановку.
-Новая версия ставится поверх старой. Подробно для хоста - [docs/host.md](docs/host.md).
+**Обновляется само**: приложение находит новую версию на GitHub, ставит только подписанную ключом Nova
+и перед установкой сохраняет копию базы в `backups/`. Подробно для хоста - [docs/host.md](docs/host.md).
 
 Nova можно собрать и на Mac (см. ниже), но готовые выпуски сейчас - только для Windows.
 

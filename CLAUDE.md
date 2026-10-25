@@ -163,7 +163,14 @@
   `scripts/fetch-ffmpeg.sh windows` (Git Bash); сборка — в `desktop/`: `npm ci`, затем
   `npm run tauri -- build --target x86_64-pc-windows-msvc --bundles nsis`; установщик
   `target/x86_64-pc-windows-msvc/release/bundle/nsis/Nova_<версия>_x64-setup.exe` — на рабочий стол.
-  Автообновление выключено (`desktop/src-tauri/src/main.rs`, `mod update` оставлен).
+  Локальная сборка без ключа подписи - с `--config src-tauri/no-updater.conf.json`.
+- С Alpha 0.2 снова GitHub (`mitaro-cs/Nova`, ветка `miaro`): пуш собирает выпуск, `latest.json` подписан
+  секретом `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`; ключ у владельца, открытый - в tauri.conf.json).
+  Выпуски 0.x-alpha - обычные, не предварительные: иначе `releases/latest` их не отдаёт. Приложение
+  ставит только подписанное и перед установкой копирует базу в `backups/` (три последние, `update.rs`).
+- Скорость у зрителя (Alpha 0.2): `/api/speedtest` (вошедшим, 20/мин, несжатый), `player/speed.ts` -
+  старт «Оригинал» только при скорости ≥ 1,5 × битрейт (`info.bitrate`), остановка > 3 с или 2 за 30 с -
+  автокачество; отчёт `net` в прогрессе → `App.playback` → «Сейчас смотрят».
   Инструменты в PATH новой оболочки не видны: `$env:Path` = Machine + User. e2e на Windows —
   `FSFY_BIN=target\release\fsfy.exe`.
 - (до 1.0) Выпуск собирался сам: `release.yml` на пуш в `miaro` смотрел `version` в
