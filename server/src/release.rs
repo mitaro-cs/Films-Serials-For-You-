@@ -7,7 +7,7 @@ use serde::Deserialize;
 use std::path::Path;
 use tokio::io::AsyncWriteExt;
 
-pub const REPO: &str = "mitaro-cs/Films-Serials-For-You-";
+pub const REPO: &str = "mitaro-cs/Nova";
 
 #[derive(Debug, Clone)]
 pub struct Latest {

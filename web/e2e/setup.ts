@@ -160,7 +160,7 @@ export default async function setup(_: FullConfig) {
   const db = new DatabaseSync(join(data, 'fsfy.db'));
   db.exec('PRAGMA busy_timeout = 5000');
   const put = db.prepare(
-    `INSERT INTO ext_titles (id, kind, title, original, year, rating, votes, genres, overview, runtime, poster, backdrop, extra, detailed, updated_at)
+    `INSERT OR REPLACE INTO ext_titles (id, kind, title, original, year, rating, votes, genres, overview, runtime, poster, backdrop, extra, detailed, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const similar = ['tt0000001', 'tt0000002', 'tt0000003'];

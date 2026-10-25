@@ -25,9 +25,10 @@ test('карточки лёгкие и с ленивой загрузкой', as
   await page.goto(url('/'));
   const imgs = page.locator('main .tile .art > img');
   await expect(imgs.first()).toBeVisible();
-  const n = await imgs.count();
-  let eager = 0;
-  for (let i = 0; i < n; i++) if ((await imgs.nth(i).getAttribute('loading')) === 'eager') eager++;
+  // Разом, одним снимком: по одной картинке WebKit иногда ждал элемент, который ряд уже перерисовал.
+  const loading = await imgs.evaluateAll((list) => list.map((i) => i.getAttribute('loading')));
+  const n = loading.length;
+  const eager = loading.filter((l) => l === 'eager').length;
   expect(eager, 'сразу грузятся только первые карточки').toBeLessThanOrEqual(10);
   expect(n - eager, 'остальные - лениво').toBeGreaterThan(0);
   // Лёгкий кадр, а не исходник: для карточки 640 px хватает.

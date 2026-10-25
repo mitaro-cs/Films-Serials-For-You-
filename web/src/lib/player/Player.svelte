@@ -24,6 +24,7 @@
   import { levels, trickFrame } from './levels';
   import { nativeLevels } from './native-master';
   import { qualityTier } from './quality-label';
+  import { abrEstimate, forgetSpeed, measureSpeed, startQuality } from './speed';
   import { cueAt, parseVtt, type Cue } from './vtt';
   import { forgetCatalog } from '$lib/catalog.svelte';
   import { extChanged } from '$lib/discover/sheet.svelte';
@@ -77,6 +78,13 @@
   let offset = $state(0);
   let audio = $state(0);
   let hls: HlsType | null = null;
+  // Скорость до хоста у этого зрителя (Мбит/с) и сколько раз видео останавливалось - для выбора
+  // качества и для «Управления» у хоста. Замер - сразу, параллельно со сведениями о файле.
+  let mbit = $state<number | null>(null);
+  let stallCount = 0;
+  // Уже подвисало у этого зрителя - следующие серии сразу в автокачестве.
+  let slow = false;
+  const speed = typeof window === 'undefined' ? Promise.resolve(null) : measureSpeed();
   let pendingSeek = 0;
 
   let paused = $state(true);
@@ -304,8 +312,12 @@
     let retries = 0;
     const h = new Hls({
       startPosition: at,
-      maxBufferLength: 20,
+      // Запас вперёд - до минуты: короткие провалы скорости не останавливают видео.
+      maxBufferLength: src ? 20 : 60,
+      maxMaxBufferLength: 120,
       startLevel: srcLevel,
+      // Автокачество начинает с уровня под замеренную скорость, а не наугад.
+      ...(src || abrEstimate(mbit) === undefined ? {} : { abrEwmaDefaultEstimate: abrEstimate(mbit) }),
       capLevelToPlayerSize: true,
       backBufferLength: 60,
       // Плейлист у хоста может готовиться несколько секунд (копия, перекодирование).
@@ -409,11 +421,15 @@
       return destroyHls;
     }
     api<PlayInfo>(`/api/files/${id}/info`).then(
-      (i) => {
+      async (i) => {
+        if(resource!==resourceGeneration)return;
+        // Замер сам укладывается в 2,5 с (медленно - считает по пришедшему); 3 с - на всякий случай.
+        mbit = await Promise.race([speed, new Promise<null>((r) => setTimeout(() => r(null), 3000))]);
         if(resource!==resourceGeneration)return;
         info = i;
         audio = Math.max(0, i.play.audio.findIndex((a) => a.default));
-        quality = 'orig';
+        quality = slow ? 'auto' : startQuality(mbit, i.bitrate ?? null);
+        if (quality === 'auto' && i.hls) say(`Интернет ${mbit} Мбит/с - включили автокачество`);
         const forced = i.play.subs.find((s) => s.forced && s.lang?.startsWith('ru'));
         if (forced) pickSubs(forced.id);
         const start = sync && remote ? remote.position + (remote.playing ? (performance.now()-remoteAt)/1000 : 0) : i.position > 5 && (!i.play.duration || i.position < i.play.duration - 20) ? i.position : 0;
@@ -522,20 +538,33 @@
       : 'Этот формат браузер не играет. Скачайте файл или попросите хоста установить ffmpeg';
   }
 
-  // Медленный интернет: три остановки за 45 секунд - включаем автокачество, как Netflix.
+  // Медленный интернет: остановка дольше 3 секунд или две за 30 секунд - включаем автокачество
+  // с того же места (и в Safari тоже). В автокачестве уровень снижает сам hls.js.
   let stalls: number[] = [];
+  let stallTimer: ReturnType<typeof setTimeout> | undefined;
+  const adaptive = () => mode === 'hls' && quality === 'auto';
+  function slowDown() {
+    clearTimeout(stallTimer);
+    stalls = [];
+    slow = true;
+    forgetSpeed();
+    quality = 'auto';
+    say('Медленный интернет - включили автокачество');
+    load(time);
+  }
   function onWaiting() {
     if (!desiredPlaying || video?.paused) {waiting=false;return;}
     waiting = true;
-    if (!info?.hls || mode === 'hls' || mode === 'copy' || !video || video.seeking || current < 2) return;
+    if (!video || video.seeking || current < 2) return;
+    stallCount++;
+    if (!info?.hls || src || adaptive()) return;
     const now = Date.now();
-    stalls = [...stalls.filter((t) => now - t < 45_000), now];
-    if (stalls.length >= 3) {
-      stalls = [];
-      quality = 'auto';
-      say('Медленный интернет - включили автокачество');
-      load(time);
-    }
+    stalls = [...stalls.filter((t) => now - t < 30_000), now];
+    if (stalls.length >= 2) return slowDown();
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      if (waiting && desiredPlaying && !video?.seeking && !adaptive()) slowDown();
+    }, 3_000);
   }
 
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -626,7 +655,10 @@
     if (!force && now - lastSaved < 5_000) return;
     lastSaved = now;
     noteOwnSave();
-    const body = JSON.stringify({ position: time, duration });
+    // Как идёт просмотр - хосту в «Управление»: скорость, качество, остановки.
+    const shown = quality === 'orig' ? 'orig' : hlsHeight ? `${hlsHeight}p` : quality === 'auto' ? 'auto' : `${quality}p`;
+    const net = src ? undefined : { mbit, stalls: stallCount, quality: shown };
+    const body = JSON.stringify({ position: time, duration, net });
     saving = saving.catch(() => {}).then(() => fetch(url, {
       method: 'PUT',
       keepalive: true,

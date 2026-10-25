@@ -38,16 +38,20 @@ pub async fn status(State(app): State<Arc<App>>, _m: Manager) -> Out {
     let watching: Vec<Value> = app.db.with(|c| {
         let mut st = c.prepare(
             "SELECT CASE WHEN pr.name = u.name THEN u.name ELSE u.name || ' · ' || pr.name END,
-                    t.title, f.season, f.episode, p.position, p.duration FROM progress p
+                    t.title, f.season, f.episode, p.position, p.duration, p.profile_id FROM progress p
              JOIN profiles pr ON pr.id = p.profile_id JOIN users u ON u.id = pr.user_id
              JOIN files f ON f.id = p.file_id JOIN titles t ON t.id = f.title_id
              WHERE p.updated_at > ? ORDER BY p.updated_at DESC",
         )?;
+        let net = app.playback.lock().clone();
         let r = st.query_map([now_ms() - 60_000], |r| {
+            // Отчёт плеера за последние полторы минуты: скорость, качество, остановки.
+            let stat = net.get(&r.get::<_, i64>(6)?).filter(|s| now_ms() - s.at < 90_000);
             Ok(json!({
                 "user": r.get::<_, String>(0)?, "title": r.get::<_, String>(1)?,
                 "episode": super::catalog::episode_label(r.get(2)?, r.get(3)?, None),
                 "position": r.get::<_, f64>(4)?, "duration": r.get::<_, f64>(5)?,
+                "net": stat,
             }))
         })?;
         r.collect()

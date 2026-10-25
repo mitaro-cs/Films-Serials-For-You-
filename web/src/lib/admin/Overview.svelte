@@ -204,11 +204,17 @@
           <span class="what">{w.title}{w.episode ? ` · ${w.episode}` : ''}</span>
           <span class="time">{clock(w.position)} / {clock(w.duration)}</span>
           <span class="bar"><i style:transform="scaleX({percent(w.position, w.duration) / 100})"></i></span>
+          {#if w.net}
+            <span class="net" class:slow={w.net.stalls > 0}>
+              {w.net.mbit !== null ? `${w.net.mbit} Мбит/с` : 'скорость не замерена'} · {w.net.quality === 'orig' ? 'оригинал' : w.net.quality === 'auto' ? 'автокачество' : w.net.quality}
+              {#if w.net.stalls > 0} · остановок: {w.net.stalls}{/if}
+            </span>
+          {/if}
         </li>
       {/each}
     </ul>
   {:else}
-    <p class="muted">Никто не смотрит. Когда кто-то включит фильм, он появится здесь с местом просмотра.</p>
+    <p class="muted">Никто не смотрит. Когда кто-то включит фильм, он появится здесь с местом просмотра, скоростью интернета и качеством.</p>
   {/if}
 </section>
 
@@ -410,6 +416,16 @@
     font-size: 12px;
     color: var(--faint);
     font-variant-numeric: tabular-nums;
+  }
+  /* Скорость и качество у зрителя: остановки - заметнее. */
+  .watching .net {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .watching .net.slow {
+    color: #f5c46b;
   }
   .watching .bar {
     grid-column: 1 / -1;

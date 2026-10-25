@@ -146,8 +146,13 @@ pub async fn info(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -
         "label": super::catalog::episode_label(season, episode, crate::episode_locale::localized(&app, name.as_deref()).as_deref()),
         "still": super::img(still),
     }));
+    // Сколько Мбит/с нужно для «Оригинала»: плеер сравнивает с замером скорости зрителя.
+    let bitrate = f.probe.as_ref().and_then(|p| p.duration).filter(|d| *d > 0.0).and_then(|d| {
+        let size = std::fs::metadata(&f.path).ok()?.len() as f64;
+        Some((size * 8.0 / d / 1e6 * 10.0).round() / 10.0)
+    });
     Ok(Json(json!({
-        "play": info, "titleId": f.title_id, "kind": f.kind, "title": f.title,
+        "play": info, "titleId": f.title_id, "kind": f.kind, "title": f.title, "bitrate": bitrate,
         "season": f.season,
         "episode": super::catalog::episode_label(f.season, f.episode, crate::episode_locale::localized(&app, f.name.as_deref()).as_deref()),
         "prev": prev, "next": next, "nextInfo": next_still, "position": position,
@@ -509,6 +514,71 @@ fn vtt_response(vtt: Arc<str>) -> Response {
 pub struct ProgressBody {
     position: f64,
     duration: f64,
+    /// Как идёт просмотр у зрителя: замер скорости, качество, остановки - для «Управления».
+    #[serde(default)]
+    net: Option<NetBody>,
+}
+
+#[derive(Deserialize)]
+pub struct NetBody {
+    mbit: Option<f64>,
+    quality: Option<String>,
+    stalls: Option<u32>,
+}
+
+/// Последнее, что плеер зрителя сообщил о сети (в памяти: после перезапуска не нужно).
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayStat {
+    pub mbit: Option<f64>,
+    pub quality: String,
+    pub stalls: u32,
+    pub at: i64,
+}
+
+/// Качество - только из известных: «orig», «auto» или высота вроде «720p».
+fn quality_ok(q: &str) -> bool {
+    matches!(q, "orig" | "auto")
+        || q.strip_suffix('p').is_some_and(|n| (3..=4).contains(&n.len()) && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+impl NetBody {
+    fn stat(&self) -> Option<PlayStat> {
+        let quality = self.quality.as_deref().filter(|q| quality_ok(q))?.to_string();
+        Some(PlayStat {
+            mbit: self
+                .mbit
+                .filter(|m| m.is_finite() && (0.0..100_000.0).contains(m))
+                .map(|m| (m * 10.0).round() / 10.0),
+            quality,
+            stalls: self.stalls.unwrap_or(0).min(100_000),
+            at: crate::util::now_ms(),
+        })
+    }
+}
+
+/// Сколько отдаём на замер скорости: по умолчанию 1,5 МБ, не больше 4 МБ.
+const SPEED_DEFAULT: usize = 1_500_000;
+const SPEED_MAX: usize = 4_000_000;
+
+#[derive(Deserialize)]
+pub struct SpeedQuery {
+    bytes: Option<usize>,
+}
+
+/// Замер скорости до хоста: плеер качает несжимаемый кусок и сам считает Мбит/с. Только для
+/// вошедших и не чаще 20 раз в минуту на профиль - иначе это был бы бесплатный генератор трафика.
+pub async fn speedtest(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<SpeedQuery>) -> ApiResult<Response> {
+    let key = format!("speed:{}", v.profile.id);
+    if app.speed_limit.blocked(&key) {
+        return Err(ApiError::bad("rate_limited", "Слишком часто - подождите минуту"));
+    }
+    app.speed_limit.fail(&key);
+    let n = q.bytes.unwrap_or(SPEED_DEFAULT).clamp(1, SPEED_MAX);
+    let mut body = vec![0u8; n];
+    rand::fill(&mut body[..]);
+    Ok(([(header::CONTENT_TYPE, "application/octet-stream"), (header::CACHE_CONTROL, "no-store")], body)
+        .into_response())
 }
 
 pub async fn save_progress(
@@ -533,6 +603,12 @@ pub async fn save_progress(
             params![v.profile.id, id, pos, b.duration, done, tick_ms()],
         )
     })?;
+    if let Some(stat) = b.net.as_ref().and_then(NetBody::stat) {
+        let mut all = app.playback.lock();
+        // Старое (больше 10 минут) - убираем, чтобы карта не росла.
+        all.retain(|_, s| stat.at - s.at < 600_000);
+        all.insert(v.profile.id, stat);
+    }
     let watched = done && super::catalog::mark_if_finished(&app, v.profile.id, f.title_id)?;
     Ok(Json(json!({"ok": true, "done": done, "watched": watched})))
 }
@@ -608,4 +684,23 @@ pub async fn get_progress(State(app): State<Arc<App>>, v: Viewer, Path(id): Path
         Some((position, duration, at)) => json!({"position": position, "duration": duration, "updatedAt": at}),
         None => json!({"position": null, "duration": null, "updatedAt": null}),
     }))
+}
+
+#[cfg(test)]
+mod net_tests {
+    use super::*;
+
+    #[test]
+    fn only_known_qualities() {
+        for q in ["orig", "auto", "720p", "1080p"] {
+            assert!(quality_ok(q), "{q}");
+        }
+        for q in ["", "p", "72p", "10800p", "720", "<b>", "auto "] {
+            assert!(!quality_ok(q), "{q}");
+        }
+        let n = NetBody { mbit: Some(f64::NAN), quality: Some("720p".into()), stalls: Some(3) };
+        let s = n.stat().unwrap();
+        assert_eq!((s.mbit, s.quality.as_str(), s.stalls), (None, "720p", 3));
+        assert!(NetBody { mbit: Some(5.0), quality: Some("evil".into()), stalls: None }.stat().is_none());
+    }
 }

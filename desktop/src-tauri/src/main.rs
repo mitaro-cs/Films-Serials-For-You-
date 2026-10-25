@@ -15,10 +15,8 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
-// Автообновление (GitHub) с 1.0 выключено: выпуски собираются у владельца, новая версия ставится
-// установщиком поверх. Код оставлен - включить снова, если выпуски вернутся на GitHub.
 mod night;
-#[allow(dead_code)]
+// Автообновление с GitHub (mitaro-cs/Nova): подписанный `latest.json`, ключ - секрет выпуска.
 mod update;
 
 pub const TITLE: &str = "Nova";
@@ -43,14 +41,21 @@ impl Host for DesktopHost {
             .and_then(|app| app.get_webview_window("main"))
             .is_some_and(|window| window.set_fullscreen(enabled).is_ok())
     }
-    // Обновления - новым установщиком (см. `mod update`): «Управление → Версия» так и пишет.
     fn update_info(&self) -> Option<fsfy::host::UpdateInfo> {
-        None
+        Some(self.app.get()?.state::<update::Updates>().info())
     }
 
-    fn update_check(&self) {}
+    fn update_check(&self) {
+        if let Some(app) = self.app.get() {
+            update::from_page(app, false);
+        }
+    }
 
-    fn update_install(&self) {}
+    fn update_install(&self) {
+        if let Some(app) = self.app.get() {
+            update::from_page(app, true);
+        }
+    }
 
     fn can_pick(&self) -> bool {
         true
@@ -148,6 +153,8 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::Updates::default())
         .setup(|app| {
             let handle = app.handle().clone();
             let host = Arc::new(DesktopHost::default());
@@ -223,6 +230,7 @@ fn main() {
                 app.autolaunch().is_enabled().unwrap_or(false),
                 None::<&str>,
             )?;
+            let upd = MenuItem::with_id(app, "update", "Проверить обновления", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Выключить сайт и выйти", true, None::<&str>)?;
             let night = MenuItem::with_id(
                 app,
@@ -240,8 +248,11 @@ fn main() {
             )?;
             let sep = PredefinedMenuItem::separator(app)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
-            let menu =
-                Menu::with_items(app, &[&open, &link, &browser, &sep, &night, &lights, &autostart, &sep2, &quit])?;
+            let menu = Menu::with_items(
+                app,
+                &[&open, &link, &browser, &sep, &night, &lights, &autostart, &upd, &sep2, &quit],
+            )?;
+            app.state::<update::Updates>().set_item(upd);
             *host.link_item.lock() = Some(link);
             // Адрес мог прийти раньше, чем появилось меню.
             let v = running.app.access.view(&running.app);
@@ -272,6 +283,7 @@ fn main() {
                         let _ = if on { al.disable() } else { al.enable() };
                         let _ = auto.set_checked(al.is_enabled().unwrap_or(false));
                     }
+                    "update" => update::menu(app),
                     "quit" => app.exit(0),
                     "night" | "lights" => {
                         let handle = app.clone();
@@ -303,6 +315,10 @@ fn main() {
                 .ok();
 
             app.manage(State { running: Mutex::new(Some(running)), _host: host, _awake: Mutex::new(awake) });
+            // В сборке для разработки обновлений нет: версия там не из выпуска.
+            if !cfg!(debug_assertions) {
+                update::start(handle.clone());
+            }
             Ok(())
         })
         .on_window_event(|window, event| match event {

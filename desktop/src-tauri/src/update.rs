@@ -4,9 +4,9 @@
 //! выключается как положено (база закрыта), потом приложение перезапускается уже новым.
 //! То же из окна: «Управление → Версия» (состояние - `info`, без системных окон).
 //!
-//! Нет `latest.json` (выпуск собран без секрета подписи) - запасная дорога через GitHub API
-//! (`fsfy::release`): скачиваем установщик своей системы и запускаем его (Windows - сам ставит
-//! поверх, Mac - открывается .dmg).
+//! Ставим только подписанное нашим ключом (секрет выпуска `TAURI_SIGNING_PRIVATE_KEY`, открытый
+//! ключ - в tauri.conf.json): неподписанный установщик не скачиваем даже с GitHub. Перед установкой -
+//! копия базы в `backups/`: новая версия может обновить базу, и старая её уже не откроет.
 
 use fsfy::host::UpdateInfo;
 use parking_lot::Mutex;
@@ -22,7 +22,6 @@ const EVERY: Duration = Duration::from_secs(6 * 3600);
 #[derive(Default)]
 pub struct Updates {
     found: Mutex<Option<Update>>,
-    manual: Mutex<Option<fsfy::release::Latest>>,
     item: Mutex<Option<MenuItem<Wry>>>,
     asked: Mutex<bool>,
     busy: Mutex<bool>,
@@ -89,26 +88,15 @@ pub async fn check(app: &AppHandle, from: From) {
         Ok(up) => up.check().await,
         Err(e) => Err(e),
     };
-    // Без файлов автообновления в выпуске - смотрим сам выпуск на GitHub.
-    let manual = match &found {
-        Ok(Some(_)) => None,
-        _ => Some(fsfy::release::latest(&fsfy::release::client()).await),
-    };
     let current = app.package_info().version.to_string();
-    let version = match (found, manual) {
-        (Ok(Some(update)), _) => {
+    let version = match found {
+        Ok(Some(update)) => {
             let v = update.version.clone();
             *u.found.lock() = Some(update);
             Ok(Some(v))
         }
-        (_, Some(Ok(l))) if fsfy::release::newer(&l.version, &current) && l.asset.is_some() => {
-            let v = l.version.clone();
-            *u.manual.lock() = Some(l);
-            Ok(Some(v))
-        }
-        (_, Some(Ok(_))) | (Ok(None), _) => Ok(None),
-        (Err(e), Some(Err(e2))) => Err(format!("{e}; {e2}")),
-        (Err(e), None) => Err(e.to_string()),
+        Ok(None) => Ok(None),
+        Err(e) => Err(e.to_string()),
     };
     match version {
         Ok(Some(version)) => {
@@ -141,7 +129,10 @@ pub async fn check(app: &AppHandle, from: From) {
             u.label("Проверить обновления", true);
             u.set(|i| {
                 i.state = "error".into();
-                i.error = Some("Не удалось проверить - нет связи с GitHub. Попробуйте позже.".into());
+                i.error = Some(
+                    "Не удалось проверить - нет связи с GitHub или новый выпуск ещё собирается. Попробуйте позже."
+                        .into(),
+                );
                 i.checked_at = Some(fsfy::util::now_ms());
             });
             if from == From::Menu {
@@ -178,7 +169,7 @@ fn ask(app: &AppHandle, version: &str) {
 pub fn menu(app: &AppHandle) {
     let h = app.clone();
     let u = app.state::<Updates>();
-    let has = u.found.lock().is_some() || u.manual.lock().is_some();
+    let has = u.found.lock().is_some();
     tauri::async_runtime::spawn(async move {
         if has {
             install(&h).await
@@ -192,10 +183,7 @@ pub fn menu(app: &AppHandle) {
 pub fn from_page(app: &AppHandle, install_now: bool) {
     let h = app.clone();
     tauri::async_runtime::spawn(async move {
-        let ready = {
-            let u = h.state::<Updates>();
-            u.found.lock().is_some() || u.manual.lock().is_some()
-        };
+        let ready = h.state::<Updates>().found.lock().is_some();
         if !install_now || !ready {
             check(&h, From::Page).await;
         }
@@ -207,13 +195,7 @@ pub fn from_page(app: &AppHandle, install_now: bool) {
 
 pub async fn install(app: &AppHandle) {
     let u = app.state::<Updates>();
-    let Some(update) = u.found.lock().take() else {
-        let manual = u.manual.lock().take();
-        if let Some(l) = manual {
-            install_manual(app, l).await;
-        }
-        return;
-    };
+    let Some(update) = u.found.lock().take() else { return };
     *u.busy.lock() = true;
     u.label("Скачиваем обновление…", false);
     u.set(|i| {
@@ -255,6 +237,12 @@ pub async fn install(app: &AppHandle) {
     });
     // Сайт - выключить аккуратно до замены файлов приложения.
     crate::stop_server(app).await;
+    // Без копии базы не обновляемся: откатиться на старую версию без неё нельзя.
+    if let Err(e) = backup_db(app) {
+        tracing::error!(error = %e, "копия базы перед обновлением");
+        info(app, "Не удалось сохранить копию базы - обновление отменено. Приложение перезапустится.");
+        app.restart();
+    }
     if let Err(e) = update.install(bytes) {
         tracing::error!(error = %e, "установка обновления");
         info(app, "Не удалось установить обновление. Приложение перезапустится в прежней версии.");
@@ -262,61 +250,35 @@ pub async fn install(app: &AppHandle) {
     app.restart();
 }
 
-/// Запасная дорога: скачать установщик с GitHub и запустить. Windows ставит поверх себя сам
-/// (тихий режим с окном хода `/P`), на Mac открывается .dmg - перетащить в «Программы».
-async fn install_manual(app: &AppHandle, l: fsfy::release::Latest) {
-    let u = app.state::<Updates>();
-    let Some((name, url)) = l.asset.clone() else { return };
-    *u.busy.lock() = true;
-    u.label("Скачиваем обновление…", false);
-    u.set(|i| {
-        i.state = "downloading".into();
-        i.progress = Some(0.0);
-        i.error = None;
-    });
-    let to = std::env::temp_dir().join(&name);
-    let h = app.clone();
-    let got = fsfy::release::download(&fsfy::release::client(), &url, &to, l.sha256.as_deref(), move |done, total| {
-        if let Some(t) = total.filter(|t| *t > 0) {
-            h.state::<Updates>().set(|i| i.progress = Some((done as f32 / t as f32).min(1.0)));
-        }
-    })
-    .await;
-    *u.busy.lock() = false;
-    if let Err(e) = got {
-        tracing::warn!(error = %e, "скачивание установщика");
-        u.label(&format!("Обновить до {}", l.version), true);
-        u.set(|i| {
-            i.state = "error".into();
-            i.progress = None;
-            i.error = Some("Не удалось скачать обновление - проверьте интернет и попробуйте ещё раз.".into());
-        });
-        *u.manual.lock() = Some(l);
-        return;
+/// Сколько копий базы хранить: старые удаляются.
+const BACKUPS: usize = 3;
+
+/// Копия `fsfy.db` (сайт уже выключен, база закрыта) в `backups/fsfy-<время>-<версия>.db`.
+fn backup_db(app: &AppHandle) -> std::io::Result<()> {
+    let data = app.path().app_data_dir().map_err(std::io::Error::other)?;
+    let db = data.join("fsfy.db");
+    if !db.exists() {
+        return Ok(());
     }
-    u.set(|i| {
-        i.state = "installing".into();
-        i.progress = Some(1.0);
-    });
-    if cfg!(target_os = "windows") {
-        u.label("Устанавливаем…", false);
-        crate::stop_server(app).await;
-        match std::process::Command::new(&to).arg("/P").spawn() {
-            Ok(_) => app.exit(0),
-            Err(e) => {
-                tracing::error!(error = %e, "запуск установщика");
-                info(app, "Не удалось запустить установщик. Откройте его вручную из папки загрузок.");
-            }
-        }
-    } else {
-        let _ = std::process::Command::new("open").arg(&to).spawn();
-        u.label(&format!("Обновить до {}", l.version), true);
-        info(
-            app,
-            &format!(
-                "Версия {} скачана. Перетащите приложение в «Программы» с заменой и откройте его снова.",
-                l.version
-            ),
-        );
+    let dir = data.join("backups");
+    std::fs::create_dir_all(&dir)?;
+    // Время первым: имена сортируются по времени (у версий «0.10» < «0.9» как у строк).
+    let name = format!("fsfy-{}-{}.db", fsfy::util::now_ms(), app.package_info().version);
+    std::fs::copy(&db, dir.join(&name))?;
+    // Обычно журнал при закрытии уже влит в базу; если нет - копируем и его.
+    let wal = data.join("fsfy.db-wal");
+    if wal.metadata().is_ok_and(|m| m.len() > 0) {
+        std::fs::copy(&wal, dir.join(format!("{name}-wal")))?;
     }
+    let mut old: Vec<_> = std::fs::read_dir(&dir)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "db"))
+        .collect();
+    old.sort();
+    for p in old.iter().rev().skip(BACKUPS) {
+        let _ = std::fs::remove_file(p);
+        let _ = std::fs::remove_file(p.with_extension("db-wal"));
+    }
+    Ok(())
 }

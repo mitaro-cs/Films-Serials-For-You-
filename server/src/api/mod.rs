@@ -9,7 +9,7 @@ pub(crate) mod links;
 mod lists;
 pub(crate) mod mail;
 mod next_episode;
-mod play;
+pub mod play;
 mod previews;
 mod profile;
 mod profiles;
@@ -149,6 +149,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/files/{id}/hls/{h}/{seg}", get(play::hls_segment))
         .route("/api/files/{id}/trickplay/{sheet}", get(play::trickplay))
         .route("/api/files/{id}/markers", put(play::set_markers))
+        .route("/api/speedtest", get(play::speedtest))
         .route("/api/progress/{id}", get(play::get_progress).put(play::save_progress).delete(play::clear_progress))
         // смотреть вместе
         .route("/api/rooms", post(rooms::create))
@@ -206,6 +207,8 @@ pub fn router(app: Arc<App>) -> Router {
                     tower_http::compression::predicate::SizeAbove::new(1024)
                         .and(tower_http::compression::predicate::NotForContentType::new("video/"))
                         .and(tower_http::compression::predicate::NotForContentType::new("text/event-stream"))
+                        // Замер скорости - случайные байты: сжимать бесполезно, а замер бы врал.
+                        .and(tower_http::compression::predicate::NotForContentType::new("application/octet-stream"))
                         .and(tower_http::compression::predicate::NotForContentType::IMAGES),
                 ),
         )

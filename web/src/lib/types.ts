@@ -283,6 +283,8 @@ export interface PlayInfo {
   markers: { intro: [number, number] | null; credits: number | null; manual: boolean };
   trickplay: Trickplay | null;
   hls: boolean;
+  /** Мбит/с файла - сколько нужно для «Оригинала». */
+  bitrate?: number | null;
 }
 
 export interface Trickplay {

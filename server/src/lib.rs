@@ -76,6 +76,10 @@ pub struct App {
     /// Сообщений от профиля - не больше 30 в минуту.
     pub message_limit: auth::Limiter,
     pub entries: Mutex<HashMap<String, i64>>,
+    /// Как идёт просмотр у зрителей (профиль - последний отчёт плеера) - для «Управления».
+    pub playback: Mutex<HashMap<i64, api::play::PlayStat>>,
+    /// Замер скорости - не чаще 20 раз в минуту на профиль.
+    pub speed_limit: auth::Limiter,
     /// Перекодирование нагружает процессор - одновременно немного.
     pub transcode: Arc<Semaphore>,
     pub remux: Arc<Semaphore>,
@@ -221,6 +225,8 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         account_limit: auth::Limiter::new(50, 10 * 60 * 1000),
         message_limit: auth::Limiter::new(30, 60 * 1000),
         entries: Mutex::default(),
+        playback: Mutex::default(),
+        speed_limit: auth::Limiter::new(20, 60 * 1000),
         transcode: Arc::new(Semaphore::new(2)),
         remux: Arc::new(Semaphore::new(8)),
         hls: hls::Hls::default(),

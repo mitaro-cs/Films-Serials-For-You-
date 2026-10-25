@@ -47,13 +47,13 @@
         "displayLanguageSelector": false
       }
     },
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg1RUE4QkFERjgwRTdEQTQKUldTa2ZRNzRyWXZxaGRYb3VkU0YvWklnWHRML1dVL0tqd2RDWkc5WXZQL1J3RnZnaG15SzZ6QngK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU2OTlCNTQ1RjQxN0U2ODAKUldTQTVoZjBSYldaVnV5RXlJMHhVcGVlMFZ4SDlVWXlqdUhYRHJwQVVyV2NnREZBVnlXVmU0VmkK",
       "endpoints": [
-        "https://github.com/mitaro-cs/Films-Serials-For-You-/releases/latest/download/latest.json"
+        "https://github.com/mitaro-cs/Nova/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

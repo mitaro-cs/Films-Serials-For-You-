@@ -20,11 +20,22 @@ export interface Status {
   meta: { running: boolean; error: string | null; done: number };
   ffmpeg: boolean;
   ffprobe: boolean;
-  watching: { user: string; title: string; episode: string; position: number; duration: number }[];
+  watching: { user: string; title: string; episode: string; position: number; duration: number; net: PlayNet | null }[];
   canPick: boolean;
   publicUrl: string | null;
   /** Своя папка для фильмов (null - ещё нет). */
   inbox: string | null;
   /** Копирование перетащенных в окно файлов. */
   import: { running: boolean; filesTotal: number; filesDone: number; bytesTotal: number; bytesDone: number; current: string | null; error: string | null };
+}
+
+/** Как идёт просмотр у зрителя - последний отчёт его плеера. */
+export interface PlayNet {
+  /** Скорость до хоста, Мбит/с (null - замер не вышел). */
+  mbit: number | null;
+  /** «orig», «auto» или высота вроде «720p». */
+  quality: string;
+  /** Сколько раз видео останавливалось на загрузку. */
+  stalls: number;
+  at: number;
 }

@@ -48,8 +48,9 @@ jobs:
         run: |
           gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" \
             --title "Nova $TAG" \
-            --notes "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md." \
-            $([[ "$TAG" == *-* ]] && echo --prerelease)
+            --notes "Установщики: .dmg - Mac (Apple Silicon - aarch64, Intel - x64), .exe - Windows. Что нового - в CHANGELOG.md."
+          # Не «предварительный» даже у 0.x-alpha: автообновление берёт latest.json последнего обычного
+          # выпуска (releases/latest), предварительные GitHub туда не отдаёт.
 
   build:
     needs: version
@@ -112,7 +113,7 @@ jobs:
           releaseCommitish: ${{ github.sha }}
           releaseBody: "Установщики: .dmg — Mac (Apple Silicon — aarch64, Intel — x64), .exe — Windows. Что нового — в CHANGELOG.md."
           releaseDraft: false
-          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
+          prerelease: false
       # Mac: подпись бандла цела — иначе «приложение повреждено» (0.3.0). Шаг после выгрузки:
       # не прячет выпуск, но красный выпуск сразу видно.
       - name: Проверка подписи (Mac)
