@@ -401,6 +401,12 @@ CREATE INDEX ext_charts_ext ON ext_charts(ext_id);
 "#,
 ];
 
+/// Сколько миграций должна знать версия Nova, чтобы работать с базой этой версии. Миграции
+/// после неё — только добавления (новые столбцы и индексы старой версии не мешают), так что
+/// оставшаяся на компьютере старая копия (0.6.5+) запустится, а не скажет «база от более новой
+/// версии». Ломающая старые версии миграция поднимает это число до своего номера.
+const OLDEST: usize = 9;
+
 impl Db {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let conn = Connection::open(path).with_context(|| format!("открыть базу {}", path.display()))?;
@@ -417,7 +423,21 @@ impl Db {
         )?;
         let version = conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? as usize;
         if version > MIGRATIONS.len() {
-            anyhow::bail!("база от более новой версии программы — обновите приложение");
+            // База от более новой версии. Её миграции после `schema.oldest` только добавляют
+            // (столбцы, индексы) — работаем как есть, ничего не меняя в схеме.
+            let oldest: usize = conn
+                .query_row("SELECT value FROM settings WHERE key = 'schema.oldest'", [], |r| r.get::<_, String>(0))
+                .optional()?
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(version);
+            if MIGRATIONS.len() < oldest {
+                anyhow::bail!(
+                    "данные от более новой версии Nova — установите последнюю версию \
+                     (github.com/{}/releases) и удалите старую копию программы",
+                    crate::release::REPO
+                );
+            }
+            return Ok(Self(Arc::new(Mutex::new(conn))));
         }
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
             let tx = conn.transaction()?;
@@ -425,6 +445,11 @@ impl Db {
             tx.pragma_update(None, "user_version", (i + 1) as i64)?;
             tx.commit()?;
         }
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('schema.oldest', ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [OLDEST.to_string()],
+        )?;
         Ok(Self(Arc::new(Mutex::new(conn))))
     }
 
@@ -477,6 +502,29 @@ mod tests {
         let db = Db::open(&p).unwrap();
         assert_eq!(db.setting("a").as_deref(), Some("2"));
         assert_eq!(db.setting_or("missing", "x"), "x");
+    }
+
+    #[test]
+    fn newer_compatible_base_opens() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.db");
+        drop(Db::open(&p).unwrap());
+        // Будто базу записала версия с 12 миграциями, совместимая с нашими (oldest = 9).
+        let c = Connection::open(&p).unwrap();
+        c.pragma_update(None, "user_version", 12).unwrap();
+        drop(c);
+        let db = Db::open(&p).unwrap();
+        assert_eq!(db.setting("schema.oldest").as_deref(), Some("9"));
+        drop(db);
+        // Несовместимая (oldest больше, чем мы знаем) — понятная ошибка, база не тронута.
+        Connection::open(&p)
+            .unwrap()
+            .execute("UPDATE settings SET value = '99' WHERE key = 'schema.oldest'", [])
+            .unwrap();
+        let e = Db::open(&p).err().unwrap().to_string();
+        assert!(e.contains("последнюю версию"), "{e}");
+        let v: i64 = Connection::open(&p).unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, 12);
     }
 
     #[test]
