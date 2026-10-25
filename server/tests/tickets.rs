@@ -111,7 +111,9 @@ async fn library_statuses_resume_and_accent() {
         .unwrap();
     assert_eq!(r["watched"], true);
 
-    // Вручную «Просмотрено» — белый билет с датой, из «Хочу» уходит.
+    // Вручную «Просмотрено» — белый билет с датой, из «Хочу» уходит. Время — в миллисекундах:
+    // отметка сразу после досмотра сериала могла совпасть с ним, и порядок выходил случайным.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     host.send("PUT", &format!("/api/titles/{second}/watched"), json!({"value": true})).await;
     let done = host.json("/api/library?status=watched").await;
     assert_eq!(titles(&done), ["Второй", "Шоу"], "сначала отмеченное позже");
