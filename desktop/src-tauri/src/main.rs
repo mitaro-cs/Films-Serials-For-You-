@@ -152,16 +152,39 @@ fn main() {
                 Ok(r) => r,
                 Err(e) => {
                     let h = handle.clone();
-                    handle
-                        .dialog()
-                        .message(format!("Не удалось запустить сервер: {e:#}"))
-                        .title(TITLE)
-                        .kind(MessageDialogKind::Error)
-                        .show(move |_| h.exit(1));
+                    let text = format!("{e:#}");
+                    // Данные от более новой версии — значит, запущена старая копия программы:
+                    // сразу ведём на страницу последней версии.
+                    let newer = text.contains("более новой версии");
+                    let d = handle.dialog().message(format!("Не удалось запустить сервер: {text}")).title(TITLE);
+                    if newer {
+                        d.kind(MessageDialogKind::Warning)
+                            .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
+                                "Скачать последнюю версию".into(),
+                                "Закрыть".into(),
+                            ))
+                            .show(move |yes| {
+                                if yes {
+                                    let url = format!("https://github.com/{}/releases/latest", fsfy::release::REPO);
+                                    let _ = h.opener().open_url(url, None::<&str>);
+                                }
+                                h.exit(1)
+                            });
+                    } else {
+                        d.kind(MessageDialogKind::Error).show(move |_| h.exit(1));
+                    }
                     return Ok(());
                 }
             };
             let entry: tauri::Url = running.entry_url().parse()?;
+
+            // Автозапуск помнит путь к программе, с которого его включили. После переезда (папка
+            // «Films and Serials For You» → «Nova», переустановка) он запускал старую копию —
+            // и та не открывала данные новой версии. Включён — переписываем на эту копию.
+            let al = handle.autolaunch();
+            if al.is_enabled().unwrap_or(false) {
+                let _ = al.disable().and_then(|_| al.enable());
+            }
 
             let hidden = std::env::args().any(|a| a == "--hidden");
             WebviewWindowBuilder::new(app, "main", WebviewUrl::External(entry))
