@@ -310,6 +310,10 @@ pub async fn watch_worker(app: Arc<App>) {
                 }
             }
             _watcher = w;
+            // Пока папку не слушали (до 5 с после добавления), в неё могли что-то положить.
+            if !libs.is_empty() {
+                app.scan_kick.notify_one();
+            }
             watched = libs;
         }
         tokio::select! {

@@ -69,10 +69,10 @@
   });
 
   function setStatus(s: Status) {
-    const u = new URL(page.url);
+    const u = new URL(page.url.href);
     if (s === 'all') u.searchParams.delete('status');
     else u.searchParams.set('status', s);
-    goto(u, { replaceState: true, noScroll: true, keepFocus: true });
+    goto(u, { replace: true, reset: false });
   }
 
   const EMPTY: Record<Status, string> = {

@@ -64,7 +64,7 @@
         t = d;
         const cur = d.files.find((f) => f.id === d.next?.fileId);
         season = cur?.season ?? d.seasons[0] ?? null;
-        if (page.url.searchParams.get('play') && d.next) goto(`/watch/${d.next.fileId}`, { replaceState: true });
+        if (page.url.searchParams.get('play') && d.next) goto(`/watch/${d.next.fileId}`, { replace: true });
       },
       (e) => (error = errorText(e)),
     );

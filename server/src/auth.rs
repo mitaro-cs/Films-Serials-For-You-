@@ -7,7 +7,7 @@
 use crate::error::{ApiError, ApiResult};
 use crate::util::{now_ms, sha256_hex, token};
 use crate::App;
-use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::Argon2;
 use axum::extract::{ConnectInfo, FromRequestParts, OptionalFromRequestParts};
 use axum::http::request::Parts;
@@ -30,8 +30,8 @@ pub struct Via {
 }
 
 pub fn hash_password(pw: &str) -> String {
-    let salt = SaltString::generate(&mut OsRng);
-    Argon2::default().hash_password(pw.as_bytes(), &salt).map(|h| h.to_string()).unwrap_or_default()
+    // Соль — случайная из ОС (getrandom) внутри hash_password.
+    Argon2::default().hash_password(pw.as_bytes()).map(|h| h.to_string()).unwrap_or_default()
 }
 
 pub fn verify_password(pw: &str, hash: &str) -> bool {
@@ -332,6 +332,10 @@ mod tests {
         let h = hash_password("secret1");
         assert!(verify_password("secret1", &h));
         assert!(!verify_password("secret2", &h));
+        // Хеш от argon2 0.5 (до 0.6.4): после обновления крейта старые пароли подходят.
+        let old = "$argon2id$v=19$m=19456,t=2,p=1$9r5/xaLrSSSLpXYjtNLJOQ$VKIjG2WAyi252z3KoUTeqxoxMOj6WgXj7tcG8YbkNjI";
+        assert!(verify_password("secret-0.6", old));
+        assert!(!verify_password("secret-0.5", old));
         assert!(!verify_password("x", "garbage"));
     }
 

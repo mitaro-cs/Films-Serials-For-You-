@@ -39,7 +39,7 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
   if (!res.ok) {
     if (res.status === 401 && !AUTH_PAGES.some((p) => location.pathname.startsWith(p))) {
       const next = location.pathname + location.search;
-      goto(`/login?next=${encodeURIComponent(next)}`, { replaceState: true });
+      goto(`/login?next=${encodeURIComponent(next)}`, { replace: true });
     }
     throw new ApiError(res.status, data?.error ?? 'error', data?.message ?? `Ошибка ${res.status}`);
   }

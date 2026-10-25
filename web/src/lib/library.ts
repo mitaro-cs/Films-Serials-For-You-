@@ -19,7 +19,7 @@ export const STATUSES: { id: Status; label: string }[] = [
   { id: 'watched', label: 'Просмотрено' },
 ];
 
-export function tabOf(q: URLSearchParams): Tab {
+export function tabOf(q: Pick<URLSearchParams, 'get'>): Tab {
   const t = q.get('tab');
   return t === 'movies' || t === 'series' ? t : 'home';
 }
@@ -86,7 +86,7 @@ export function caption(c: Card, now = Date.now()): string {
   return [c.genres[0], c.year].filter(Boolean).join(' · ') || (c.kind === 'series' ? 'Сериал' : 'Фильм');
 }
 
-export function statusOf(q: URLSearchParams): Status {
+export function statusOf(q: Pick<URLSearchParams, 'get'>): Status {
   const s = q.get('status');
   return s === 'want' || s === 'watching' || s === 'watched' ? s : 'all';
 }

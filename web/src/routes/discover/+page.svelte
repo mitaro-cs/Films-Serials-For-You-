@@ -83,7 +83,7 @@
   function submit(e: SubmitEvent) {
     e.preventDefault();
     const v = text.trim();
-    goto(v ? `/discover?q=${encodeURIComponent(v)}` : '/discover', { keepFocus: true, noScroll: true });
+    goto(v ? `/discover?q=${encodeURIComponent(v)}` : '/discover', { reset: false });
   }
 
   async function refresh() {

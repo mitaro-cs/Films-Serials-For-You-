@@ -408,14 +408,14 @@ impl Db {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
         )?;
-        let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        let version = conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? as usize;
         if version > MIGRATIONS.len() {
             anyhow::bail!("база от более новой версии программы — обновите приложение");
         }
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
             let tx = conn.transaction()?;
             tx.execute_batch(sql).with_context(|| format!("миграция {}", i + 1))?;
-            tx.pragma_update(None, "user_version", i + 1)?;
+            tx.pragma_update(None, "user_version", (i + 1) as i64)?;
             tx.commit()?;
         }
         Ok(Self(Arc::new(Mutex::new(conn))))

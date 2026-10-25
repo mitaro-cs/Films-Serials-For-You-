@@ -112,7 +112,7 @@
     const q = l.mine ? `Удалить список «${l.name}» у всех участников?` : `Выйти из списка «${l.name}»?`;
     if (!(await ask(q, l.mine ? 'Удалить' : 'Выйти', true))) return;
     await del(`/api/lists/${id}`).catch(() => {});
-    goto('/lists', { replaceState: true });
+    goto('/lists', { replace: true });
   }
 
   async function openInvite() {

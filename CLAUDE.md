@@ -185,3 +185,15 @@
   (`ext_titles.backdrop`), фото актёров и кадры — всё в JSON `ext_titles.extra` (имена картинок).
   Раскладка — как у `title/[id]` (стили скопированы: общий глобальный CSS протекал бы в
   `Reviews`, `LinkCard` и окна). Обе страницы — до 1440 px шириной.
+- Инструменты (0.6.4): SvelteKit 3 + Vite 8 + Vitest 5 + TypeScript 6. Настройки Kit — в
+  `vite.config.ts` (`sveltekit({...})`, `svelte.config.js` больше нет); `$lib` — свой `alias`
+  (в Kit 3 по умолчанию только `#lib`); `goto`: `replace: true` вместо `replaceState`, `reset: false`
+  вместо `noScroll`/`keepFocus`; `page.url.searchParams` — только чтение. CI: Node 24, actions v7;
+  `tauri-action` — v0 (в v1 не проверены имена файлов выпуска, по ним ищет `release.rs`).
+  Сервер: reqwest 0.13 (`rustls`, `query`), rusqlite 0.41 (без `usize` в SQL), argon2 0.6 (старые
+  хеши подходят — тест `passwords`), rand 0.10 (`rand::fill`), zip 9. `cargo audit`: остаётся `zip` 4
+  внутри `tauri-plugin-updater` (распаковывает только подписанное нашим ключом) и
+  неподдерживаемые крейты Linux-сборки Tauri.
+- Слежение за папками: после установки слежения — один скан (за 5 с до него в новую папку могли
+  что-то положить); чтения (`Access`, кроме «дописан») — не повод сканировать.
+
