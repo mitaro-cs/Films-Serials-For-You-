@@ -407,6 +407,83 @@ CREATE INDEX ext_charts_ext ON ext_charts(ext_id);
 /// версии». Ломающая старые версии миграция поднимает это число до своего номера.
 const OLDEST: usize = 9;
 
+/// Чего из нашей схемы (все миграции) нет в базе: «таблица» или «таблица.столбец». None — всё есть.
+fn missing_schema(conn: &Connection) -> anyhow::Result<Option<String>> {
+    let fresh = Connection::open_in_memory()?;
+    for sql in MIGRATIONS {
+        fresh.execute_batch(sql)?;
+    }
+    let columns = |c: &Connection, table: &str| -> rusqlite::Result<Vec<String>> {
+        let mut st = c.prepare("SELECT name FROM pragma_table_info(?)")?;
+        let r = st.query_map([table], |r| r.get(0))?;
+        r.collect()
+    };
+    let tables: Vec<String> = {
+        let mut st =
+            fresh.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")?;
+        let r = st.query_map([], |r| r.get(0))?;
+        r.collect::<rusqlite::Result<_>>()?
+    };
+    for t in tables {
+        let have = columns(conn, &t)?;
+        if have.is_empty() {
+            return Ok(Some(t));
+        }
+        if let Some(c) = columns(&fresh, &t)?.into_iter().find(|c| !have.contains(c)) {
+            return Ok(Some(format!("{t}.{c}")));
+        }
+    }
+    Ok(None)
+}
+
+/// Дополнить базу от чужой сборки нашим: недостающие таблицы, столбцы (если их можно добавить —
+/// без NOT NULL без значения по умолчанию) и индексы. Одной транзакцией.
+fn add_missing(conn: &mut Connection) -> anyhow::Result<()> {
+    let fresh = Connection::open_in_memory()?;
+    for sql in MIGRATIONS {
+        fresh.execute_batch(sql)?;
+    }
+    let objects: Vec<(String, String, String)> = {
+        let mut st = fresh.prepare(
+            "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+             ORDER BY type = 'index'",
+        )?;
+        let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        r.collect::<rusqlite::Result<_>>()?
+    };
+    let tx = conn.transaction()?;
+    for (kind, name, sql) in &objects {
+        let exists: bool =
+            tx.query_row("SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = ?)", [name], |r| r.get(0))?;
+        if kind == "table" && exists {
+            let have: Vec<String> = {
+                let mut st = tx.prepare("SELECT name FROM pragma_table_info(?)")?;
+                let r = st.query_map([name], |r| r.get(0))?;
+                r.collect::<rusqlite::Result<_>>()?
+            };
+            let ours: Vec<(String, String, bool, Option<String>)> = {
+                let mut st = fresh.prepare("SELECT name, type, \"notnull\", dflt_value FROM pragma_table_info(?)")?;
+                let r = st.query_map([name], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?;
+                r.collect::<rusqlite::Result<_>>()?
+            };
+            for (col, ty, notnull, dflt) in ours.into_iter().filter(|c| !have.contains(&c.0)) {
+                let mut def = format!("ALTER TABLE \"{name}\" ADD COLUMN \"{col}\" {ty}");
+                if let Some(d) = &dflt {
+                    def.push_str(&format!(" DEFAULT {d}"));
+                }
+                if notnull && dflt.is_some() {
+                    def.push_str(" NOT NULL");
+                }
+                tx.execute_batch(&def)?;
+            }
+        } else if !exists && (kind == "table" || kind == "index") {
+            tx.execute_batch(sql)?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 impl Db {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let conn = Connection::open(path).with_context(|| format!("открыть базу {}", path.display()))?;
@@ -425,18 +502,35 @@ impl Db {
         if version > MIGRATIONS.len() {
             // База от более новой версии. Её миграции после `schema.oldest` только добавляют
             // (столбцы, индексы) — работаем как есть, ничего не меняя в схеме.
-            let oldest: usize = conn
+            let oldest: Option<usize> = conn
                 .query_row("SELECT value FROM settings WHERE key = 'schema.oldest'", [], |r| r.get::<_, String>(0))
                 .optional()?
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(version);
-            if MIGRATIONS.len() < oldest {
+                .and_then(|v| v.parse().ok());
+            // Без отметки (базу записала сборка не из выпусков, например своя 1.0.0-beta) — смотрим
+            // по факту: есть все наши таблицы и столбцы — работаем, чужие новые не трогаем.
+            let ok = match oldest {
+                Some(o) => MIGRATIONS.len() >= o,
+                None => {
+                    // Чего-то из нашего нет — добавляем (только добавляем: таблицы, столбцы,
+                    // индексы), чужое не трогаем.
+                    if missing_schema(&conn)?.is_some() {
+                        if let Err(e) = add_missing(&mut conn) {
+                            tracing::warn!(error = %e, "не удалось дополнить базу");
+                        }
+                    }
+                    missing_schema(&conn)?.is_none()
+                }
+            };
+            if !ok {
+                let what = missing_schema(&conn)?.map(|m| format!(", нет {m}")).unwrap_or_default();
                 anyhow::bail!(
-                    "данные от более новой версии Nova — установите последнюю версию \
-                     (github.com/{}/releases) и удалите старую копию программы",
+                    "данные от более новой версии Nova (схема {version}, эта версия знает {}{what}) — установите \
+                     последнюю версию (github.com/{}/releases) и удалите старую копию программы",
+                    MIGRATIONS.len(),
                     crate::release::REPO
                 );
             }
+            tracing::warn!(version, known = MIGRATIONS.len(), "база от более новой версии — открыта как есть");
             return Ok(Self(Arc::new(Mutex::new(conn))));
         }
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
@@ -525,6 +619,45 @@ mod tests {
         assert!(e.contains("последнюю версию"), "{e}");
         let v: i64 = Connection::open(&p).unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(v, 12);
+    }
+
+    #[test]
+    fn foreign_newer_base_opens_by_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("t.db");
+        drop(Db::open(&p).unwrap());
+        // Своя сборка (1.0.0-beta) добавила таблицу и столбец, номер 19, без schema.oldest.
+        let c = Connection::open(&p).unwrap();
+        c.execute_batch(
+            "DELETE FROM settings WHERE key = 'schema.oldest';
+             CREATE TABLE beta_things (id INTEGER PRIMARY KEY);
+             ALTER TABLE titles ADD COLUMN beta_col TEXT;
+             PRAGMA user_version = 19;",
+        )
+        .unwrap();
+        drop(c);
+        let db = Db::open(&p).unwrap();
+        db.set_setting("ok", "1").unwrap();
+        drop(db);
+        // Нет нашего столбца, таблицы и индекса — добавляем, чужое остаётся.
+        let c = Connection::open(&p).unwrap();
+        c.execute_batch("ALTER TABLE ext_titles DROP COLUMN extra; DROP INDEX titles_imdb; DROP TABLE list_ext;")
+            .unwrap();
+        drop(c);
+        let db = Db::open(&p).unwrap();
+        db.with(|c| {
+            c.execute_batch(
+                "UPDATE ext_titles SET extra = '{}'; SELECT * FROM list_ext; SELECT beta_col FROM titles; \
+                 SELECT * FROM beta_things;",
+            )
+        })
+        .unwrap();
+        let idx: bool = db
+            .with(|c| {
+                c.query_row("SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'titles_imdb')", [], |r| r.get(0))
+            })
+            .unwrap();
+        assert!(idx);
     }
 
     #[test]
