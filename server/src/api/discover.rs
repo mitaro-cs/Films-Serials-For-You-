@@ -117,12 +117,26 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
     if !discover::valid_id(&id) {
         return Err(ApiError::not_found());
     }
-    let known: Option<i64> =
-        app.db.with(|c| c.query_row("SELECT detailed FROM ext_titles WHERE id = ?", [&id], |r| r.get(0)).optional())?;
-    if known != Some(discover::DETAILED) {
-        let got = tokio::time::timeout(Duration::from_secs(25), discover::detail(&app, &id)).await;
-        if !matches!(got, Ok(Ok(()))) && known.is_none() {
-            return Err(ApiError::bad("imdb", "IMDb сейчас не отвечает — попробуйте позже"));
+    // Описание уже есть — отдаём сразу, недостающее докачается в фоне. Нет — ждём IMDb (до 20 с).
+    let known: Option<(i64, Option<i64>)> = app.db.with(|c| {
+        c.query_row("SELECT detailed, json_extract(extra, '$.at') FROM ext_titles WHERE id = ?", [&id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .optional()
+    })?;
+    match known {
+        Some((detailed, at)) if !discover::due(detailed, at) => {}
+        Some((detailed, _)) if detailed > 0 => {
+            let (app, id) = (app.clone(), id.clone());
+            tokio::spawn(async move {
+                let _ = discover::detail(&app, &id).await;
+            });
+        }
+        _ => {
+            let got = tokio::time::timeout(Duration::from_secs(20), discover::detail(&app, &id)).await;
+            if !matches!(got, Ok(Ok(true))) && known.is_none() {
+                return Err(ApiError::bad("imdb", "IMDb сейчас не отвечает — попробуйте позже"));
+            }
         }
     }
     let card = ext_card(&app, &v, &id)?;
@@ -133,7 +147,7 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
         })
     })?;
     let x: Value = extra.and_then(|e| serde_json::from_str(&e).ok()).unwrap_or(Value::Null);
-    let img = |v: &Value| v.as_str().filter(|n| !n.is_empty()).map(|n| format!("/img/{n}"));
+    let img = |v: &Value| crate::api::img(v.as_str().filter(|n| !n.is_empty()).map(String::from));
     let people: Vec<Value> = x["people"]
         .as_array()
         .into_iter()

@@ -244,15 +244,50 @@ async fn grab(app: &App, url: Option<&str>) -> Option<String> {
     tokio::time::timeout(Duration::from_secs(8), app.images.download(url)).await.ok()?.ok()
 }
 
+/// Не вышло (IMDb или картинки недоступны) — следующая попытка не раньше чем через 6 часов:
+/// страница не ждёт IMDb при каждом открытии.
+pub const RETRY_MS: i64 = 6 * 3600 * 1000;
+
+/// Что сейчас качается: два открытия одного фильма не идут к IMDb дважды.
+static LOADING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Пора ли брать описание: ещё не брали полностью и прошлая попытка была давно.
+pub fn due(detailed: i64, tried_at: Option<i64>) -> bool {
+    detailed < DETAILED && tried_at.is_none_or(|at| now_ms() - at > RETRY_MS)
+}
+
 /// Всё для страницы фильма из ленты — один раз: описание с IMDb, большой постер, кадр, актёры с
 /// фото, кадры и похожие (с постерами). Картинки качаются вместе, браузер получит их у нас.
-pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
+/// Что-то не вышло — сохраняем что есть (прежнее не теряем), `detailed` = 1 и время попытки:
+/// повторим через `RETRY_MS`. Уже качается — `Ok(false)`.
+pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<bool> {
+    if !LOADING.lock().unwrap().insert(id.to_string()) {
+        return Ok(false);
+    }
+    struct Done<'a>(&'a str);
+    impl Drop for Done<'_> {
+        fn drop(&mut self) {
+            LOADING.lock().unwrap().remove(self.0);
+        }
+    }
+    let _done = Done(id);
+    let res = fetch_detail(app, id).await;
+    if res.is_err() {
+        let _ = app.db.with(|c| {
+            c.execute(
+                "UPDATE ext_titles SET extra = json_set(COALESCE(extra, '{}'), '$.at', ?) WHERE id = ?",
+                params![now_ms(), id],
+            )
+        });
+    }
+    res.map(|()| true)
+}
+
+async fn fetch_detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
     let imdb = Imdb::new(app.http.clone());
     let d = imdb.details(id, &[]).await?;
-    let similar = match imdb.data(SIMILAR, json!({ "id": id }), "title").await {
-        Ok(v) => parse_chart(&v["moreLikeThisTitles"]),
-        Err(_) => vec![],
-    };
+    let similar = imdb.data(SIMILAR, json!({ "id": id }), "title").await.map(|v| parse_chart(&v["moreLikeThisTitles"]));
     let e = Ext {
         id: id.to_string(),
         series: d.series,
@@ -264,11 +299,13 @@ pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
         genres: d.genres.clone(),
         poster_url: d.poster.as_deref().map(|u| sized(u, 342)),
     };
-    let similar: Vec<Ext> = similar.into_iter().filter(|s| s.id != id).collect();
+    let similar_ok = similar.is_ok();
+    let similar: Vec<Ext> = similar.unwrap_or_default().into_iter().filter(|s| s.id != id).collect();
     upsert(app, &similar)?;
     upsert(app, std::slice::from_ref(&e))?;
 
-    let people: Vec<_> = d.people.iter().take(16).collect();
+    // Сценаристов страница не показывает — их фото не качаем, место — актёрам.
+    let people: Vec<_> = d.people.iter().filter(|p| p.job != "writer").take(16).collect();
     let (poster, backdrop, gallery, photos, _) = tokio::join!(
         grab(app, d.poster.as_deref()),
         grab(app, d.backdrop.as_deref()),
@@ -279,6 +316,21 @@ pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
             posters_of(app, &ids).await
         },
     );
+    let complete =
+        similar_ok && (d.poster.is_none() || poster.is_some()) && (d.backdrop.is_none() || backdrop.is_some());
+
+    // Прежняя попытка могла достать больше: пустое новое не затирает старое.
+    let old: Value = app
+        .db
+        .with(|c| c.query_row("SELECT extra FROM ext_titles WHERE id = ?", [id], |r| r.get::<_, Option<String>>(0)))?
+        .and_then(|x| serde_json::from_str(&x).ok())
+        .unwrap_or(Value::Null);
+    let keep = |new: Value, key: &str| match &new {
+        Value::Null => old[key].clone(),
+        Value::Array(a) if a.is_empty() && old[key].is_array() => old[key].clone(),
+        _ => new,
+    };
+    let gallery: Vec<String> = gallery.into_iter().flatten().collect();
     let extra = json!({
         "tagline": d.tagline,
         "age": d.age,
@@ -286,17 +338,19 @@ pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
         "languages": d.languages,
         "releaseDate": d.release_date,
         "aka": d.aka,
-        "poster": poster,
+        "poster": keep(json!(poster), "poster"),
         "people": people.iter().zip(photos).map(|(p, photo)| json!({
             "name": p.name, "job": p.job, "role": p.role, "photo": photo,
         })).collect::<Vec<_>>(),
-        "gallery": gallery.into_iter().flatten().collect::<Vec<_>>(),
-        "similar": similar.iter().map(|s| &s.id).collect::<Vec<_>>(),
+        "gallery": keep(json!(gallery), "gallery"),
+        "similar": keep(json!(similar.iter().map(|s| &s.id).collect::<Vec<_>>()), "similar"),
+        "at": now_ms(),
     });
     app.db.with(|c| {
         c.execute(
-            "UPDATE ext_titles SET overview = ?, runtime = ?, backdrop = ?, extra = ?, detailed = ? WHERE id = ?",
-            params![d.overview, d.runtime, backdrop, extra.to_string(), DETAILED, id],
+            "UPDATE ext_titles SET overview = ?, runtime = ?, backdrop = COALESCE(?, backdrop), extra = ?, detailed = ?
+             WHERE id = ?",
+            params![d.overview, d.runtime, backdrop, extra.to_string(), if complete { DETAILED } else { 1 }, id],
         )
     })?;
     Ok(())

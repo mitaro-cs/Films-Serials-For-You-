@@ -259,9 +259,8 @@ pub fn upload_target(app: &App, name: &str, subfolder: Option<&str>) -> Result<(
     Ok((part, dst))
 }
 
-/// Слежение за папками библиотеки: изменились — пересканировать через 3 с тишины. Список папок
-/// перечитывается раз в 5 с (добавили или убрали папку).
-/// Появилось, пропало, переименовано или изменилось содержимое — повод сканировать.
+/// Появилось, пропало, переименовано или изменилось содержимое — повод сканировать. Непонятное
+/// (`Any`, `Other` — так FSEvents и сетевые диски сообщают о части изменений) — тоже.
 fn changes_files(kind: &notify::EventKind) -> bool {
     use notify::event::{AccessKind, AccessMode, ModifyKind};
     use notify::EventKind;
@@ -269,10 +268,13 @@ fn changes_files(kind: &notify::EventKind) -> bool {
         EventKind::Create(_) | EventKind::Remove(_) => true,
         EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
         EventKind::Modify(m) => !matches!(m, ModifyKind::Metadata(_)),
-        _ => false,
+        EventKind::Any | EventKind::Other => true,
+        EventKind::Access(_) => false,
     }
 }
 
+/// Слежение за папками библиотеки: изменились — пересканировать через 3 с тишины. Список папок
+/// перечитывается раз в 5 с (добавили или убрали папку).
 pub async fn watch_worker(app: Arc<App>) {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     let mut watched: Vec<String> = Vec::new();
@@ -334,6 +336,7 @@ mod tests {
         assert!(changes_files(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
         assert!(changes_files(&EventKind::Modify(ModifyKind::Name(RenameMode::Both))));
         assert!(changes_files(&EventKind::Access(AccessKind::Close(notify::event::AccessMode::Write))));
+        assert!(changes_files(&EventKind::Any));
         assert!(!changes_files(&EventKind::Access(AccessKind::Read)));
         assert!(!changes_files(&EventKind::Access(AccessKind::Open(notify::event::AccessMode::Any))));
         assert!(!changes_files(&EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime))));

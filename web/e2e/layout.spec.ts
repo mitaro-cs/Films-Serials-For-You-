@@ -15,6 +15,7 @@ const PAGES = [
   ['/lists', 'списки'],
   ['/discover', 'обзор'],
   ['/discover?chart=top_movies', 'топ-250'],
+  ['/ext/tt1196946', 'фильм из IMDb'],
   ['/admin?tab=wishes', 'просьбы'],
   ['/admin', 'управление'],
   ['/admin?tab=folders', 'папки'],
