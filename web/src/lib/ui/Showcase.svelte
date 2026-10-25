@@ -114,7 +114,7 @@
   .poster img { display: block; width: 100%; aspect-ratio: 2/3; object-fit: cover; }
   .pagination { position: absolute; bottom: 22px; right: var(--gutter); display: flex; align-items: center; gap: 14px; font-variant-numeric: tabular-nums; font-size: 12px; }
   .pagination button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid #ffffff30; background: #0005; color: white; display: grid; place-items: center; cursor: pointer; }
-  @media(max-width: 640px) { .showcase { height: auto; min-height: 500px; padding-top: calc(var(--header) + 90px); padding-bottom: 64px; align-items: flex-end; } .copy { max-width: 100%; } .poster { display: none; } .shade { background: linear-gradient(0deg, var(--bg), #0009 70%, #0005); } .description { font-size: 14px; } .eyebrow { font-size: 10px; } }
+  @media(max-width: 640px) { .showcase { height: auto; min-height: 500px; padding-top: calc(var(--header) + 24px); padding-bottom: 64px; align-items: flex-end; } .copy { max-width: 100%; } .poster { display: none; } .shade { background: linear-gradient(0deg, var(--bg), #0009 70%, #0005); } .description { font-size: 14px; } .eyebrow { font-size: 10px; } }
   /* «Кинозал»: главная кнопка кадра - белая капсула на любом экране. */
   .actions .btn.primary { background: #fff; color: #0a0a0a; border: 0; height: 46px; padding: 0 26px; border-radius: 999px; font-weight: 700; transition: transform .15s ease; }
   .actions .btn.primary:active { transform: scale(.96); }
@@ -125,5 +125,10 @@
     .copy h1 { font-size: clamp(32px, 10vw, 44px); letter-spacing: -.035em; margin: 6px 0 12px; }
     .meta { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; gap: 4px 10px; }
     .pagination { bottom: 14px; }
+    /* Кадр 16:9 на высокий экран растягивался во всю высоту - виднелась четверть картинки. Теперь кадр
+       сверху почти целиком (4:3) и плавно уходит в фон, название - под ним. */
+    .showcase { height: auto; padding-top: calc(75vw - 64px); }
+    .backdrop { bottom: auto; height: auto; aspect-ratio: 4 / 3; object-position: center 35%; -webkit-mask-image: linear-gradient(#000 62%, transparent); mask-image: linear-gradient(#000 62%, transparent); }
+    .shade { background: linear-gradient(0deg, var(--bg) 30%, #0000 70%), linear-gradient(180deg, #0006, #0000 30%); }
   }
 </style>

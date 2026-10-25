@@ -10,7 +10,7 @@
   import ContinueRow from '$lib/ui/ContinueRow.svelte';
   import Loading from '$lib/ui/Loading.svelte';
   import BrowseGenres from '$lib/ui/BrowseGenres.svelte';
-  import { counts, featured, filter, isAnime, ofTab, shelves, STATUSES, statusOf, TABS, tabOf, type Status } from '$lib/library';
+  import { counts, featured, filter, isAnime, ofTab, shelves, STATUSES, statusOf, tabOf, type Status } from '$lib/library';
   import { session } from '$lib/session.svelte';
   import Hero from '$lib/ui/Hero.svelte';
   import Icon from '$lib/ui/Icon.svelte';
@@ -120,13 +120,6 @@
 </script>
 
 <div class="home" class:flat={tab !== 'home' && items !== null && !hero.length} class:homepage={tab === 'home'}>
-  <!-- Ниже 1000 px капсулы в шапке нет - разделы каталога здесь, поверх кадра. -->
-  <nav class="kinds" aria-label="Разделы каталога">
-    {#each TABS as t (t.id)}
-      <a href={t.href} class:on={tab === t.id} aria-current={tab === t.id ? 'page' : undefined}><Icon name={t.id === 'home' ? 'home' : t.id === 'movies' ? 'film' : t.id === 'series' ? 'tv' : 'sparkle'} size={13} />{t.label}</a>
-    {/each}
-  </nav>
-
   {#if catalog.failed}
     <div class="page empty"><Icon name="offline" size={40} /> Не удалось загрузить - проверьте связь</div>
   {:else if items === null}
@@ -220,10 +213,7 @@
 </div>
 
 <style>
-  @media(max-width:380px) { .kinds { width: calc(100% - 32px) !important; gap: 0 !important; } .kinds a { flex: 1; min-width: 0; justify-content: center; padding-inline: 3px !important; font-size: 10px !important; gap: 3px !important; } }
   .ph-hero { display: grid; place-items: center; background: #000; }
-  .kinds a { display: inline-flex; align-items: center; gap: 5px; }
-  .kinds a.on { background: #000; color: white; box-shadow: inset 0 0 0 1px #ffffff80; }
   .homepage .rows { margin-top: 0; padding-top: 12px; }
   .welcome { min-height: 430px; padding: calc(var(--header) + 80px) var(--gutter) 48px; background: radial-gradient(ellipse at 80% 20%, #37302566, transparent 65%); }
   .welcome h1 { font-size: clamp(32px, 4vw, 64px); letter-spacing: -.04em; margin: 18px 0; }
@@ -239,49 +229,6 @@
     min-height: 100dvh;
     padding-bottom: calc(48px + var(--tabbar));
   }
-  .kinds {
-    display: none;
-  }
-  @media (max-width: 1000px) {
-    .kinds {
-      position: absolute;
-      z-index: 5;
-      top: calc(var(--header) + env(safe-area-inset-top) + 4px);
-      left: 50%;
-      translate: -50% 0;
-      display: flex;
-      gap: 2px;
-      padding: 4px;
-      border-radius: 999px;
-      background: #000;
-      transition: background 0.5s;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
-    }
-    .kinds a {
-      padding: 6px clamp(8px, 2vw, 16px);
-      border-radius: 999px;
-      color: rgba(255, 255, 255, 0.82);
-      font-size: clamp(12px, 3vw, 14px);
-      font-weight: 600;
-      white-space: nowrap;
-      transition:
-        background 0.2s,
-        color 0.2s;
-    }
-    .kinds a.on {
-      background: #000; box-shadow: inset 0 0 0 1px #ffffff80;
-      color: #fff;
-    }
-    /* Без героя капсула - над содержимым. */
-    .flat .kinds {
-      position: relative;
-      top: auto;
-      left: auto;
-      translate: none;
-      width: max-content;
-      margin: calc(var(--header) + env(safe-area-inset-top) + 4px) auto 0;
-    }
-  }
   /* Ряды «лежат» на нижней части кадра, как у Apple TV. */
   .rows {
     position: relative;
@@ -295,7 +242,7 @@
   }
   @media (max-width: 1000px) {
     .flat .rows {
-      padding-top: 20px;
+      padding-top: calc(var(--header) + env(safe-area-inset-top) + 20px);
     }
   }
   @media (max-width: 640px) {
@@ -362,23 +309,5 @@
   }
   .empty :global(.btn) {
     margin-top: 6px;
-  }
-  /* Капсула разделов поверх кадра (телефон, планшет) - «жидкое стекло», как верхняя на ПК. */
-  @media (max-width: 1000px) {
-    .kinds {
-      background: rgba(255, 255, 255, 0.1);
-    -webkit-backdrop-filter: blur(22px) saturate(180%);
-    backdrop-filter: blur(22px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.28),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.06),
-      0 10px 30px -12px rgba(0, 0, 0, 0.6);
-    }
-    .kinds a.on {
-      background: rgba(255, 255, 255, 0.92) !important;
-      color: #0a0a0a !important;
-      box-shadow: none !important;
-    }
   }
 </style>
