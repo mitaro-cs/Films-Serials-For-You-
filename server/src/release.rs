@@ -14,6 +14,8 @@ pub struct Latest {
     pub version: String,
     /// Установщик для этой системы: имя и адрес.
     pub asset: Option<(String, String)>,
+    /// SHA-256 установщика по данным GitHub (`digest` файла выпуска): скачанное сверяется с ним.
+    pub sha256: Option<String>,
     pub page: String,
 }
 
@@ -33,6 +35,9 @@ struct Release {
 struct Asset {
     name: String,
     browser_download_url: String,
+    /// «sha256:…» — GitHub считает сам при выгрузке файла.
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 /// 1.10.0 > 1.9.3; хвост вроде `-beta.1` — младше выпуска.
@@ -82,18 +87,27 @@ pub async fn latest(http: &reqwest::Client) -> anyhow::Result<Latest> {
         .await?;
     anyhow::ensure!(!r.draft && !r.prerelease, "нет выпуска");
     let names: Vec<String> = r.assets.iter().map(|a| a.name.clone()).collect();
-    let asset = pick(&names, std::env::consts::OS, std::env::consts::ARCH)
-        .map(|i| (r.assets[i].name.clone(), r.assets[i].browser_download_url.clone()));
-    Ok(Latest { version: r.tag_name.trim_start_matches('v').to_string(), asset, page: r.html_url })
+    let i = pick(&names, std::env::consts::OS, std::env::consts::ARCH);
+    let asset = i.map(|i| (r.assets[i].name.clone(), r.assets[i].browser_download_url.clone()));
+    let sha256 = i
+        .and_then(|i| r.assets[i].digest.as_deref())
+        .and_then(|d| d.strip_prefix("sha256:"))
+        .filter(|h| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase);
+    Ok(Latest { version: r.tag_name.trim_start_matches('v').to_string(), asset, sha256, page: r.html_url })
 }
 
-/// Скачать в файл (сначала `*.part`), `progress(получено, всего)`.
+/// Скачать в файл (сначала `*.part`), `progress(получено, всего)`. Есть `sha256` — сверить:
+/// не совпало (подменили по дороге, оборвалось) — файла нет, запускать нечего.
 pub async fn download(
     http: &reqwest::Client,
     url: &str,
     to: &Path,
+    sha256: Option<&str>,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> anyhow::Result<()> {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
     let r = http.get(url).timeout(std::time::Duration::from_secs(3600)).send().await?.error_for_status()?;
     let total = r.content_length();
     let part = to.with_extension("part");
@@ -103,11 +117,18 @@ pub async fn download(
     while let Some(chunk) = body.next().await {
         let chunk = chunk?;
         got += chunk.len() as u64;
+        hash.update(&chunk);
         f.write_all(&chunk).await?;
         progress(got, total);
     }
     f.sync_all().await?;
     drop(f);
+    if let Some(want) = sha256 {
+        if hex::encode(hash.finalize()) != want.to_ascii_lowercase() {
+            let _ = tokio::fs::remove_file(&part).await;
+            anyhow::bail!("установщик не совпал с выпуском (SHA-256)");
+        }
+    }
     tokio::fs::rename(&part, to).await?;
     Ok(())
 }

@@ -158,9 +158,10 @@ pub fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
 pub fn client_ip(parts: &Parts) -> String {
     let peer = parts.extensions.get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
     if peer.is_none_or(|p| p.is_loopback()) {
-        // Через туннель все приходят с 127.0.0.1 — настоящий адрес в X-Forwarded-For.
-        if let Some(f) = parts.headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-            if let Some(ip) = f.split(',').next().and_then(|s| s.trim().parse::<IpAddr>().ok()) {
+        // Через туннель все приходят с 127.0.0.1 — настоящий адрес в X-Forwarded-For. Берём
+        // последний: его дописал сам туннель, а первые мог прислать кто угодно (обход лимитов).
+        if let Some(f) = parts.headers.get_all("x-forwarded-for").iter().filter_map(|v| v.to_str().ok()).next_back() {
+            if let Some(ip) = f.rsplit(',').next().and_then(|s| s.trim().parse::<IpAddr>().ok()) {
                 return ip.to_string();
             }
         }
@@ -325,6 +326,14 @@ pub fn ensure_host(app: &App) -> rusqlite::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn client_ip_takes_tunnel_entry() {
+        let req = axum::http::Request::builder().header("x-forwarded-for", "6.6.6.6, 203.0.113.7").body(()).unwrap();
+        let (parts, _) = req.into_parts();
+        // Без адреса соединения (как через туннель с 127.0.0.1) — последний из X-Forwarded-For.
+        assert_eq!(client_ip(&parts), "203.0.113.7");
+    }
+
     use super::*;
 
     #[test]

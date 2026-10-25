@@ -1546,6 +1546,7 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+ "url",
  "walkdir",
  "zip 9.1.0",
 ]

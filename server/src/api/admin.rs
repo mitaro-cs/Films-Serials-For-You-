@@ -188,8 +188,22 @@ fn url_or_empty(s: &str) -> ApiResult<String> {
     }
 }
 
-pub async fn save_settings(State(app): State<Arc<App>>, _m: Manager, Json(b): Json<SettingsBody>) -> Out {
+pub async fn save_settings(State(app): State<Arc<App>>, m: Manager, Json(b): Json<SettingsBody>) -> Out {
     let db = &app.db;
+    // Путь к ffmpeg — это программа, которую сервер запустит: менять его может только хост из
+    // своего окна, и только на локальный диск (не \\сервер\папка — её содержимое чужое).
+    if let Some(p) = b.ffmpeg_path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        if m.0.role != "host" || !m.0.local {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "host_only",
+                "Путь к ffmpeg меняет только хост в окне приложения",
+            ));
+        }
+        if p.starts_with("\\\\") || p.starts_with("//") {
+            return Err(ApiError::bad("bad_path", "Нужна папка на этом компьютере, а не в сети"));
+        }
+    }
     if let Some(n) = b.site_name {
         let n = n.trim();
         if n.is_empty() || n.chars().count() > 60 {

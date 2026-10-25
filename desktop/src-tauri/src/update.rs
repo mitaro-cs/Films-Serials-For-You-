@@ -276,7 +276,7 @@ async fn install_manual(app: &AppHandle, l: fsfy::release::Latest) {
     });
     let to = std::env::temp_dir().join(&name);
     let h = app.clone();
-    let got = fsfy::release::download(&fsfy::release::client(), &url, &to, move |done, total| {
+    let got = fsfy::release::download(&fsfy::release::client(), &url, &to, l.sha256.as_deref(), move |done, total| {
         if let Some(t) = total.filter(|t| *t > 0) {
             h.state::<Updates>().set(|i| i.progress = Some((done as f32 / t as f32).min(1.0)));
         }

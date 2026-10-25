@@ -216,5 +216,23 @@ async fn feed_marks_wishes_groups_links() {
     assert_eq!(page["decor"]["ribbon"], json!([format!("/img/{poster}")]));
     assert_eq!(anna.send("PATCH", "/api/me/profile", json!({"coverKind": "video"})).await.status(), 400);
     assert_eq!(page["stats"]["months"].as_array().unwrap().len(), 12);
+
+    // Смена пароля закрывает остальные входы (украденная сессия перестаёт работать).
+    let mut other = Client::new(public.clone());
+    let r = other.send("POST", "/api/auth/login", json!({"login": "anna", "password": "пароль-12345"})).await;
+    assert!(r.status().is_success());
+    let r = anna.send("PUT", "/api/me/password", json!({"old": "пароль-12345", "new": "новый-пароль-1"})).await;
+    assert!(r.status().is_success(), "{}", r.status());
+    assert_eq!(anna.get("/api/me").await.status(), 200, "свой вход остаётся");
+    assert_eq!(other.get("/api/me").await.status(), 401, "чужой — закрыт");
+
+    // Путь к ffmpeg (программа, которую запустит сервер) меняет только хост из окна и не сетевой.
+    let ida = anna.json("/api/me").await["user"]["id"].as_i64().unwrap();
+    let r = host.send("PATCH", &format!("/api/admin/users/{ida}"), json!({"role": "admin"})).await;
+    assert!(r.status().is_success(), "{}", r.status());
+    let r = anna.send("PUT", "/api/admin/settings", json!({"ffmpegPath": "C:\\x"})).await;
+    assert_eq!(r.status(), 403, "администратор — нет");
+    let r = host.send("PUT", "/api/admin/settings", json!({"ffmpegPath": "\\\\evil\\share"})).await;
+    assert_eq!(r.status(), 400, "сетевая папка — нет");
     drop(running);
 }

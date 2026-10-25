@@ -26,6 +26,36 @@ pub fn sniff(b: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// https и не адрес этого компьютера или локальной сети.
+pub fn public_https(u: &reqwest::Url) -> bool {
+    use std::net::IpAddr;
+    if u.scheme() != "https" {
+        return false;
+    }
+    let local = |ip: IpAddr| match ip {
+        IpAddr::V4(v) => {
+            v.is_private()
+                || v.is_loopback()
+                || v.is_link_local()
+                || v.is_unspecified()
+                || (v.octets()[0] == 100 && v.octets()[1] & 0xC0 == 64)
+        }
+        IpAddr::V6(v) => {
+            v.is_loopback()
+                || v.is_unspecified()
+                || v.is_unique_local()
+                || v.is_unicast_link_local()
+                || v.to_ipv4_mapped().is_some_and(|m| m.is_private() || m.is_loopback())
+        }
+    };
+    match u.host() {
+        Some(url::Host::Domain(d)) => !(d == "localhost" || d.ends_with(".localhost") || d.ends_with(".local")),
+        Some(url::Host::Ipv4(ip)) => !local(IpAddr::V4(ip)),
+        Some(url::Host::Ipv6(ip)) => !local(IpAddr::V6(ip)),
+        None => false,
+    }
+}
+
 pub fn valid_name(name: &str) -> bool {
     let (hash, ext) = match name.split_once('.') {
         Some(x) => x,
@@ -41,6 +71,15 @@ impl Images {
         std::fs::create_dir_all(&dir)?;
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
+            // Адрес картинки бывает от зрителя (кадр ссылки): перенаправления — только на https
+            // и не в локальную сеть, иначе это был бы запрос от имени хоста куда угодно.
+            .redirect(reqwest::redirect::Policy::custom(|a| {
+                if a.previous().len() >= 5 || !public_https(a.url()) {
+                    a.stop()
+                } else {
+                    a.follow()
+                }
+            }))
             .user_agent(concat!("fsfy/", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self { dir, http })
@@ -69,12 +108,16 @@ impl Images {
     }
 
     pub async fn download(&self, url: &str) -> anyhow::Result<String> {
-        let res = self.http.get(url).send().await?.error_for_status()?;
+        let mut res = self.http.get(url).send().await?.error_for_status()?;
         if res.content_length().is_some_and(|l| l as usize > MAX_IMAGE) {
             anyhow::bail!("картинка больше 15 МБ");
         }
-        let bytes = res.bytes().await?;
-        anyhow::ensure!(bytes.len() <= MAX_IMAGE, "картинка больше 15 МБ");
+        // Без длины в заголовке — считаем на лету, а не копим в памяти сколько пришлют.
+        let mut bytes = Vec::new();
+        while let Some(chunk) = res.chunk().await? {
+            anyhow::ensure!(bytes.len() + chunk.len() <= MAX_IMAGE, "картинка больше 15 МБ");
+            bytes.extend_from_slice(&chunk);
+        }
         let me = self.clone();
         tokio::task::spawn_blocking(move || me.save(&bytes)).await?
     }
@@ -216,5 +259,32 @@ mod tests {
             assert!(contrast_with_white(&c) >= 4.5, "{c} для {h}°");
         }
         assert!(accent(&[]).starts_with('#'));
+    }
+}
+
+#[cfg(test)]
+mod redirect_tests {
+    use super::public_https;
+
+    #[test]
+    fn only_public_https() {
+        let ok = |u: &str| public_https(&reqwest::Url::parse(u).unwrap());
+        assert!(ok("https://pic.rutube.ru/a.jpg"));
+        assert!(ok("https://8.8.8.8/x"));
+        assert!(!ok("http://pic.rutube.ru/a.jpg"));
+        for bad in [
+            "https://127.0.0.1/",
+            "https://192.168.1.1/",
+            "https://10.0.0.5/",
+            "https://169.254.169.254/",
+            "https://100.64.0.1/",
+            "https://localhost/",
+            "https://router.local/",
+            "https://[::1]/",
+            "https://[fd00::1]/",
+            "https://[::ffff:192.168.0.1]/",
+        ] {
+            assert!(!ok(bad), "{bad}");
+        }
     }
 }
