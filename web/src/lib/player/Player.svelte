@@ -437,7 +437,7 @@
   function goNext() {
     clearInterval(ticker);
     countdown = null;
-    if (info?.next) goto(`/watch/${info.next}`, { replaceState: true });
+    if (info?.next) goto(`/watch/${info.next}`, { replace: true });
   }
 
   function back() {

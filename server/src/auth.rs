@@ -7,7 +7,7 @@
 use crate::error::{ApiError, ApiResult};
 use crate::util::{now_ms, sha256_hex, token};
 use crate::App;
-use argon2::password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use argon2::password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier};
 use argon2::Argon2;
 use axum::extract::{ConnectInfo, FromRequestParts, OptionalFromRequestParts};
 use axum::http::request::Parts;
@@ -30,8 +30,8 @@ pub struct Via {
 }
 
 pub fn hash_password(pw: &str) -> String {
-    let salt = SaltString::generate(&mut OsRng);
-    Argon2::default().hash_password(pw.as_bytes(), &salt).map(|h| h.to_string()).unwrap_or_default()
+    // Соль — случайная из ОС (getrandom) внутри hash_password.
+    Argon2::default().hash_password(pw.as_bytes()).map(|h| h.to_string()).unwrap_or_default()
 }
 
 pub fn verify_password(pw: &str, hash: &str) -> bool {
@@ -158,9 +158,10 @@ pub fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
 pub fn client_ip(parts: &Parts) -> String {
     let peer = parts.extensions.get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
     if peer.is_none_or(|p| p.is_loopback()) {
-        // Через туннель все приходят с 127.0.0.1 — настоящий адрес в X-Forwarded-For.
-        if let Some(f) = parts.headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-            if let Some(ip) = f.split(',').next().and_then(|s| s.trim().parse::<IpAddr>().ok()) {
+        // Через туннель все приходят с 127.0.0.1 — настоящий адрес в X-Forwarded-For. Берём
+        // последний: его дописал сам туннель, а первые мог прислать кто угодно (обход лимитов).
+        if let Some(f) = parts.headers.get_all("x-forwarded-for").iter().filter_map(|v| v.to_str().ok()).next_back() {
+            if let Some(ip) = f.rsplit(',').next().and_then(|s| s.trim().parse::<IpAddr>().ok()) {
                 return ip.to_string();
             }
         }
@@ -325,6 +326,14 @@ pub fn ensure_host(app: &App) -> rusqlite::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn client_ip_takes_tunnel_entry() {
+        let req = axum::http::Request::builder().header("x-forwarded-for", "6.6.6.6, 203.0.113.7").body(()).unwrap();
+        let (parts, _) = req.into_parts();
+        // Без адреса соединения (как через туннель с 127.0.0.1) — последний из X-Forwarded-For.
+        assert_eq!(client_ip(&parts), "203.0.113.7");
+    }
+
     use super::*;
 
     #[test]
@@ -332,6 +341,10 @@ mod tests {
         let h = hash_password("secret1");
         assert!(verify_password("secret1", &h));
         assert!(!verify_password("secret2", &h));
+        // Хеш от argon2 0.5 (до 0.6.4): после обновления крейта старые пароли подходят.
+        let old = "$argon2id$v=19$m=19456,t=2,p=1$9r5/xaLrSSSLpXYjtNLJOQ$VKIjG2WAyi252z3KoUTeqxoxMOj6WgXj7tcG8YbkNjI";
+        assert!(verify_password("secret-0.6", old));
+        assert!(!verify_password("secret-0.5", old));
         assert!(!verify_password("x", "garbage"));
     }
 

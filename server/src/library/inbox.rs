@@ -259,6 +259,20 @@ pub fn upload_target(app: &App, name: &str, subfolder: Option<&str>) -> Result<(
     Ok((part, dst))
 }
 
+/// Появилось, пропало, переименовано или изменилось содержимое — повод сканировать. Непонятное
+/// (`Any`, `Other` — так FSEvents и сетевые диски сообщают о части изменений) — тоже.
+fn changes_files(kind: &notify::EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode, ModifyKind};
+    use notify::EventKind;
+    match kind {
+        EventKind::Create(_) | EventKind::Remove(_) => true,
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Modify(m) => !matches!(m, ModifyKind::Metadata(_)),
+        EventKind::Any | EventKind::Other => true,
+        EventKind::Access(_) => false,
+    }
+}
+
 /// Слежение за папками библиотеки: изменились — пересканировать через 3 с тишины. Список папок
 /// перечитывается раз в 5 с (добавили или убрали папку).
 pub async fn watch_worker(app: Arc<App>) {
@@ -279,8 +293,9 @@ pub async fn watch_worker(app: Arc<App>) {
             let t = tx.clone();
             let mut w = notify::recommended_watcher(move |e: notify::Result<notify::Event>| {
                 if let Ok(e) = e {
-                    // Свои временные файлы (*.part) — не повод сканировать.
-                    if e.paths.iter().any(|p| p.extension().is_none_or(|x| x != "part")) {
+                    // Свои временные файлы (*.part) — не повод сканировать. Чтение и атрибуты —
+                    // тоже: сам скан читает папку, и на Linux (inotify) сканы шли по кругу раз в 3 с.
+                    if changes_files(&e.kind) && e.paths.iter().any(|p| p.extension().is_none_or(|x| x != "part")) {
                         let _ = t.send(());
                     }
                 }
@@ -295,6 +310,10 @@ pub async fn watch_worker(app: Arc<App>) {
                 }
             }
             _watcher = w;
+            // Пока папку не слушали (до 5 с после добавления), в неё могли что-то положить.
+            if !libs.is_empty() {
+                app.scan_kick.notify_one();
+            }
             watched = libs;
         }
         tokio::select! {
@@ -312,6 +331,20 @@ pub async fn watch_worker(app: Arc<App>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_real_changes_trigger_scan() {
+        use notify::event::{AccessKind, CreateKind, DataChange, MetadataKind, ModifyKind, RenameMode};
+        use notify::EventKind;
+        assert!(changes_files(&EventKind::Create(CreateKind::File)));
+        assert!(changes_files(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(changes_files(&EventKind::Modify(ModifyKind::Name(RenameMode::Both))));
+        assert!(changes_files(&EventKind::Access(AccessKind::Close(notify::event::AccessMode::Write))));
+        assert!(changes_files(&EventKind::Any));
+        assert!(!changes_files(&EventKind::Access(AccessKind::Read)));
+        assert!(!changes_files(&EventKind::Access(AccessKind::Open(notify::event::AccessMode::Any))));
+        assert!(!changes_files(&EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime))));
+    }
 
     #[test]
     fn names_and_types() {

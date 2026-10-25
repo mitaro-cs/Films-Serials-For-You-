@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 pub struct FileRow {
     pub path: PathBuf,
@@ -374,11 +375,44 @@ pub async fn subs(State(app): State<Arc<App>>, v: Viewer, Path((id, sid)): Path<
         return Err(ApiError::not_found());
     }
     let f = file_row(&app, &v, id)?;
+    let key = (id, sid.clone());
+    if let Some(vtt) = SUBS.lock().get(&key).cloned() {
+        return Ok(vtt_response(vtt));
+    }
+    // Встроенные субтитры ffmpeg достаёт, читая весь файл (гигабайты): не больше двух сразу и
+    // не дольше 2 минут, готовое — в памяти. Иначе десяток запросов зрителя занимал диск хоста.
+    let _permit = tokio::time::timeout(Duration::from_secs(30), SUBS_SLOTS.acquire())
+        .await
+        .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "busy", "Сервер занят — попробуйте ещё раз"))?
+        .map_err(ApiError::internal)?;
+    if let Some(vtt) = SUBS.lock().get(&key).cloned() {
+        return Ok(vtt_response(vtt));
+    }
     let ffmpeg = app.tools.read().ffmpeg.clone();
-    let vtt =
-        stream::subtitle(&f.path, &sid, ffmpeg.as_deref()).await.map_err(|e| ApiError::bad("subs", e.to_string()))?;
-    Ok(([(header::CONTENT_TYPE, "text/vtt; charset=utf-8"), (header::CACHE_CONTROL, "private, max-age=3600")], vtt)
-        .into_response())
+    let vtt: Arc<str> =
+        tokio::time::timeout(Duration::from_secs(120), stream::subtitle(&f.path, &sid, ffmpeg.as_deref()))
+            .await
+            .map_err(|_| ApiError::bad("subs", "Субтитры не успели прочитаться"))?
+            .map_err(|e| ApiError::bad("subs", e.to_string()))?
+            .into();
+    let mut cache = SUBS.lock();
+    if cache.len() >= 64 {
+        cache.clear();
+    }
+    cache.insert(key, vtt.clone());
+    Ok(vtt_response(vtt))
+}
+
+static SUBS_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+type SubsCache = parking_lot::Mutex<std::collections::HashMap<(i64, String), Arc<str>>>;
+static SUBS: std::sync::LazyLock<SubsCache> = std::sync::LazyLock::new(Default::default);
+
+fn vtt_response(vtt: Arc<str>) -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/vtt; charset=utf-8"), (header::CACHE_CONTROL, "private, max-age=3600")],
+        vtt.to_string(),
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]

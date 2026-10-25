@@ -143,9 +143,9 @@ pub fn scan(db: &Db, images: &Images) -> anyhow::Result<ScanStats> {
         c.query_row(
             "SELECT COUNT(*) FROM titles t WHERE EXISTS (SELECT 1 FROM files f WHERE f.title_id = t.id AND f.missing = 0)",
             [],
-            |r| r.get(0),
+            |r| r.get::<_, i64>(0),
         )
-    })?;
+    })? as usize;
     Ok(stats)
 }
 

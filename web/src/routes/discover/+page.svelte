@@ -12,7 +12,7 @@
   import { toast } from '$lib/ui/toast.svelte';
 
   // Обзор как на IMDb: популярное и топ-250 (не только то, что есть у нас), поиск по всему IMDb,
-  // видео по ссылке. Карточка открывается поверх страницы (ExtSheet).
+  // видео по ссылке. У каждого фильма — своя страница `/ext/<id>`.
   type Row = { key: string; title: string; items: ExtCard[] };
 
   const q = $derived(page.url.searchParams.get('q') ?? '');
@@ -83,7 +83,7 @@
   function submit(e: SubmitEvent) {
     e.preventDefault();
     const v = text.trim();
-    goto(v ? `/discover?q=${encodeURIComponent(v)}` : '/discover', { keepFocus: true, noScroll: true });
+    goto(v ? `/discover?q=${encodeURIComponent(v)}` : '/discover', { reset: false });
   }
 
   async function refresh() {

@@ -386,6 +386,19 @@ ALTER TABLE titles ADD COLUMN backdrop_md TEXT;
 ALTER TABLE profiles ADD COLUMN directors TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE profiles ADD COLUMN cover_kind TEXT NOT NULL DEFAULT 'ribbon' CHECK (cover_kind IN ('ribbon','image'));
 "#,
+    // 9 (0.6.4): у фильма из ленты — своя страница: большой кадр (`backdrop`) и остальное
+    // (слоган, актёры, кадры, похожие — JSON в `extra`). `detailed` = 2 — описание в этом виде.
+    r#"
+ALTER TABLE ext_titles ADD COLUMN backdrop TEXT;
+ALTER TABLE ext_titles ADD COLUMN extra TEXT;
+"#,
+    // 10 (0.6.4): индексы ленты IMDb — «есть у нас» (titles.imdb_id) и место в подборке. Без них
+    // подборка искала перебором (38 мс на 2000 фильмов), а выборка постеров, которая под общим
+    // замком базы идёт раз в 300 мс, — 234 мс; с ними — 0,4 и 2 мс.
+    r#"
+CREATE INDEX titles_imdb ON titles(imdb_id);
+CREATE INDEX ext_charts_ext ON ext_charts(ext_id);
+"#,
 ];
 
 impl Db {
@@ -402,14 +415,14 @@ impl Db {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
         )?;
-        let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        let version = conn.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))? as usize;
         if version > MIGRATIONS.len() {
             anyhow::bail!("база от более новой версии программы — обновите приложение");
         }
         for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
             let tx = conn.transaction()?;
             tx.execute_batch(sql).with_context(|| format!("миграция {}", i + 1))?;
-            tx.pragma_update(None, "user_version", i + 1)?;
+            tx.pragma_update(None, "user_version", (i + 1) as i64)?;
             tx.commit()?;
         }
         Ok(Self(Arc::new(Mutex::new(conn))))

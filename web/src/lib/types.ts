@@ -313,6 +313,18 @@ export interface ExtDetail {
   overview: string | null;
   runtime: number | null;
   votes: number | null;
+  /** Большой кадр и постер — копии у нас. */
+  backdrop: string | null;
+  posterLarge: string | null;
+  tagline: string | null;
+  age: string | null;
+  releaseDate: string | null;
+  countries: string[];
+  languages: string[];
+  aka: string[];
+  people: { name: string; job: string; role: string | null; photo: string | null }[];
+  gallery: string[];
+  similar: ExtCard[];
   localCard: Card | null;
   lists: { id: number; name: string; has: boolean }[];
   links: VideoLink[];

@@ -36,7 +36,7 @@
   $effect(reload);
 
   $effect(() => {
-    if (session.me && !session.me.manage) goto('/', { replaceState: true });
+    if (session.me && !session.me.manage) goto('/', { replace: true });
   });
 </script>
 

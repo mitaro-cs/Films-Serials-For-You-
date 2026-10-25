@@ -3,10 +3,10 @@
   import type { Card, ExtCard } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
-  import { openExt } from './sheet.svelte';
+  import { remember } from './sheet.svelte';
 
-  // Постер 2:3: название, год и оценка. Из ленты IMDb — открывает карточку поверх страницы
-  // («Есть у нас» — смотреть прямо здесь), с сервиса (`local`) — ссылка на страницу фильма.
+  // Постер 2:3: название, год и оценка. Из ленты IMDb — ссылка на его страницу `/ext/<id>`
+  // (карточка запоминается — страница показывается сразу), с сервиса (`local`) — на `/title/<id>`.
   let {
     card,
     local = null,
@@ -37,7 +37,7 @@
 {#if local}
   <a class="poster" class:rise={i !== null} style:--i={i} href="/title/{local.id}" aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</a>
 {:else}
-  <button class="poster" class:rise={i !== null} style:--i={i} onclick={() => openExt(card!)} aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</button>
+  <a class="poster" class:rise={i !== null} style:--i={i} href="/ext/{card!.id}" onclick={() => remember(card!)} aria-label="{c.title}{c.year ? `, ${c.year}` : ''}">{@render body()}</a>
 {/if}
 
 <style>

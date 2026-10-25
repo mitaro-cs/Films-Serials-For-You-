@@ -64,7 +64,7 @@
         t = d;
         const cur = d.files.find((f) => f.id === d.next?.fileId);
         season = cur?.season ?? d.seasons[0] ?? null;
-        if (page.url.searchParams.get('play') && d.next) goto(`/watch/${d.next.fileId}`, { replaceState: true });
+        if (page.url.searchParams.get('play') && d.next) goto(`/watch/${d.next.fileId}`, { replace: true });
       },
       (e) => (error = errorText(e)),
     );
@@ -471,11 +471,12 @@
       transform: scale(1.06);
     }
   }
+  /* Во всю ширину большого экрана, а не узкой колонкой посередине (0.6.4). */
   .wrap {
-    max-width: 1060px;
+    max-width: 1440px;
     margin: 0 auto;
     display: grid;
-    grid-template-columns: 220px minmax(0, 1fr) 220px;
+    grid-template-columns: clamp(200px, 17vw, 260px) minmax(0, 1fr) clamp(220px, 18vw, 270px);
     gap: 32px;
     align-items: end;
   }
@@ -735,7 +736,7 @@
 
   /* ---------- лист с разделами ---------- */
   .sheet {
-    max-width: 1060px;
+    width: min(1440px, 100% - 2 * var(--gutter));
     margin: 0 auto;
     padding: 8px clamp(18px, 4vw, 54px) 40px;
     background: #1a1a1c;
@@ -864,7 +865,7 @@
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
     gap: 12px;
   }
   .similar a {
@@ -1142,6 +1143,7 @@
       padding: 8px 0 10px;
     }
     .sheet {
+      width: 100%;
       border-radius: 18px 18px 0 0;
       padding-bottom: 32px;
     }

@@ -35,7 +35,7 @@
       type="search"
       placeholder="Название фильма или сериала"
       bind:value={text}
-      oninput={() => goto(`/search?q=${encodeURIComponent(text)}`, { replaceState: true, keepFocus: true, noScroll: true })}
+      oninput={() => goto(`/search?q=${encodeURIComponent(text)}`, { replace: true, reset: false })}
       autofocus
       aria-label="Поиск"
     />

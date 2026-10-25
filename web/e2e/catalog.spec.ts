@@ -148,3 +148,20 @@ test('оценку можно убрать, любимый фильм — на �
   await page.goto(url(`/people/${env().people.me}`));
   await expect(page.getByRole('region', { name: 'Любимые фильмы' }).getByRole('link', { name: /Амели/ })).toBeVisible();
 });
+
+test('фильм из IMDb: своя страница, отметка, похожие', async ({ page }) => {
+  await page.goto(url('/discover'));
+  await page.getByRole('link', { name: /Менталист/ }).first().click();
+  await expect(page).toHaveURL(/\/ext\/tt1196946/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Менталист');
+  await expect(page.getByRole('region', { name: 'Актёры и съёмочная группа' })).toContainText('Бруно Хеллер');
+  const want = page.getByRole('button', { name: 'Буду смотреть' });
+  const on = (await want.getAttribute('aria-pressed')) === 'true';
+  await want.click();
+  await expect(want).toHaveAttribute('aria-pressed', String(!on));
+  await want.click();
+  await expect(want).toHaveAttribute('aria-pressed', String(on));
+  await expect(page.getByRole('link', { name: 'Смотреть', exact: true })).toHaveAttribute('href', /\/watch\/link\/\d+/);
+  await page.getByRole('region', { name: 'Похожие' }).getByRole('link').first().click();
+  await expect(page).toHaveURL(/\/ext\/tt0000001/);
+});

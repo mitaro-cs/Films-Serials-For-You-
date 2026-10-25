@@ -3,7 +3,6 @@
   import { afterNavigate, goto, onNavigate } from '$app/navigation';
   import { applyMotion, motionOn } from '$lib/motion';
   import { page } from '$app/state';
-  import ExtSheet from '$lib/discover/ExtSheet.svelte';
   import Ask from '$lib/ui/Ask.svelte';
   import Header from '$lib/ui/Header.svelte';
   import Icon from '$lib/ui/Icon.svelte';
@@ -28,7 +27,7 @@
     loadMe().then((me) => {
       const here = location.pathname + location.search;
       if (!me && !AUTH.some((p) => location.pathname.startsWith(p))) {
-        goto(`/login?next=${encodeURIComponent(here)}`, { replaceState: true });
+        goto(`/login?next=${encodeURIComponent(here)}`, { replace: true });
       }
     });
   });
@@ -89,7 +88,6 @@
 
 <Ask />
 <Toasts />
-{#if session.me}<ExtSheet />{/if}
 
 {#if dragging}
   <div class="dropping" aria-hidden="true">

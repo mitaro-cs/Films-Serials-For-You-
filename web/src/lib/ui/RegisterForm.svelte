@@ -23,7 +23,7 @@
     try {
       await post('/api/auth/register', { invite: code || null, name, login, password });
       await loadMe();
-      goto('/', { replaceState: true });
+      goto('/', { replace: true });
     } catch (err) {
       error = errorText(err);
     } finally {

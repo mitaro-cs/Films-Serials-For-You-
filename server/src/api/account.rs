@@ -57,8 +57,11 @@ pub async fn login(
     Json(b): Json<LoginBody>,
 ) -> ApiResult<Response> {
     let login = b.login.trim().to_lowercase();
-    let keys = [format!("ip:{ip}"), format!("login:{login}")];
-    if keys.iter().any(|k| app.login_limit.blocked(k)) {
+    // С адреса — 10 неудач за 10 минут; в один аккаунт со всех адресов — 50: чужие 10 попыток
+    // больше не запирают вход хозяину аккаунта.
+    let keys = [format!("ip:{ip}"), format!("pair:{ip}:{login}")];
+    let account = format!("login:{login}");
+    if keys.iter().any(|k| app.login_limit.blocked(k)) || app.account_limit.blocked(&account) {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "rate_limited",
@@ -84,6 +87,7 @@ pub async fn login(
     };
     if !ok {
         keys.iter().for_each(|k| app.login_limit.fail(k));
+        app.account_limit.fail(&account);
         if matches!(row, Some((_, _, true))) {
             return Err(ApiError::new(StatusCode::FORBIDDEN, "disabled", "Доступ закрыт хостом"));
         }
@@ -91,6 +95,7 @@ pub async fn login(
     }
     let id = row.map(|r| r.0).unwrap_or_default();
     keys.iter().for_each(|k| app.login_limit.clear(k));
+    app.account_limit.clear(&account);
     let t = auth::create_session(&app, id, false)?;
     Ok(with_cookie(json!({"ok": true}), auth::session_cookie(auth::COOKIE, &t, auth::secure(&headers), 365 * 86400)))
 }
@@ -115,7 +120,7 @@ fn invite_ok(app: &App, code: &str) -> ApiResult<bool> {
 
 pub async fn invite(State(app): State<Arc<App>>, Ip(ip): Ip, Path(code): Path<String>) -> ApiResult<Json<Value>> {
     let key = format!("invite:{ip}");
-    if app.login_limit.blocked(&key) {
+    if app.login_limit.blocked(&key) || app.site_limit.blocked("invite") {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "rate_limited",
@@ -125,6 +130,7 @@ pub async fn invite(State(app): State<Arc<App>>, Ip(ip): Ip, Path(code): Path<St
     let ok = invite_ok(&app, &code)?;
     if !ok {
         app.login_limit.fail(&key);
+        app.site_limit.fail("invite");
     }
     Ok(Json(json!({"valid": ok, "site": app.site_name()})))
 }
@@ -149,7 +155,7 @@ pub async fn register(
 ) -> ApiResult<Response> {
     let mode = app.db.setting_or("site.registration", crate::api::account::REGISTRATION_DEFAULT);
     let key = format!("invite:{ip}");
-    if app.login_limit.blocked(&key) {
+    if app.login_limit.blocked(&key) || app.site_limit.blocked("invite") {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "rate_limited",
@@ -158,7 +164,7 @@ pub async fn register(
     }
     // Новых аккаунтов с одного адреса — не больше 5 за 10 минут (от ботов при открытой регистрации).
     let signups = format!("signup:{ip}");
-    if app.signup_limit.blocked(&signups) {
+    if app.signup_limit.blocked(&signups) || app.site_limit.blocked("signup") {
         return Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "rate_limited",
@@ -176,6 +182,7 @@ pub async fn register(
     }
     if need_invite && !code.as_deref().map(|c| invite_ok(&app, c)).transpose()?.unwrap_or(false) {
         app.login_limit.fail(&key);
+        app.site_limit.fail("invite");
         return Err(ApiError::bad("bad_invite", "Приглашение недействительно или закончилось"));
     }
     let name = auth::check_name(&b.name)?;
@@ -201,6 +208,7 @@ pub async fn register(
         return Err(ApiError::new(StatusCode::CONFLICT, "login_taken", "Такой логин уже занят"));
     };
     app.signup_limit.fail(&signups);
+    app.site_limit.fail("signup");
     let t = auth::create_session(&app, id, false)?;
     Ok(with_cookie(json!({"ok": true}), auth::session_cookie(auth::COOKIE, &t, auth::secure(&headers), 365 * 86400)))
 }
@@ -310,6 +318,11 @@ pub async fn password(
     }
     let new = b.new;
     let hash = tokio::task::spawn_blocking(move || auth::hash_password(&new)).await.map_err(ApiError::internal)?;
-    app.db.with(|c| c.execute("UPDATE users SET pass = ? WHERE id = ?", params![hash, v.id]))?;
+    // Новый пароль — остальные входы закрываются (кроме этого и окна хоста): если пароль меняют
+    // из-за утечки, украденная сессия больше не работает.
+    app.db.tx(|tx| {
+        tx.execute("UPDATE users SET pass = ? WHERE id = ?", params![hash, v.id])?;
+        tx.execute("DELETE FROM sessions WHERE user_id = ? AND hash != ? AND local = 0", params![v.id, v.token_hash])
+    })?;
     Ok(Json(json!({"ok": true, "login": v.login})))
 }

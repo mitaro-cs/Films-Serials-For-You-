@@ -56,6 +56,9 @@ pub struct App {
     pub access: access::Access,
     pub login_limit: auth::Limiter,
     pub signup_limit: auth::Limiter,
+    /// Общие пределы на весь сайт: регистрации, неверные приглашения, неудачные входы в один аккаунт.
+    pub site_limit: auth::Limiter,
+    pub account_limit: auth::Limiter,
     /// Сообщений от профиля — не больше 30 в минуту.
     pub message_limit: auth::Limiter,
     pub entries: Mutex<HashMap<String, i64>>,
@@ -197,6 +200,8 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
         access: access::Access::default(),
         login_limit: auth::Limiter::new(10, 10 * 60 * 1000),
         signup_limit: auth::Limiter::new(5, 10 * 60 * 1000),
+        site_limit: auth::Limiter::new(30, 10 * 60 * 1000),
+        account_limit: auth::Limiter::new(50, 10 * 60 * 1000),
         message_limit: auth::Limiter::new(30, 60 * 1000),
         entries: Mutex::default(),
         transcode: Arc::new(Semaphore::new(2)),
@@ -210,6 +215,10 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
     library::inbox::ensure_on_start(&app);
 
     tokio::spawn(library::jobs::scan_worker(app.clone()));
+    // В отладочной сборке brotli 11 медленный (тесты ждали бы секунды) — там сжатие по запросу.
+    if !cfg!(debug_assertions) {
+        tokio::task::spawn_blocking(web::warm);
+    }
     tokio::spawn(library::jobs::probe_worker(app.clone()));
     tokio::spawn(library::inbox::watch_worker(app.clone()));
     tokio::spawn(meta::worker(app.clone()));
