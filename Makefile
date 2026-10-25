@@ -16,9 +16,8 @@ test:
 e2e: build      ## Playwright: вёрстка, статусы, скорость (телефон, планшет, компьютер)
 	cd web && npx playwright test
 
-screenshots: build  ## картинки для README из демо-данных
-	cd web && SCREENSHOTS=1 npx playwright test e2e/screenshots.spec.ts
-	cd docs/screenshots && python3 -c "import glob,os;from PIL import Image;[(Image.open(p).save(p[:-4]+'.webp',quality=80),os.remove(p)) for p in glob.glob('*.png')]"
+screenshots: build  ## картинки для README: открытые фильмы Blender и классика, описания с IMDb (нужен интернет)
+	cd web && node scripts/showcase.mjs
 
 lint:
 	cargo fmt --all --check

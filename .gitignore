@@ -17,7 +17,8 @@
 /tools/
 /server-java/build/
 /server-java/lib/
-/docs/screenshots/
+/docs/screenshots/*
+!/docs/screenshots/[1-9]-*.webp
 *.log
 /web/e2e/.env.json
 /web/e2e/.state.json

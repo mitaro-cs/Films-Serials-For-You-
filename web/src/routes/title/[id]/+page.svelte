@@ -78,7 +78,7 @@
         rv = r;
         links = l;
         t = d;
-        if (page.url.searchParams.get('play') && d.next) goto(`/watch/${d.next.fileId}`, { replaceState: true });
+        if (page.url.searchParams.get('play') && d.next) goto(`/watch/${d.next.fileId}`, { replace: true });
       },
       (e) => (error = errorText(e)),
     );
@@ -371,7 +371,7 @@
           {#if isSeries}<span>{count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')}</span>{/if}
           {#if c.age}<span class="age">{c.age}</span>{/if}
         </p>
-        {#if t.tagline}<p class="tagline">{localized(t.tagline, 'Описание на русском пока недоступно')}</p>{/if}
+        {#if localized(t.tagline)}<p class="tagline">{localized(t.tagline)}</p>{/if}
         {#if c.overview}<p class="overview">{localized(c.overview, 'Описание на русском пока недоступно')}</p>{/if}
         {#if t.next && (started || (isSeries && t.next.label && c.status === 'watching'))}
           <!-- Где остановились: место в фильме или следующая серия сериала. -->

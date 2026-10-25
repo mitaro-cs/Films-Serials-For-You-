@@ -3,6 +3,6 @@
 
   // Старые ссылки (0.2) ведут в каталог-билеты.
   $effect(() => {
-    goto('/?tab=movies&status=want', { replaceState: true });
+    goto('/?tab=movies&status=want', { replace: true });
   });
 </script>

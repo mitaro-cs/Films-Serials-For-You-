@@ -10,6 +10,55 @@ use axum::response::{IntoResponse, Response};
 #[folder = "../web/build"]
 struct Assets;
 
+/// Сжатые копии неизменяемых файлов интерфейса (`_app/immutable/…` — имя меняется с содержимым):
+/// сжимаем один раз и сильно (brotli 11, gzip 9), а не при каждом запросе — хосту меньше работы,
+/// через туннель — меньше байт.
+static PACKED: std::sync::LazyLock<parking_lot::Mutex<std::collections::HashMap<(String, bool), bytes::Bytes>>> =
+    std::sync::LazyLock::new(Default::default);
+
+fn pack(name: &str, data: &[u8], br: bool) -> bytes::Bytes {
+    use std::io::Write;
+    let key = (name.to_string(), br);
+    if let Some(b) = PACKED.lock().get(&key) {
+        return b.clone();
+    }
+    let mut out = Vec::with_capacity(data.len() / 3);
+    if br {
+        let params = brotli::enc::BrotliEncoderParams { quality: 11, lgwin: 22, ..Default::default() };
+        let _ = brotli::BrotliCompress(&mut &data[..], &mut out, &params);
+    } else {
+        let mut z = flate2::write::GzEncoder::new(&mut out, flate2::Compression::best());
+        let _ = z.write_all(data).and_then(|_| z.try_finish());
+        drop(z);
+    }
+    let b = bytes::Bytes::from(out);
+    PACKED.lock().insert(key, b.clone());
+    b
+}
+
+/// Сжать всё неизменяемое заранее (при запуске, в фоне): первый зритель не ждёт.
+pub fn warm() {
+    for name in Assets::iter().filter(|n| n.starts_with("_app/immutable/") && !n.ends_with(".png")) {
+        if let Some(f) = Assets::get(&name).filter(|f| f.data.len() > 1024) {
+            pack(&name, &f.data, true);
+            pack(&name, &f.data, false);
+        }
+    }
+}
+
+/// Какое сжатие понимает браузер: brotli лучше, иначе gzip.
+fn accepts(headers: &axum::http::HeaderMap) -> Option<bool> {
+    let v = headers.get(header::ACCEPT_ENCODING)?.to_str().ok()?;
+    let has = |n: &str| v.split(',').any(|p| p.split(';').next().is_some_and(|x| x.trim() == n));
+    if has("br") {
+        Some(true)
+    } else if has("gzip") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 pub async fn spa(uri: Uri, headers: HeaderMap) -> Response {
     let path = uri.path().trim_start_matches('/');
     if path.starts_with("api/") {
@@ -37,21 +86,35 @@ pub async fn spa(uri: Uri, headers: HeaderMap) -> Response {
             v == "*" || v.strip_prefix("W/").unwrap_or(v) == etag
         })
     });
-    let response = Response::builder()
+    let res = Response::builder()
         .header(header::CONTENT_TYPE, mime.as_ref())
         .header(header::CACHE_CONTROL, cache)
-        .header(header::ETAG, etag);
+        .header(header::ETAG, etag)
+        .header(header::VARY, "accept-encoding");
     if unchanged {
-        return response
+        return res
             .status(StatusCode::NOT_MODIFIED)
             .body(Body::empty())
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    }
+    let packable =
+        name.starts_with("_app/immutable/") && file.data.len() > 1024 && !mime.type_().eq(&mime_guess::mime::IMAGE);
+    if let Some(br) = accepts(&headers).filter(|_| packable) {
+        let data = file.data.clone();
+        let name = name.to_string();
+        let packed = tokio::task::spawn_blocking(move || pack(&name, &data, br)).await.unwrap_or_default();
+        if !packed.is_empty() {
+            return res
+                .header(header::CONTENT_ENCODING, if br { "br" } else { "gzip" })
+                .body(Body::from(packed))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+        }
     }
     let bytes = match file.data {
         std::borrow::Cow::Borrowed(data) => Bytes::from_static(data),
         std::borrow::Cow::Owned(data) => Bytes::from(data),
     };
-    response.body(Body::from(bytes)).unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+    res.body(Body::from(bytes)).unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 /// Внешнее - только для видео по ссылкам: плееры Rutube, VK и YouTube во фрейме, прямые
@@ -103,5 +166,33 @@ mod tests {
         let mut stale = HeaderMap::new();
         stale.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"old\""));
         assert_eq!(spa(uri, stale).await.status(), StatusCode::OK);
+    }
+}
+
+#[cfg(test)]
+mod pack_tests {
+    use super::*;
+
+    #[test]
+    fn picks_encoding_and_round_trips() {
+        let mut h = axum::http::HeaderMap::new();
+        assert_eq!(accepts(&h), None);
+        h.insert(header::ACCEPT_ENCODING, HeaderValue::from_static("gzip, deflate, br;q=1.0, zstd"));
+        assert_eq!(accepts(&h), Some(true));
+        h.insert(header::ACCEPT_ENCODING, HeaderValue::from_static("gzip"));
+        assert_eq!(accepts(&h), Some(false));
+        h.insert(header::ACCEPT_ENCODING, HeaderValue::from_static("brx, identity"));
+        assert_eq!(accepts(&h), None);
+
+        let data = "let x = 1; ".repeat(500);
+        let gz = pack("_app/immutable/test.js", data.as_bytes(), false);
+        let mut out = String::new();
+        std::io::Read::read_to_string(&mut flate2::read::GzDecoder::new(&gz[..]), &mut out).unwrap();
+        assert_eq!(out, data);
+        let br = pack("_app/immutable/test.js", data.as_bytes(), true);
+        let mut out = Vec::new();
+        brotli::BrotliDecompress(&mut &br[..], &mut out).unwrap();
+        assert_eq!(out, data.as_bytes());
+        assert!(br.len() < data.len() / 10);
     }
 }

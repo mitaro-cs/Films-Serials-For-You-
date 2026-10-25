@@ -100,7 +100,7 @@
     try { const detail = await api<TitleDetail>(`/api/titles/${info.titleId}`); episodeFiles = detail.files; } catch { say('Не удалось загрузить серии'); }
     finally { episodesBusy = false; }
   }
-  function pickEpisode(id: number) { save(true); panel = ''; if (id === fileId) return; if (sync) sync.local({ playing: true, position: 0, fileId: id }); else goto(`/watch/${id}`, { replaceState: true }); }
+  function pickEpisode(id: number) { save(true); panel = ''; if (id === fileId) return; if (sync) sync.local({ playing: true, position: 0, fileId: id }); else goto(`/watch/${id}`, { replace: true }); }
   let rate = $state(1);
   let jump = $state<{ side: 'left' | 'right'; n: number; key: number } | null>(null);
   const pipOk = typeof document !== 'undefined' && !!document.pictureInPictureEnabled;
@@ -728,7 +728,7 @@
     if (!info?.next) return;
     // В комнате следующая серия - у всех сразу: комната сменит файл.
     if (sync) sync.local({ fileId: info.next, playing: true, position: 0 });
-    else goto(`/watch/${info.next}`, { replaceState: true });
+    else goto(`/watch/${info.next}`, { replace: true });
   }
 
   async function back() {

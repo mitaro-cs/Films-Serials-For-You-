@@ -1,6 +1,5 @@
 //! Мелочи, нужные везде: время, случайные токены, хеши, нормализация названий.
 
-use rand::RngCore;
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,7 +28,7 @@ pub fn tick_ms() -> i64 {
 pub fn token(bytes: usize) -> String {
     use base64::Engine;
     let mut b = vec![0u8; bytes];
-    rand::thread_rng().fill_bytes(&mut b);
+    rand::fill(&mut b[..]);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
 }
 
@@ -37,7 +36,7 @@ pub fn token(bytes: usize) -> String {
 pub fn human_code(len: usize) -> String {
     const ABC: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let mut b = vec![0u8; len];
-    rand::thread_rng().fill_bytes(&mut b);
+    rand::fill(&mut b[..]);
     b.iter().map(|x| ABC[*x as usize % ABC.len()] as char).collect()
 }
 

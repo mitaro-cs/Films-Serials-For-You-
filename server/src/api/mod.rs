@@ -196,13 +196,18 @@ pub fn router(app: Arc<App>) -> Router {
         .fallback(crate::web::spa)
         .layer(axum::middleware::from_fn(crate::web::headers))
         .layer(
-            tower_http::compression::CompressionLayer::new().gzip(true).compress_when(
-                tower_http::compression::predicate::SizeAbove::new(1024)
-                    .and(tower_http::compression::predicate::NotForContentType::new("video/"))
-                    // Поток событий комнаты сжатие копило бы - события приходили бы пачками.
-                    .and(tower_http::compression::predicate::NotForContentType::new("text/event-stream"))
-                    .and(tower_http::compression::predicate::NotForContentType::IMAGES),
-            ),
+            // brotli - меньше gzip на 15-20 % (через туннель заметно); уровень 5 - не грузит хост.
+            // Поток событий комнаты сжатие копило бы - события приходили бы пачками.
+            tower_http::compression::CompressionLayer::new()
+                .gzip(true)
+                .br(true)
+                .quality(tower_http::CompressionLevel::Precise(5))
+                .compress_when(
+                    tower_http::compression::predicate::SizeAbove::new(1024)
+                        .and(tower_http::compression::predicate::NotForContentType::new("video/"))
+                        .and(tower_http::compression::predicate::NotForContentType::new("text/event-stream"))
+                        .and(tower_http::compression::predicate::NotForContentType::IMAGES),
+                ),
         )
         .with_state(app)
 }

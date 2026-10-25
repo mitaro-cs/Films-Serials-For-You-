@@ -64,6 +64,7 @@
     error = '';
     lists = false;
     castAll = false;
+    shot = null;
     online = null;
     episodes = [];
     chosen = null;

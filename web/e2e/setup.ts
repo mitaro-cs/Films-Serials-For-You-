@@ -1,6 +1,8 @@
 import { request, type FullConfig } from '@playwright/test';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -142,6 +144,49 @@ export default async function setup(_: FullConfig) {
   await boris.c.post(`/api/friends/${me}`);
   await anna.c.dispose();
   await boris.c.dispose();
+
+  // Фильм из ленты IMDb со своей страницей (/ext/…): без сети — описание, кадр, актёры и похожие
+  // кладём прямо в базу (`detailed` = 4 = `discover::DETAILED` - сервер к IMDb не пойдёт), картинки — в images/.
+  const data = join(base, 'data');
+  const img = (src: string) => {
+    const name = `${createHash('sha256').update(readFileSync(src)).digest('hex')}.jpg`;
+    copyFileSync(src, join(data, 'images', name));
+    return name;
+  };
+  const art = img(join(media, 'Дюна (2021)', 'poster.jpg'));
+  const wide = join(base, 'wide.jpg');
+  ff(['-f', 'lavfi', '-i', 'gradients=s=1280x720:c0=0x1f3a8a:c1=0xc8752a:x0=0:y0=0:x1=1280:y1=720:d=1', '-frames:v', '1', wide]);
+  const still = img(wide);
+  const db = new DatabaseSync(join(data, 'fsfy.db'));
+  db.exec('PRAGMA busy_timeout = 5000');
+  const put = db.prepare(
+    `INSERT INTO ext_titles (id, kind, title, original, year, rating, votes, genres, overview, runtime, poster, backdrop, extra, detailed, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const similar = ['tt0000001', 'tt0000002', 'tt0000003'];
+  similar.forEach((s, i) => put.run(s, 'series', `Похожий сериал ${i + 1}`, null, 2010 + i, 7.5, 1000, '["Драма"]', null, null, art, null, JSON.stringify({ at: Date.now() }), 4, Date.now()));
+  const extra = {
+    tagline: 'Он читает между строк',
+    age: '16+',
+    countries: ['США'],
+    languages: ['Английский'],
+    releaseDate: '2008-09-23',
+    aka: [],
+    poster: art,
+    people: [
+      { name: 'Бруно Хеллер', job: 'creator', role: null, photo: null },
+      ...Array.from({ length: 14 }, (_, k) => ({ name: `Актёр С Довольно Длинным Именем ${k + 1}`, job: 'actor', role: `Персонаж ${k + 1}`, photo: k % 2 ? art : null })),
+    ],
+    gallery: [still, still, still],
+    similar,
+    at: Date.now(),
+  };
+  put.run('tt1196946', 'series', 'Менталист', 'The Mentalist', 2008, 8.2, 257674, '["Криминал","Драма","Детектив"]',
+    'Известный «экстрасенс» Патрик Джейн признаётся, что он мошенник, и помогает полиции искать Красного Джона.', 43, art, still, JSON.stringify(extra), 4, Date.now());
+  db.prepare("INSERT OR REPLACE INTO ext_charts (chart, pos, ext_id) VALUES ('popular_series', 0, 'tt1196946')").run();
+  db.close();
+  // Своё видео у фильма — страница не ищет его на Rutube и VK (в CI это была бы сеть).
+  await send('POST', '/api/links', { url: 'https://example.com/mentalist-1.mp4', extId: 'tt1196946', label: 'Менталист, 1 серия' });
 
   await api.storageState({ path: join(import.meta.dirname, '.state.json') });
   await api.dispose();

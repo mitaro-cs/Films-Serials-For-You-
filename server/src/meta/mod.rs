@@ -188,6 +188,25 @@ pub fn genres_ru<S: AsRef<str>>(list: impl IntoIterator<Item = S>) -> Vec<String
 
 /// Жанры, уже лежащие в базе (английские IMDb и описательные Викиданных), - к общему русскому
 /// списку. При каждом запуске: меняет только то, что отличается.
+/// Возрастные метки IMDb, которые не возраст («Passed», «Approved», «Not Rated»), сохранённые до
+/// alpha 0.1, - убрать: на карточке они выходили по-английски.
+pub fn drop_unknown_ages(db: &crate::db::Db) -> anyhow::Result<usize> {
+    let rows: Vec<(i64, String)> = db.with(|c| {
+        let mut st = c.prepare("SELECT id, age FROM titles WHERE age IS NOT NULL AND age != ''")?;
+        let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        r.collect()
+    })?;
+    let bad: Vec<i64> =
+        rows.into_iter().filter(|(_, a)| crate::taste::age_min(a).is_none()).map(|(id, _)| id).collect();
+    db.tx(|tx| {
+        for id in &bad {
+            tx.execute("UPDATE titles SET age = NULL, age_min = NULL WHERE id = ?", [id])?;
+        }
+        Ok(())
+    })?;
+    Ok(bad.len())
+}
+
 pub fn normalize_stored_genres(db: &crate::db::Db) -> anyhow::Result<usize> {
     let mut changed = 0;
     for table in ["titles", "ext_titles"] {

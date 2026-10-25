@@ -277,7 +277,8 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
         rating: t["ratingsSummary"]["aggregateRating"].as_f64(),
         votes: t["ratingsSummary"]["voteCount"].as_i64(),
         runtime: t["runtime"]["seconds"].as_i64().map(|s| s / 60).filter(|m| *m > 0),
-        age: text(&t["certificate"]["rating"]),
+        // «Passed», «Approved», «Not Rated» - не возраст: не показываем.
+        age: text(&t["certificate"]["rating"]).filter(|a| crate::taste::age_min(a).is_some()),
         release_date: date(&t["releaseDate"]),
         poster: text(&t["primaryImage"]["url"]).map(|u| sized(&u, 600)),
         backdrop,

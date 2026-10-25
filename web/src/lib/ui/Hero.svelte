@@ -53,7 +53,7 @@
     if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
   }
 
-  const short = $derived(cur.title.length <= 12);
+  const short = $derived(cur.title.length <= 6 && !cur.title.includes(' '));
   const long = $derived(cur.title.length > 22);
   const kind = $derived(cur.kind === 'series' ? 'К сериалу' : 'К фильму');
 </script>
@@ -95,7 +95,7 @@
         {#if cur.genres[0]}<span>{cur.genres[0]}</span>{/if}
         {#if cur.age}<span class="age">{cur.age}</span>{/if}
       </p>
-      {#if cur.overview}<p class="text">{localized(cur.overview, 'Описание на русском пока недоступно')}</p>{/if}
+      {#if localized(cur.overview)}<p class="text">{localized(cur.overview)}</p>{/if}
       <div class="acts">
         {#if cur.status === 'watching' && cur.resume}
           <a class="go" href="/watch/{cur.resume.fileId}"><Icon name="play" size={18} /> Продолжить</a>
@@ -183,9 +183,12 @@
   h1.long {
     font-size: clamp(30px, 3.4vw, 52px);
   }
-  /* Короткое название - широко вразрядку, как «S I L O». */
+  /* Короткое название - широко вразрядку, как «S I L O»: одно слово до 6 букв, размер такой, чтобы
+     оно влезло целиком (разрывать слово посередине нельзя). */
   h1.short {
+    font-size: clamp(36px, 4.4vw, 64px);
     letter-spacing: 0.32em;
+    overflow-wrap: normal;
   }
   /* Высота логотипа задана заранее - после загрузки картинки текст ниже не сдвинется. */
   h1.logo {

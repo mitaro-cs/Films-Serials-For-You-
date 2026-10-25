@@ -21,7 +21,7 @@ jobs:
       tag: ${{ steps.v.outputs.tag }}
       go: ${{ steps.v.outputs.go }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Новая ли версия
         id: v
         shell: bash
@@ -69,9 +69,9 @@ jobs:
             ffmpeg: windows
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 24 }
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: "${{ matrix.target }}" }
       - uses: Swatinem/rust-cache@v2

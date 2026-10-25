@@ -85,7 +85,7 @@ async fn exercise_viewers(count: usize) {
                 .with(|c| {
                     c.execute(
                         "INSERT INTO files(id,title_id,path,size,mtime,added_at) VALUES(?,9900,?,1048576,0,0)",
-                        rusqlite::params![9900 + n, path.to_string_lossy().as_ref()],
+                        rusqlite::params![9900 + n as i64, path.to_string_lossy().as_ref()],
                     )
                 })
                 .unwrap();

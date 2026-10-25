@@ -90,8 +90,9 @@
     </label>
     <label class="check">
       <input type="checkbox" checked={s.downloads} onchange={(e) => save({ downloads: (e.target as HTMLInputElement).checked })} />
-      Разрешить скачивать фильмы
+      Кнопка «Скачать» у фильмов
     </label>
+    <p class="muted hint">Выключено — кнопки нет. Совсем запретить сохранить фильм нельзя: браузер получает видео целиком, пока его смотрят.</p>
   </section>
 
   <section class="card pane">
@@ -180,6 +181,10 @@
 <MailSettings />
 
 <style>
+  .hint {
+    margin: -4px 0 0;
+    font-size: 12.5px;
+  }
   .pane {
     display: grid;
     gap: 14px;

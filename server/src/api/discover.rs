@@ -222,7 +222,7 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
         app.db.with(|c| c.query_row("SELECT detailed FROM ext_titles WHERE id = ?", [&id], |r| r.get(0)).optional())?;
     if known.is_none() {
         let got = tokio::time::timeout(Duration::from_secs(7), discover::detail(&app, &id)).await;
-        if !matches!(got, Ok(Ok(()))) && known.is_none() {
+        if !matches!(got, Ok(Ok(_))) {
             return Err(ApiError::bad("imdb", "IMDb сейчас не отвечает - попробуйте позже"));
         }
     }
@@ -230,6 +230,10 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
         known = app
             .db
             .with(|c| c.query_row("SELECT detailed FROM ext_titles WHERE id=?", [&id], |r| r.get(0)).optional())?;
+    }
+    // Тот же фильм уже качает другое открытие - а записи ещё нет.
+    if known.is_none() {
+        return Err(ApiError::bad("imdb", "IMDb сейчас не отвечает - попробуйте позже"));
     }
     let retry_key = format!("detail.retry.{id}");
     let retry = app.db.setting_or(&retry_key, "0").parse::<i64>().unwrap_or(0);
@@ -250,7 +254,7 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
                 let _ = tokio::time::timeout(Duration::from_secs(6), crate::media_meta::series(&a, &title_id)).await;
             }
             let result = tokio::time::timeout(Duration::from_secs(12), discover::detail(&a, &title_id)).await;
-            if !matches!(result, Ok(Ok(()))) {
+            if !matches!(result, Ok(Ok(_))) {
                 let _ = tokio::time::timeout(
                     Duration::from_secs(18),
                     crate::catalog_search::fallback_detail(&a, &title_id),

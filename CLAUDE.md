@@ -40,7 +40,7 @@
   - `access` — режимы доступа из интернета (ниже, у CloudPub).
   - `api/` — маршруты (`mod.rs`), `account`, `catalog`, `play`, `admin`.
   - `web.rs` — встроенный интерфейс (rust-embed из `web/build`) и заголовки.
-- `web/` — SvelteKit 2 + Svelte 5 (руны), adapter-static, SPA. `lib/api.ts`, `session.svelte.ts`,
+- `web/` — SvelteKit 3 + Svelte 5 (руны), adapter-static, SPA. `lib/api.ts`, `session.svelte.ts`,
   `ui/` (компоненты), `player/`, `admin/`. Иконки — свои пути в `ui/icons.ts`, без библиотек.
   - Главная `/` — как у Apple TV (0.5): `ui/Hero.svelte` (карусель `featured()`, 8 с, свайп,
     точки), ряды `ui/Shelf.svelte` из `shelves()` (`lib/library.ts`), карточка `ui/Wide.svelte`
@@ -150,6 +150,13 @@
 - Имена файлов не должны совпадать без учёта регистра (`x.svelte.ts` и `X.svelte` — тоже):
   на Mac и Windows импорт находит не тот файл (сборка 0.1.0 так упала). Ловит
   `web/src/lib/paths.test.ts`.
+- Alpha 0.1 (`0.1.0-alpha`, 25 октября 2026): слиты локальная 1.0.0-beta.19 (ветка `local/1.0-beta19`,
+  тег `backup/local-beta19`) и `origin/miaro` 0.6.6, ветка `alpha-0.1`. Миграции 10-19 - наши, индексы
+  ленты с GitHub (у них «10») - наша 20; база GitHub на версии 10 без таблицы `watching` проходит
+  наши 10-19 (`github_10` в `db.rs`). Нумерация версий началась заново: следующая - 0.1.x/0.2.
+  Снимки README - `web/scripts/showcase.mjs` (`make screenshots`): отдельный сервер, открытые фильмы
+  Blender и классика в общественном достоянии, описания с IMDb (нужен интернет); трейлеры в снимках
+  отключены (Chromium Playwright не играет H.264 - был бы чёрный кадр).
 - С 1.0 (октябрь 2026) владелец ведёт Nova **без git и GitHub**: выпуск — локально на Windows x64.
   Порядок: сначала план «в теории», потом работа. Версия — в `Cargo.toml` (workspace),
   `tauri.conf.json`, `web/package.json`, `desktop/package.json` и CHANGELOG; проверки ниже; ffmpeg —
@@ -229,3 +236,24 @@
   (`ext_titles.backdrop`), фото актёров и кадры — всё в JSON `ext_titles.extra` (имена картинок).
   Раскладка — как у `title/[id]` (стили скопированы: общий глобальный CSS протекал бы в
   `Reviews`, `LinkCard` и окна). Обе страницы — до 1440 px шириной.
+- Инструменты (0.6.4): SvelteKit 3 + Vite 8 + Vitest 5 + TypeScript 6. Настройки Kit — в
+  `vite.config.ts` (`sveltekit({...})`, `svelte.config.js` больше нет); `$lib` — свой `alias`
+  (в Kit 3 по умолчанию только `#lib`); `goto`: `replace: true` вместо `replaceState`, `reset: false`
+  вместо `noScroll`/`keepFocus`; `page.url.searchParams` — только чтение. CI: Node 24, actions v7;
+  `tauri-action` — v0 (в v1 не проверены имена файлов выпуска, по ним ищет `release.rs`).
+  Сервер: reqwest 0.13 (`rustls`, `query`, `form` - вход VK в `stream_link`), rusqlite 0.41 (без `usize` в SQL), argon2 0.6 (старые
+  хеши подходят — тест `passwords`), rand 0.10 (`rand::fill`), zip 9. `cargo audit`: остаётся `zip` 4
+  внутри `tauri-plugin-updater` (распаковывает только подписанное нашим ключом) и
+  неподдерживаемые крейты Linux-сборки Tauri.
+- Слежение за папками: после установки слежения — один скан (за 5 с до него в новую папку могли
+  что-то положить); чтения (`Access`, кроме «дописан») — не повод сканировать.
+- База от более новой версии (0.6.5): `db::OLDEST` — сколько миграций должна знать версия, чтобы
+  работать с этой базой (пишется в `settings.schema.oldest`); знает меньше — ошибка «данные от
+  более новой версии Nova», приложение предлагает скачать последнюю. Новая миграция, ломающая
+  старые версии, поднимает `OLDEST`. `user_version` — всегда настоящий номер (не занижать: версия
+  между ними повторила бы миграции). Автозапуск переписывается на текущую копию при каждом запуске
+  (после переименования в Nova он запускал старую из «Films and Serials For You»).
+  Без `schema.oldest` (база от своей сборки, у владельца была 1.0.0-beta.19 с 11+ миграциями) —
+  `missing_schema` сверяет с нашей схемой (миграции в памяти), `add_missing` добавляет недостающие
+  таблицы, столбцы и индексы; всё есть — открываем как есть.
+

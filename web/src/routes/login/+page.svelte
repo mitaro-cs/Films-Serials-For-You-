@@ -29,7 +29,7 @@
     try {
       await post('/api/auth/login', { login, password });
       await loadMe();
-      goto(safeNext(), { replaceState: true });
+      goto(safeNext(), { replace: true });
     } catch (err) {
       error = errorText(err);
     } finally {

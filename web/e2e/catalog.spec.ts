@@ -220,3 +220,19 @@ test('смотреть вместе: пауза и запуск - с любой 
   await expect.poll(playing, { timeout: 8000 }).toBe(false);
   await ctx.close();
 });
+
+test('фильм из IMDb: своя страница, отметка, похожие', async ({ page }) => {
+  // Прямо на страницу: подборки Обзора обновляются с IMDb, если есть сеть.
+  await page.goto(url('/ext/tt1196946'));
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Менталист');
+  await expect(page.getByRole('region', { name: 'Актёры и съёмочная группа' })).toContainText('Бруно Хеллер');
+  // На телефоне и на компьютере - разные панели отметок, берём видимую «Смотрю».
+  const want = page.getByRole('button', { name: 'Смотрю', exact: true }).filter({ visible: true }).first();
+  const on = (await want.getAttribute('aria-pressed')) === 'true';
+  await want.click();
+  await expect(want).toHaveAttribute('aria-pressed', String(!on));
+  await want.click();
+  await expect(want).toHaveAttribute('aria-pressed', String(on));
+  await page.getByRole('region', { name: 'Похожие' }).getByRole('link').first().click();
+  await expect(page).toHaveURL(/\/ext\/tt0000001/);
+});

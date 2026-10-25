@@ -29,7 +29,7 @@
     loadMe().then((me) => {
       const here = location.pathname + location.search;
       if (!me && !AUTH.some((p) => location.pathname.startsWith(p))) {
-        goto(`/login?next=${encodeURIComponent(here)}`, { replaceState: true });
+        goto(`/login?next=${encodeURIComponent(here)}`, { replace: true });
       }
     });
   });

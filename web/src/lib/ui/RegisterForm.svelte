@@ -28,7 +28,7 @@
       await post('/api/auth/register', { invite: code || null, name, login, password });
       if(emailEnabled&&email.trim()) {try{await post('/api/me/email',{email,password});}catch{toast('Аккаунт создан, но письмо не отправлено. Повторите подтверждение в настройках аккаунта.');}}
       await loadMe();
-      goto(email.trim()?'/profile?tab=account':'/', { replaceState: true });
+      goto(email.trim()?'/profile?tab=account':'/', { replace: true });
     } catch (err) {
       error = errorText(err);
     } finally {

@@ -86,8 +86,8 @@
     if (!l) return;
     await post(`/api/links/${l.id}/wrong`).catch(() => {});
     const next = alts.find((a) => a.id !== l.id);
-    if (next) goto(`/watch/link/${next.id}`, { replaceState: true });
-    else goto(l.extId ? `/ext/${l.extId}` : l.titleId ? `/title/${l.titleId}` : '/discover', { replaceState: true });
+    if (next) goto(`/watch/link/${next.id}`, { replace: true });
+    else goto(l.extId ? `/ext/${l.extId}` : l.titleId ? `/title/${l.titleId}` : '/discover', { replace: true });
   }
 
   function fallback() {
@@ -117,7 +117,7 @@
 </script>
 
 {#if src}
-  <Player {src} {alts} {nextSource} onnext={()=>{if(nextSource)void goto(`/watch/link/${nextSource.id}`,{replaceState:true});}} onNearEnd={prepareNext} onfinish={()=>{finished=true;prepareNext();}} onalt={(a) => goto(`/watch/link/${a}`, { replaceState: true })} onwrong={wrong} expect={expected} onfail={fallback}>
+  <Player {src} {alts} {nextSource} onnext={()=>{if(nextSource)void goto(`/watch/link/${nextSource.id}`,{replace: true});}} onNearEnd={prepareNext} onfinish={()=>{finished=true;prepareNext();}} onalt={(a) => goto(`/watch/link/${a}`, { replace: true })} onwrong={wrong} expect={expected} onfail={fallback}>
     {#if finished && !nextSource && link?.season != null}<div class="next-status" role="status">{nextLoading ? 'Ищем следующую серию…' : 'Источник следующей серии не найден'}{#if !nextLoading}<button class="btn sm" onclick={back}>Выбрать серию</button>{/if}</div>{/if}
   </Player>
 {:else}

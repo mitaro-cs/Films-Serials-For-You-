@@ -1,12 +1,12 @@
 {
   "name": "fsfy-desktop",
   "private": true,
-  "version": "1.0.0-beta.19",
+  "version": "0.1.0-alpha",
   "scripts": {
     "tauri": "tauri",
     "icons": "tauri icon icon-src/icon.png -o src-tauri/icons"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.5.0"
+    "@tauri-apps/cli": "^2.12.4"
   }
 }

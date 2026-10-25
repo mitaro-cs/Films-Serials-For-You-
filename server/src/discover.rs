@@ -376,9 +376,38 @@ async fn fetch_posters(app: &Arc<App>, todo: Vec<(String, String)>) -> usize {
     todo.len()
 }
 
+/// Что сейчас качается: два открытия одного фильма не идут к IMDb дважды.
+static LOADING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+
 /// Всё для страницы фильма из ленты - один раз: описание с IMDb, большой постер, кадр, актёры с
 /// фото, кадры и похожие (с постерами). Картинки качаются вместе, браузер получит их у нас.
-pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
+/// Что-то не вышло - сохраняем что есть (прежнее не теряем), `detailed` = 1 и время попытки:
+/// повторим через `RETRY_MS`. Уже качается — `Ok(false)`.
+pub async fn detail(app: &Arc<App>, id: &str) -> anyhow::Result<bool> {
+    if !LOADING.lock().unwrap().insert(id.to_string()) {
+        return Ok(false);
+    }
+    struct Done<'a>(&'a str);
+    impl Drop for Done<'_> {
+        fn drop(&mut self) {
+            LOADING.lock().unwrap().remove(self.0);
+        }
+    }
+    let _done = Done(id);
+    let res = fetch_detail(app, id).await;
+    if res.is_err() {
+        let _ = app.db.with(|c| {
+            c.execute(
+                "UPDATE ext_titles SET extra = json_set(COALESCE(extra, '{}'), '$.at', ?) WHERE id = ?",
+                params![now_ms(), id],
+            )
+        });
+    }
+    res.map(|()| true)
+}
+
+async fn fetch_detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
     let imdb = Imdb::new(app.http.clone());
     let d = imdb.details(id, &[]).await?;
     let e = Ext {

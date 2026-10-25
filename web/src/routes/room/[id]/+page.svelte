@@ -188,7 +188,7 @@
     const duration = v && isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
     const url = room.linkId ? `/api/links/${room.linkId}/progress` : `/api/progress/${room.fileId}`;
     if (duration && position > 5) await api(url, { method: 'PUT', json: { position, duration } }).catch(() => {});
-    goto(room.linkId ? `/watch/link/${room.linkId}` : `/watch/${room.fileId}`, { replaceState: true });
+    goto(room.linkId ? `/watch/link/${room.linkId}` : `/watch/${room.fileId}`, { replace: true });
   }
 
   async function copy() {
