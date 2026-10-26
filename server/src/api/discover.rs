@@ -147,17 +147,7 @@ pub async fn search(
         }
     }
     let norm = crate::util::norm(query);
-    out.sort_by_key(|c| {
-        std::cmp::Reverse(if crate::util::norm(&c.title) == norm {
-            100
-        } else if crate::util::norm(&c.title).starts_with(&norm) {
-            80
-        } else if crate::util::norm(&c.title).contains(&norm) {
-            60
-        } else {
-            20
-        })
-    });
+    out.sort_by_key(|c| search_rank(&norm, &c.title, c.original.as_deref(), c.rating));
     let mut response = axum::response::IntoResponse::into_response(Json(json!(out)));
     if app.detail_jobs.lock().contains(&format!("search:{}", crate::util::norm(query))) {
         response.headers_mut().insert("x-nova-refreshing", axum::http::HeaderValue::from_static("1"));
@@ -211,6 +201,31 @@ pub async fn poster(
     let name = discover::small_poster(&app, name).await;
     app.db.with(|c| c.execute("UPDATE ext_titles SET poster=?,poster_url=? WHERE id=?", params![name, url, id]))?;
     Ok(axum::response::Redirect::temporary(&format!("/img/{name}")))
+}
+
+/// Порядок в поиске: точное совпадение названия или оригинального названия - выше, чем «начинается с»
+/// и «содержит» («Fight Club» - сначала «Бойцовский клуб», потом «Superhero Fight Club»); при равенстве -
+/// выше оценка IMDb.
+fn search_rank(
+    query: &str,
+    title: &str,
+    original: Option<&str>,
+    rating: Option<f64>,
+) -> (std::cmp::Reverse<u8>, std::cmp::Reverse<i64>) {
+    let score = |name: &str| {
+        let name = crate::util::norm(name);
+        if name == query {
+            100
+        } else if name.starts_with(query) {
+            80
+        } else if name.contains(query) {
+            60
+        } else {
+            20
+        }
+    };
+    let best = score(title).max(original.map(score).unwrap_or(0));
+    (std::cmp::Reverse(best), std::cmp::Reverse((rating.unwrap_or(0.0) * 10.0) as i64))
 }
 
 /// Страница фильма из ленты: описание, кадр, актёры, кадры и похожие (с IMDb, один раз -
@@ -843,4 +858,20 @@ pub async fn franchise(
         }
     }
     Ok(Json(json!(out)))
+}
+
+#[cfg(test)]
+mod rank_tests {
+    use super::search_rank;
+
+    #[test]
+    fn exact_original_title_first() {
+        let q = crate::util::norm("Fight Club");
+        let real = search_rank(&q, "Бойцовский клуб", Some("Fight Club"), Some(8.8));
+        let other = search_rank(&q, "Superhero Fight Club", None, None);
+        assert!(real < other, "настоящий фильм - выше");
+        let better = search_rank(&q, "Fight Club", None, Some(9.0));
+        let worse = search_rank(&q, "Fight Club", None, Some(5.0));
+        assert!(better < worse, "при равенстве - выше оценка");
+    }
 }
