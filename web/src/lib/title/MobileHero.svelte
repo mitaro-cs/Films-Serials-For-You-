@@ -3,7 +3,7 @@
   import { api } from '$lib/api';
   import { fadeIn } from '$lib/ui/fade';
   import { fitTitle } from '$lib/ui/fitTitle';
-  import { placeholder } from '$lib/ui/art';
+  import { artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import { toast } from '$lib/ui/toast.svelte';
   import TrailerBanner from './TrailerBanner.svelte';
@@ -63,15 +63,20 @@
   let muted = $state(true);
 
   let trailerBusy = $state(false);
+  // Русского трейлера нет - официальный HD с IMDb (точно этот фильм) уже идёт в кадре: включаем звук.
+  function hdTrailer() {
+    if (hasTrailer && muted) banner?.toggleSound();
+    else if (!hasTrailer) toast('Трейлер не нашёлся');
+  }
   async function trailer() {
     if (!imdbId || trailerBusy) return;
     trailerBusy = true;
     try {
       const r = await api<{ linkId: number | null }>(`/api/discover/title/${imdbId}/trailer`);
       if (r.linkId) goto(`/watch/link/${r.linkId}`);
-      else toast('Трейлер не нашёлся');
+      else hdTrailer();
     } catch {
-      toast('Трейлер не нашёлся');
+      hdTrailer();
     } finally {
       trailerBusy = false;
     }
@@ -93,7 +98,7 @@
   <div class="art" class:tall style:background={art ? undefined : placeholder(title)} style:background-image={art && fallback ? `url("${fallback}")` : undefined}>
     {#if imdbId}
       <TrailerBanner bind:this={banner} bind:available={hasTrailer} bind:muted {imdbId} poster={src} bare />
-    {:else if src}<img use:fadeIn {src} alt="" decoding="async" fetchpriority="high" />{/if}
+    {:else if src}<img use:fadeIn src={artW(src, 1280)} alt="" decoding="async" fetchpriority="high" />{/if}
     <div class="shade"></div>
     {#if onclose}<button class="rnd back" aria-label="Назад" onclick={onclose}><Icon name="back" size={20} /></button>{/if}
     {#if hasTrailer}

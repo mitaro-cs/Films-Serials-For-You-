@@ -597,6 +597,14 @@ CREATE TABLE bad_videos (
 CREATE INDEX IF NOT EXISTS titles_imdb ON titles(imdb_id);
 CREATE INDEX IF NOT EXISTS ext_charts_ext ON ext_charts(ext_id);
 "#,
+    // 21 (alpha 0.3): без пиратских сайтов - убрать адреса, которые миграция 15 сама дописала в
+    // «свои сайты хоста» (видео с их страниц больше не открывается в плеере Nova).
+    r#"
+UPDATE settings SET value = (
+    SELECT json_group_array(value) FROM json_each(settings.value)
+    WHERE value NOT IN ('vikinmult.net', 'garri-potter-lordfilms.com')
+) WHERE key = 'video.sites' AND json_valid(value);
+"#,
 ];
 
 /// Сколько миграций должна знать версия Nova, чтобы работать с базой этой версии. Миграции
@@ -732,7 +740,7 @@ impl Db {
             if !ok {
                 let what = missing_schema(&conn)?.map(|m| format!(", нет {m}")).unwrap_or_default();
                 anyhow::bail!(
-                    "данные от более новой версии Nova (схема {version}, эта версия знает {}{what}) — установите \
+                    "данные от более новой версии Nova (схема {version}, эта версия знает {}{what}) - установите \
                      последнюю версию (github.com/{}/releases) и удалите старую копию программы",
                     MIGRATIONS.len(),
                     crate::release::REPO
@@ -897,6 +905,24 @@ mod tests {
         })
         .map(|at| assert_eq!(at, 42))
         .unwrap();
+    }
+
+    #[test]
+    fn migration_21_drops_bundled_sites_keeps_own() {
+        let mut c = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..20] {
+            let tx = c.transaction().unwrap();
+            tx.execute_batch(sql).unwrap();
+            tx.commit().unwrap();
+        }
+        c.execute(
+            r#"UPDATE settings SET value = '["vikinmult.net","my.site","garri-potter-lordfilms.com"]' WHERE key = 'video.sites'"#,
+            [],
+        )
+        .unwrap();
+        c.execute_batch(MIGRATIONS[20]).unwrap();
+        let v: String = c.query_row("SELECT value FROM settings WHERE key = 'video.sites'", [], |r| r.get(0)).unwrap();
+        assert_eq!(v, r#"["my.site"]"#);
     }
 
     #[test]

@@ -1,8 +1,8 @@
 import { api } from '$lib/api';
 import type { FoundVideo } from '$lib/types';
 
-export const sourceName = (site: string) => ({rutube:'Rutube',vk:'VK Видео',archive:'Internet Archive',peertube:'PeerTube',commons:'Wikimedia Commons',dailymotion:'Dailymotion',lordfilm:'Lordfilm',gidonline:'Gidonline',kinoklass:'Kinoklass'}[site] ?? site);
-const sources = ['rutube','vk','archive','peertube','commons','lordfilm','gidonline','kinoklass'];
+export const sourceName = (site: string) => ({rutube:'Rutube',vk:'VK Видео',archive:'Internet Archive',peertube:'PeerTube',commons:'Wikimedia Commons',dailymotion:'Dailymotion'}[site] ?? site);
+const sources = ['rutube','vk','archive','peertube','commons'];
 
 /** Publish each provider independently: a slow server must not hide ready results. */
 export async function searchVideos(params: URLSearchParams, publish: (items: FoundVideo[]) => void, signal?: AbortSignal) {

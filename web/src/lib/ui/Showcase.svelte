@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { artSet, heroSet } from '$lib/ui/art';
   import { getDetail, peekDetail } from '$lib/discover/details';
   import { genreRu } from '$lib/genres';
   import { motionOn } from '$lib/motion';
@@ -62,7 +63,7 @@
 {#if card}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <section class="showcase" aria-label="Рекомендуем" bind:this={root} onpointerenter={() => hovering = true} onpointerleave={() => hovering = false} onpointerdown={hold} onkeydown={hold}>
-    {#key backdrop ?? poster}{#if backdrop || poster}<img class="backdrop" class:poster-backdrop={!backdrop} src={backdrop ?? poster ?? ''} alt="" fetchpriority="high" />{/if}{/key}
+    {#key backdrop ?? poster}{#if backdrop || poster}<img class="backdrop" class:poster-backdrop={!backdrop} src={backdrop ?? poster ?? ''} srcset={backdrop ? heroSet(backdrop, selected?.card?.backdropSmall) : artSet(poster)} sizes="100vw" alt="" fetchpriority="high" />{/if}{/key}
     <div class="shade"></div>
     {#key card.id}<div class="copy">
       <span class="eyebrow">NOVA · В ЦЕНТРЕ ВНИМАНИЯ</span>

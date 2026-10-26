@@ -366,10 +366,47 @@ pub async fn posters_of(app: &Arc<App>, ids: &[String]) -> usize {
     fetch_posters(app, todo).await
 }
 
+/// Постер больше этого (байт) - уменьшаем до ширины карточки: запасные источники (TVmaze, Википедия)
+/// отдают оригиналы по 2-3 МБ, а показываем мы 150-340 px.
+const POSTER_MAX_BYTES: u64 = 200_000;
+
+/// Постер для карточки: большой - уменьшить до 342 px (нет ffmpeg - оставить как есть).
+pub async fn small_poster(app: &App, name: String) -> String {
+    let Some(path) = app.images.path(&name).filter(|p| p.metadata().is_ok_and(|m| m.len() > POSTER_MAX_BYTES)) else {
+        return name;
+    };
+    let ffmpeg = app.tools.read().ffmpeg.clone();
+    let Some(ffmpeg) = ffmpeg else { return name };
+    match crate::library::probe::scale_image(&ffmpeg, &path, 342).await.and_then(|b| app.images.save(&b)) {
+        Ok(small) => small,
+        Err(_) => name,
+    }
+}
+
+/// Один раз после запуска: уже скачанные большие постеры ленты - уменьшить (понемногу, в фоне).
+pub async fn shrink_posters(app: Arc<App>) {
+    tokio::time::sleep(Duration::from_secs(60)).await;
+    let all: Vec<(String, String)> = app
+        .db
+        .with(|c| {
+            let mut st = c.prepare("SELECT id, poster FROM ext_titles WHERE poster IS NOT NULL AND poster != ''")?;
+            let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            r.collect()
+        })
+        .unwrap_or_default();
+    for (id, name) in all {
+        let small = small_poster(&app, name.clone()).await;
+        if small != name {
+            let _ = app.db.with(|c| c.execute("UPDATE ext_titles SET poster = ? WHERE id = ?", params![small, id]));
+        }
+    }
+}
+
 async fn fetch_posters(app: &Arc<App>, todo: Vec<(String, String)>) -> usize {
     let jobs = todo.iter().map(|(id, url)| async move {
         // Не вышло - помечаем пустой строкой, чтобы не пробовать по кругу.
         let name = app.images.download(url).await.unwrap_or_default();
+        let name = if name.is_empty() { name } else { small_poster(app, name).await };
         let _ = app.db.with(|c| c.execute("UPDATE ext_titles SET poster = ? WHERE id = ?", params![name, id]));
     });
     futures_util::future::join_all(jobs).await;

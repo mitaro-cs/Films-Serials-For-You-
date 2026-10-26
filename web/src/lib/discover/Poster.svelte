@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fadeIn } from '$lib/ui/fade';
   import type { Card, ExtCard } from '$lib/types';
-  import { placeholder } from '$lib/ui/art';
+  import { artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import QuickMarks from '$lib/ui/QuickMarks.svelte';
   import { remember } from './sheet.svelte';
@@ -36,7 +36,7 @@
 {#snippet body()}
   <span class="art" class:ranked={rank !== null} style:background={c.poster ? undefined : placeholder(c.title)}>
     {#if !loaded}<span class="ph">{c.title}</span>{/if}
-    {#if source}<img use:fadeIn src={source} alt="" loading="lazy" decoding="async" width="342" height="513" onload={() => loaded = true} onerror={retryImage} />{/if}
+    {#if source}<img use:fadeIn src={artW(source, 342)} alt="" loading="lazy" decoding="async" width="342" height="513" onload={() => loaded = true} onerror={retryImage} />{/if}
     {#if rank}<span class="rank">{rank}</span>{/if}
     {#if c.here}<span class="here">Есть у нас</span>{/if}
   </span>

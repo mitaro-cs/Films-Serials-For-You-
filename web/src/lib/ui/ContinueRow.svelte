@@ -3,7 +3,7 @@
   import { clock } from '$lib/fmt';
   import { left, percent } from '$lib/library';
   import { drop, setMark } from '$lib/marks';
-  import { placeholder } from './art';
+  import { artW, placeholder } from './art';
   import { toast } from './toast.svelte';
   import Icon from './Icon.svelte';
 
@@ -32,7 +32,7 @@
         <article>
           <a href={item.href} aria-label="{card.title} - {item.label} - {left(item.position, item.duration)}">
             <span class="art" style:background={art ? undefined : placeholder(card.title)}>
-              {#if art}<img src={art} alt="" loading="lazy" decoding="async" width="640" height="360" />{:else}<span class="ph">{card.title}</span>{/if}
+              {#if art}<img src={artW(art, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />{:else}<span class="ph">{card.title}</span>{/if}
               <span class="play" aria-hidden="true"><Icon name="play" size={18} /></span>
               <span class="track" role="meter" aria-label="Просмотрено" aria-valuenow={Math.round(percent(item.position, item.duration))} aria-valuemin={0} aria-valuemax={100}><i style:width="{percent(item.position, item.duration)}%"></i></span>
             </span>

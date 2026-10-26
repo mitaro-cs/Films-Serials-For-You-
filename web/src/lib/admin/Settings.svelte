@@ -1,7 +1,6 @@
 <script lang="ts">
   import MailSettings from './MailSettings.svelte';
   import NightMode from './NightMode.svelte';
-  import SiteImport from './SiteImport.svelte';
   import { api, errorText, post, put } from '$lib/api';
   import { loadMe } from '$lib/session.svelte';
   import Icon from '$lib/ui/Icon.svelte';
@@ -69,7 +68,6 @@
 
 {#if s}
   <NightMode />
-  <SiteImport />
   {#if msg}<p class="ok">{msg}</p>{/if}
   {#if error}<p class="error">{error}</p>{/if}
 
@@ -92,7 +90,7 @@
       <input type="checkbox" checked={s.downloads} onchange={(e) => save({ downloads: (e.target as HTMLInputElement).checked })} />
       Кнопка «Скачать» у фильмов
     </label>
-    <p class="muted hint">Выключено — кнопки нет. Совсем запретить сохранить фильм нельзя: браузер получает видео целиком, пока его смотрят.</p>
+    <p class="muted hint">Выключено - кнопки нет. Совсем запретить сохранить фильм нельзя: браузер получает видео целиком, пока его смотрят.</p>
   </section>
 
   <section class="card pane">

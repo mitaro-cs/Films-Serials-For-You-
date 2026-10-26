@@ -13,6 +13,7 @@
 </script>
 
 <script lang="ts">
+  import { artW } from '$lib/ui/art';
   import { goto } from '$app/navigation';
   import { untrack } from 'svelte';
   import { api } from '$lib/api';
@@ -1032,7 +1033,7 @@
 
   {#if (inCredits || (countdown !== null && !inCredits)) && canNext}
     <div class="nextcard" class:low={!shown}>
-      {#if info?.nextInfo?.still}<img src={info.nextInfo.still} alt="" />{/if}
+      {#if info?.nextInfo?.still}<img src={artW(info.nextInfo.still, 640)} alt="" />{/if}
       <div class="nc">
         <span class="muted">Следующая серия</span>
         <b>{nextSource?.title ?? info?.nextInfo?.label ?? ''}</b>
@@ -1157,7 +1158,7 @@
         <div class="episode-seasons">{#each [...new Set(episodeFiles.map((f) => f.season ?? 1))] as season}<button role="menuitemradio" aria-checked={episodeSeason === season} onclick={() => episodeSeason = season}>{season} сезон</button>{/each}</div>
         {#if episodesBusy}<p class="hint">Загружаем серии…</p>{/if}
         {#each episodeFiles.filter((f) => (f.season ?? 1) === episodeSeason) as file (file.id)}
-          <button class="episode-option" class:on={file.id === fileId} role="menuitem" onclick={() => pickEpisode(file.id)}>{#if file.still}<img src={file.still} alt="" loading="lazy" />{/if}<span><b>{file.episode}. {localized(file.name, 'Серия')}</b>{#if localized(file.overview)}<small>{localized(file.overview)}</small>{/if}<small>{file.duration ? `${Math.round(file.duration / 60)} мин` : ''}{file.progress?.position ? ` · ${clock(file.progress.position)}` : ''}</small></span></button>
+          <button class="episode-option" class:on={file.id === fileId} role="menuitem" onclick={() => pickEpisode(file.id)}>{#if file.still}<img src={artW(file.still, 342)} alt="" loading="lazy" />{/if}<span><b>{file.episode}. {localized(file.name, 'Серия')}</b>{#if localized(file.overview)}<small>{localized(file.overview)}</small>{/if}<small>{file.duration ? `${Math.round(file.duration / 60)} мин` : ''}{file.progress?.position ? ` · ${clock(file.progress.position)}` : ''}</small></span></button>
         {/each}
       {:else if panel === 'settings'}
         <h4>Настройки просмотра</h4>

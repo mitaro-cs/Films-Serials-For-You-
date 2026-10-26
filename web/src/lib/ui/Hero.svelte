@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { heroSet } from '$lib/ui/art';
   import { localized } from '$lib/localized.svelte';
   import { motionOn } from '$lib/motion';
   import { fade, fly } from 'svelte/transition';
@@ -74,6 +75,8 @@
     {#key cur.id}
       <img
         src={cur.backdrop ?? cur.posterLarge ?? cur.poster}
+        srcset={cur.backdrop ? heroSet(cur.backdrop, cur.backdropSmall) : undefined}
+        sizes="100vw"
         alt=""
         decoding="async"
         fetchpriority={at === 0 ? 'high' : 'auto'}

@@ -478,7 +478,7 @@ pub async fn subs(State(app): State<Arc<App>>, v: Viewer, Path((id, sid)): Path<
     // не дольше 2 минут, готовое — в памяти. Иначе десяток запросов зрителя занимал диск хоста.
     let _permit = tokio::time::timeout(Duration::from_secs(30), SUBS_SLOTS.acquire())
         .await
-        .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "busy", "Сервер занят — попробуйте ещё раз"))?
+        .map_err(|_| ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "busy", "Сервер занят - попробуйте ещё раз"))?
         .map_err(ApiError::internal)?;
     if let Some(vtt) = SUBS.lock().get(&key).cloned() {
         return Ok(vtt_response(vtt));

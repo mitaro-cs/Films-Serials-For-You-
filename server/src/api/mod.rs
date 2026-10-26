@@ -15,7 +15,6 @@ mod profile;
 mod profiles;
 mod resume;
 mod rooms;
-pub(crate) mod site_import;
 mod social;
 pub(crate) mod stream_link;
 
@@ -32,7 +31,6 @@ use tower_http::compression::Predicate;
 
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
-        .route("/api/host/sites/import", post(site_import::import))
         .route("/api/health", get(account::health))
         .route("/api/site", get(account::site))
         .route("/api/site/wall", get(discover::wall))

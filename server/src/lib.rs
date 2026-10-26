@@ -24,7 +24,6 @@ pub mod outbound;
 pub mod release;
 pub mod rooms;
 pub mod ruwiki;
-mod site_sources;
 pub mod stream;
 pub mod taste;
 pub mod util;
@@ -251,6 +250,7 @@ pub async fn start(opts: Options, host: Arc<dyn host::Host>) -> anyhow::Result<R
     tokio::spawn(copy::janitor(app.clone()));
     tokio::spawn(discover::worker(app.clone()));
     tokio::spawn(discover::posters(app.clone()));
+    tokio::spawn(discover::shrink_posters(app.clone()));
     tokio::spawn(rooms::janitor(app.clone()));
     tokio::spawn(api::backfill_link_thumbs(app.clone()));
     tokio::spawn(ruwiki::backfill(app.clone()));

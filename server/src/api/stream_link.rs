@@ -72,22 +72,12 @@ pub async fn page(url: &str) -> anyhow::Result<String> {
 }
 
 pub async fn page_with_url(url: &str) -> anyhow::Result<(Url, String)> {
-    request_page(url, None).await
-}
-
-pub async fn form_page(url: &str, fields: &[(&str, &str)]) -> anyhow::Result<(Url, String)> {
-    request_page(url, Some(fields)).await
-}
-
-async fn request_page(url: &str, mut fields: Option<&[(&str, &str)]>) -> anyhow::Result<(Url, String)> {
     let mut url = Url::parse(url)?;
     let mut cookies: HashMap<String, String> = HashMap::new();
     for _ in 0..10 {
         anyhow::ensure!(crate::outbound::valid_url(&url), "внутренний адрес запрещён");
         let jar = cookies.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("; ");
-        let request =
-            if let Some(fields) = fields { client().post(url.clone()).form(fields) } else { client().get(url.clone()) };
-        let r = request.header(header::COOKIE, jar).timeout(Duration::from_secs(12)).send().await?;
+        let r = client().get(url.clone()).header(header::COOKIE, jar).timeout(Duration::from_secs(12)).send().await?;
         for c in r.headers().get_all(header::SET_COOKIE) {
             let c = c.to_str().unwrap_or("");
             let kv = c.split(';').next().unwrap_or("");
@@ -96,9 +86,6 @@ async fn request_page(url: &str, mut fields: Option<&[(&str, &str)]>) -> anyhow:
             }
         }
         if r.status().is_redirection() {
-            if !matches!(r.status().as_u16(), 307 | 308) {
-                fields = None;
-            }
             let loc = r.headers().get(header::LOCATION).and_then(|l| l.to_str().ok()).unwrap_or("");
             let next = url.join(loc)?;
             if next.origin() != url.origin() {

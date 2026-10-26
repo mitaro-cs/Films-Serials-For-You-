@@ -2,7 +2,7 @@
   import { fadeIn } from '$lib/ui/fade';
   import { count, size } from '$lib/fmt';
   import type { FileItem, Kind } from '$lib/types';
-  import { placeholder } from '$lib/ui/art';
+  import { artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
 
   // Скачать: сериал - целиком или по сезонам одним архивом (ZIP без сжатия, размер виден сразу),
@@ -49,7 +49,7 @@
               {#each s.items as f, k (f.id)}
                 <li style:--k={k}>
                   <span class="still" style:background={f.still ? undefined : placeholder(title + f.id)}>
-                    {#if f.still}<img use:fadeIn src={f.still} alt="" loading="lazy" decoding="async" width="96" height="54" />{/if}
+                    {#if f.still}<img use:fadeIn src={artW(f.still, 342)} alt="" loading="lazy" decoding="async" width="96" height="54" />{/if}
                   </span>
                   <span class="name">
                     <b>{code(f)}</b>

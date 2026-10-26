@@ -96,6 +96,82 @@ async fn archive(app: &App, title: &str) -> Option<Vec<Value>> {
     let out = items.into_iter().flatten().collect();
     Some(out)
 }
+/// Служебные слова в подписях трейлеров - не часть названия фильма.
+const TRAILER_WORDS: &[&str] = &[
+    "трейлер",
+    "трейлеры",
+    "trailer",
+    "тизер",
+    "teaser",
+    "русский",
+    "русском",
+    "русская",
+    "на",
+    "дублированный",
+    "дублированная",
+    "дубляж",
+    "озвучка",
+    "озвучкой",
+    "в",
+    "с",
+    "и",
+    "официальный",
+    "official",
+    "финальный",
+    "final",
+    "новый",
+    "второй",
+    "hd",
+    "full",
+    "fullhd",
+    "uhd",
+    "4k",
+    "4к",
+    "1080p",
+    "720p",
+    "2160p",
+    "1080",
+    "720",
+    "фильм",
+    "фильма",
+    "сериал",
+    "сериала",
+    "сезон",
+    "season",
+    "кино",
+    "кинотеатрах",
+    "премьера",
+    "скоро",
+    "the",
+    "of",
+    "and",
+    "a",
+    "movie",
+    "film",
+    "series",
+    "rus",
+    "ru",
+    "dub",
+    "subs",
+];
+
+/// Трейлер именно этого фильма: в подписи кроме названия (или оригинального названия) - только
+/// служебные слова и числа. «Начало конца - трейлер» для «Начала» и «Дюна: Часть вторая» для «Дюны»
+/// не подходят - это другие фильмы, хоть все слова названия в подписи есть.
+pub fn trailer_exact(label: &str, titles: &[&str]) -> bool {
+    let words = |s: &str| util::norm(s).split_whitespace().map(String::from).collect::<Vec<_>>();
+    let allowed: std::collections::HashSet<String> = titles.iter().flat_map(|t| words(t)).collect();
+    words(label)
+        .iter()
+        .all(|w| allowed.contains(w) || TRAILER_WORDS.contains(&w.as_str()) || w.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// В подписи явно низкое качество (360p, 480p) - для трейлера не годится.
+pub fn low_quality(label: &str) -> bool {
+    let l = label.to_lowercase();
+    ["240p", "360p", "480p", " 360", " 480"].iter().any(|t| l.contains(t))
+}
+
 pub fn matches(
     label: &str,
     title: &str,
@@ -152,9 +228,7 @@ pub async fn find(app: &Arc<App>, q: &SearchQuery) -> anyhow::Result<Vec<Value>>
     let query = q.q.trim();
     let provider = q.provider.as_deref();
     anyhow::ensure!(
-        provider.is_none_or(
-            |p| matches!(p, "rutube" | "vk" | "archive" | "peertube" | "commons") || crate::site_sources::known(p)
-        ),
+        provider.is_none_or(|p| matches!(p, "rutube" | "vk" | "archive" | "peertube" | "commons")),
         "Неизвестный источник"
     );
     let enabled = |name: &str| provider.is_none_or(|p| p == name);
@@ -209,22 +283,6 @@ pub async fn find(app: &Arc<App>, q: &SearchQuery) -> anyhow::Result<Vec<Value>>
     } else {
         None
     };
-    if let Some(provider) = provider.filter(|p| crate::site_sources::known(p)) {
-        // A movie page must never be attached to a requested episode or trailer.
-        if q.season.is_some() || q.episode.is_some() || q.mode.as_deref() == Some("trailer") {
-            return Ok(vec![]);
-        }
-        let target = expected.as_ref().map(|(name, _, year)| (name.as_str(), *year));
-        let query = target.map(|(name, _)| name).unwrap_or(query);
-        let result =
-            tokio::time::timeout(Duration::from_secs(20), crate::site_sources::search(provider, query, target)).await;
-        let result = match result {
-            Ok(result) => result,
-            Err(_) => Err(anyhow::anyhow!("Сайт не ответил вовремя")),
-        };
-        remember(key, result.as_ref().map(Clone::clone).map_err(ToString::to_string));
-        return result;
-    }
     let ru = async {
         if !enabled("rutube") {
             return None;
@@ -307,6 +365,13 @@ pub async fn find(app: &Arc<App>, q: &SearchQuery) -> anyhow::Result<Vec<Value>>
         .collect::<Vec<_>>();
     if q.mode.as_deref() == Some("trailer") {
         out.retain(|v| v["duration"].as_i64().is_some_and(|d| (20..=360).contains(&d)));
+        if let Some((title, original, _)) = &expected {
+            let names: Vec<&str> = std::iter::once(title.as_str()).chain(original.as_deref()).collect();
+            out.retain(|v| {
+                let label = v["label"].as_str().unwrap_or("");
+                trailer_exact(label, &names) && !low_quality(label)
+            });
+        }
     }
     let mut seen = std::collections::HashSet::new();
     out.retain(|i| seen.insert(i["url"].as_str().unwrap_or("").to_string()));
@@ -423,5 +488,29 @@ mod tests {
         assert!(!matches("Матрица 2021 трейлер", "Матрица", None, None, Some(1999), true));
         assert!(!matches("Матрица: Трейлер", "Матрица", None, None, Some(1999), false));
         assert!(!matches("Матрица 2021", "Матрица", None, None, Some(1999), false));
+    }
+}
+
+#[cfg(test)]
+mod trailer_tests {
+    use super::*;
+
+    #[test]
+    fn only_this_films_trailer() {
+        let t = ["Начало", "Inception"];
+        assert!(trailer_exact("Начало (2010) - русский дублированный трейлер 1080p", &t));
+        assert!(trailer_exact("Inception - Official Trailer HD", &t));
+        assert!(!trailer_exact("Начало конца - трейлер 2024", &t));
+        let d = ["Дюна", "Dune"];
+        assert!(!trailer_exact("Дюна: Часть вторая - русский трейлер", &d));
+        assert!(trailer_exact("Дюна — финальный русский трейлер (2021)", &d));
+        assert!(!trailer_exact("Дюна обзор фильма трейлер", &d));
+    }
+
+    #[test]
+    fn low_quality_labels() {
+        assert!(low_quality("Трейлер 480p"));
+        assert!(!low_quality("Трейлер 1080p"));
+        assert!(!low_quality("Трейлер"));
     }
 }

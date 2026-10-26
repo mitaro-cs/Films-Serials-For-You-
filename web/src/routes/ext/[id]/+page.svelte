@@ -26,7 +26,7 @@
   import type { ExtCard, ExtDetail, ExtEpisode, FoundVideo, Review, Reviews as ReviewsData } from '$lib/types';
   import { left, percent } from '$lib/library';
   import { personHref } from '$lib/people';
-  import { placeholder } from '$lib/ui/art';
+  import { artSet, artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
   import TrailerBanner from '$lib/title/TrailerBanner.svelte';
@@ -534,7 +534,7 @@
   <section class="hero">
     <div class="bg" aria-hidden="true">
       {#key d?.backdrop}
-        {#if d?.backdrop || d?.posterLarge || c.poster}<img use:fadeIn src={d?.backdrop ?? d?.posterLarge ?? c.poster} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
+        {#if d?.backdrop || d?.posterLarge || c.poster}<img use:fadeIn src={d?.backdrop ?? d?.posterLarge ?? c.poster} srcset={artSet(d?.backdrop ?? d?.posterLarge ?? c.poster)} sizes="100vw" alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
       {/key}
     </div>
     <div class="cinema-stage"><TrailerBanner imdbId={id} poster={d?.backdrop ?? d?.posterLarge ?? c.poster} /></div>
@@ -542,7 +542,7 @@
       <div class="poster-col">
         <div class="poster" style:background={c.poster || d?.posterLarge ? undefined : placeholder(c.title)}>
           {#if d?.posterLarge || c.poster}
-            <img use:fadeIn src={d?.posterLarge ?? c.poster} alt={c.title} width="460" height="690" decoding="async" />
+            <img use:fadeIn src={artW(d?.posterLarge ?? c.poster, 640)} alt={c.title} width="460" height="690" loading="lazy" decoding="async" />
           {:else}<span>{c.title}</span>{/if}
         </div>
         {@render watch('block watch')}
@@ -601,7 +601,7 @@
             <li>
               <button onclick={() => playFound(f)} aria-label="Смотреть: {f.label}">
                 <span class="art">
-                  {#if f.thumb}<img use:fadeIn src={f.thumb} alt="" loading="lazy" decoding="async" />{/if}
+                  {#if f.thumb}<img use:fadeIn src={artW(f.thumb, 640)} alt="" loading="lazy" decoding="async" />{/if}
                   <span class="p"><Icon name="play" size={18} /></span>
                   <span class="site">{sourceName(f.site)}</span>
                   {#if f.duration}<span class="dur">{clock(f.duration)}</span>{/if}
@@ -662,7 +662,7 @@
             <li>
               <a class="pl" href={personHref(p)} title="{p.name} - фильмография">
                 <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
-                  {#if p.photo}<img use:fadeIn src={p.photo} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p.name)}{/if}
+                  {#if p.photo}<img use:fadeIn src={artW(p.photo, 342)} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p.name)}{/if}
                 </span>
                 <b>{p.name}</b>
                 {#if p.role}<small>{p.role}</small>{/if}
@@ -685,7 +685,7 @@
           {#each d.similar as s (s.id)}
             <li>
               <a href="/ext/{s.id}" title={s.title} onclick={() => remember(s)} style:background={s.poster ? undefined : placeholder(s.title)}>
-                {#if s.poster}<img use:fadeIn src={s.poster} alt={s.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{s.title}</span>{/if}
+                {#if s.poster}<img use:fadeIn src={artW(s.poster, 342)} alt={s.title} loading="lazy" decoding="async" width="342" height="513" />{:else}<span>{s.title}</span>{/if}
                 {#if s.local}<em>Есть у нас</em>{/if}
               </a>
             </li>
@@ -719,7 +719,7 @@
         {#if d.gallery.length}
           <div class="gallery">
             {#each d.gallery as g, k (k)}
-              <button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={g} alt="" loading="lazy" decoding="async" /></button>
+              <button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={artW(g, 640)} alt="" loading="lazy" decoding="async" /></button>
             {/each}
           </div>
         {/if}

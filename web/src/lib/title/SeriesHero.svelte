@@ -24,7 +24,7 @@
   import { fadeIn } from '$lib/ui/fade';
   import type { Snippet } from 'svelte';
   import { date as fmtDate } from '$lib/fmt';
-  import { placeholder } from '$lib/ui/art';
+  import { artSet, artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import { localized } from '$lib/localized.svelte';
   import { fitTitle } from '$lib/ui/fitTitle';
@@ -163,7 +163,7 @@
 
 {#snippet card(e: Ep)}
   <span class="still" style:background={e.still ? undefined : placeholder(title + e.key)}>
-    {#if e.still}<img use:fadeIn src={e.still} alt="" loading="lazy" decoding="async" width="320" height="180" />{:else}<span class="still-label"><Icon name="film" size={22} />S{e.season} · E{e.episode ?? 1}</span>{/if}
+    {#if e.still}<img use:fadeIn src={artW(e.still, 640)} alt="" loading="lazy" decoding="async" width="320" height="180" />{:else}<span class="still-label"><Icon name="film" size={22} />S{e.season} · E{e.episode ?? 1}</span>{/if}
     {#if e.href || onpick}<span class="play"><Icon name="play" size={16} /></span>{/if}
     {#if e.done}<span class="tick" title="Просмотрено"><Icon name="check" size={13} stroke={3} /></span>{/if}
   </span>
@@ -185,7 +185,7 @@
 <section class="sh" class:slim aria-label="Сериал «{title}»">
   <div class="bg" aria-hidden="true">
     {#key art}
-      {#if art}<img use:fadeIn src={art} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(title)}></div>{/if}
+      {#if art}<img use:fadeIn src={art} srcset={artSet(art)} sizes="100vw" alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(title)}></div>{/if}
     {/key}
   </div>
 

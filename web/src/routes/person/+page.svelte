@@ -5,7 +5,7 @@
   import { count } from '$lib/fmt';
   import Poster from '$lib/discover/Poster.svelte';
   import type { Card, ExtCard } from '$lib/types';
-  import { placeholder } from '$lib/ui/art';
+  import { artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
 
   // Человек кино (режиссёр или актёр): круглое фото, имя, фильмография с IMDb (по годам, свежее
@@ -75,7 +75,7 @@
   {:else}
     <header class="head">
       <span class="ph" style:background={d?.photo ? undefined : placeholder(name)}>
-        {#if d?.photo}<img use:fadeIn src={d.photo} alt={name} width="400" height="400" decoding="async" />{:else if d}{initials(name)}{/if}
+        {#if d?.photo}<img use:fadeIn src={artW(d.photo, 640)} alt={name} width="400" height="400" decoding="async" />{:else if d}{initials(name)}{/if}
       </span>
       <div class="who">
         <small class="muted">{role === 'actor' ? 'Актёр' : 'Режиссёр'}</small>

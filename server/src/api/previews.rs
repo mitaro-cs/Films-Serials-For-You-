@@ -17,7 +17,7 @@ pub async fn trailer(State(app): State<Arc<App>>, _v: Viewer, Path(id): Path<Str
     if !discover::valid_id(&id) {
         return Err(ApiError::not_found());
     }
-    let key = format!("trailer.ru.v3.{id}");
+    let key = format!("trailer.ru.v4.{id}");
     if let Some(raw) = app.db.setting(&key) {
         if let Ok(v) = serde_json::from_str::<Value>(&raw) {
             let ttl = if v["linkId"].is_null() { 600_000 } else { 86_400_000 };

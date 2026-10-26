@@ -248,7 +248,7 @@
   (в Kit 3 по умолчанию только `#lib`); `goto`: `replace: true` вместо `replaceState`, `reset: false`
   вместо `noScroll`/`keepFocus`; `page.url.searchParams` — только чтение. CI: Node 24, actions v7;
   `tauri-action` — v0 (в v1 не проверены имена файлов выпуска, по ним ищет `release.rs`).
-  Сервер: reqwest 0.13 (`rustls`, `query`, `form` - вход VK в `stream_link`), rusqlite 0.41 (без `usize` в SQL), argon2 0.6 (старые
+  Сервер: reqwest 0.13 (`rustls`, `query`), rusqlite 0.41 (без `usize` в SQL), argon2 0.6 (старые
   хеши подходят — тест `passwords`), rand 0.10 (`rand::fill`), zip 9. `cargo audit`: остаётся `zip` 4
   внутри `tauri-plugin-updater` (распаковывает только подписанное нашим ключом) и
   неподдерживаемые крейты Linux-сборки Tauri.

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { artW } from '$lib/ui/art';
   import { goto } from '$app/navigation';
   import { api, errorText } from '$lib/api';
   import PosterRow from '$lib/discover/PosterRow.svelte';
@@ -60,7 +61,7 @@
       {#each lists as l (l.id)}
         <a class="list" href="/lists/{l.id}">
           <span class="art" class:many={l.art.length > 1}>
-            {#each l.art.slice(0, 4) as a, i (i)}<img src={a} alt="" loading="lazy" decoding="async" />{/each}
+            {#each l.art.slice(0, 4) as a, i (i)}<img src={artW(a, 342)} alt="" loading="lazy" decoding="async" />{/each}
             {#if !l.art.length}<span class="none"><Icon name="film" size={30} /></span>{/if}
           </span>
           <span class="name">{l.name}</span>

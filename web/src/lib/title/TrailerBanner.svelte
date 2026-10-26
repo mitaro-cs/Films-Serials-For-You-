@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '$lib/api';
+  import { artSet } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import type Hls from 'hls.js';
   import { trailerHeight } from './trailer-quality';
@@ -127,7 +128,7 @@
   }
 </script>
 <section class="trailer" class:bare bind:this={root} aria-label="Баннер и трейлер">
-  {#if poster}<img src={poster} alt="" class:dim={playing} decoding="async" />{/if}
+  {#if poster}<img src={poster} srcset={artSet(poster)} sizes="100vw" alt="" class:dim={playing} decoding="async" />{/if}
   <!-- svelte-ignore a11y_media_has_caption -->
   <video bind:this={video} class:ready={playing} muted playsinline loop preload="none"
     onloadedmetadata={()=>{if(video&&qualityTier(video.videoHeight,video.videoWidth)<720){video.pause();video.removeAttribute('src');available=false;playing=false;}}}

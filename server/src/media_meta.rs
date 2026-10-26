@@ -28,6 +28,16 @@ pub fn art_allowed(raw: &str) -> bool {
 #[derive(Deserialize)]
 pub struct ArtQuery {
     url: String,
+    /// Ширина для показа: картинка уменьшается у нас один раз и кешируется (IMDb отдаёт 2048 px,
+    /// а кадр в ленте - 260 px шириной; на телефоне это мегабайты зря).
+    w: Option<u32>,
+}
+
+/// Ширины, до которых уменьшаем: ближайшая не меньше запрошенной, больше 1280 - оригинал.
+pub const ART_WIDTHS: [u32; 3] = [342, 640, 1280];
+
+fn art_width(w: Option<u32>) -> Option<u32> {
+    w.and_then(|w| ART_WIDTHS.into_iter().find(|s| *s >= w))
 }
 pub async fn image(
     State(app): State<Arc<App>>,
@@ -38,14 +48,33 @@ pub async fn image(
         return Err(ApiError::not_found());
     }
     let key = format!("art.cache.{}", crate::util::sha256_hex(q.url.as_bytes()));
-    if let Some(name) = app.db.setting(&key).filter(|name| app.images.path(name).is_some_and(|path| path.is_file())) {
+    let cached =
+        |key: &str| app.db.setting(key).filter(|name| app.images.path(name).is_some_and(|path| path.is_file()));
+    let width = art_width(q.w);
+    if let Some(name) = width.and_then(|w| cached(&format!("{key}.{w}"))) {
         return Ok(axum::response::Redirect::temporary(&format!("/img/{name}")));
     }
-    let name = tokio::time::timeout(Duration::from_secs(8), app.images.download(&q.url))
-        .await
-        .map_err(|_| ApiError::not_found())?
-        .map_err(|_| ApiError::not_found())?;
-    let _ = app.db.set_setting(&key, &name);
+    let name = match cached(&key) {
+        Some(name) => name,
+        None => {
+            let name = tokio::time::timeout(Duration::from_secs(8), app.images.download(&q.url))
+                .await
+                .map_err(|_| ApiError::not_found())?
+                .map_err(|_| ApiError::not_found())?;
+            let _ = app.db.set_setting(&key, &name);
+            name
+        }
+    };
+    // Уменьшить не вышло (нет ffmpeg) - отдаём как есть: картинка важнее веса.
+    let ffmpeg = app.tools.read().ffmpeg.clone();
+    if let (Some(w), Some(ffmpeg), Some(src)) = (width, ffmpeg, app.images.path(&name)) {
+        if let Ok(small) = crate::library::probe::scale_image(&ffmpeg, &src, w).await {
+            if let Ok(small) = app.images.save(&small) {
+                let _ = app.db.set_setting(&format!("{key}.{w}"), &small);
+                return Ok(axum::response::Redirect::temporary(&format!("/img/{small}")));
+            }
+        }
+    }
     Ok(axum::response::Redirect::temporary(&format!("/img/{name}")))
 }
 async fn get(app: &App, url: Url) -> anyhow::Result<Value> {
@@ -179,5 +208,17 @@ mod tests {
         let proxy = art("https://static.tvmaze.com/a.jpg?x=1&y=2");
         assert!(proxy.starts_with("/api/discover/art?url=https%3A%2F%2F"));
         assert!(proxy.contains("%26y%3D2"));
+    }
+}
+
+#[cfg(test)]
+mod art_width_tests {
+    #[test]
+    fn widths_round_up_and_cap() {
+        assert_eq!(super::art_width(Some(100)), Some(342));
+        assert_eq!(super::art_width(Some(342)), Some(342));
+        assert_eq!(super::art_width(Some(700)), Some(1280));
+        assert_eq!(super::art_width(Some(4000)), None);
+        assert_eq!(super::art_width(None), None);
     }
 }

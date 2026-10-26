@@ -29,7 +29,7 @@
   import LinkFinder from '$lib/links/LinkFinder.svelte';
   import type { FileItem, Person, Review, Reviews as ReviewsData, TitleDetail, VideoLink } from '$lib/types';
   import { personHref } from '$lib/people';
-  import { placeholder } from '$lib/ui/art';
+  import { artSet, artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
   import TrailerBanner from '$lib/title/TrailerBanner.svelte';
@@ -335,7 +335,7 @@
   <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
     <div class="bg" aria-hidden="true">
       {#key c.backdrop}
-        {#if c.backdrop}<img use:fadeIn src={c.backdrop} alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
+        {#if c.backdrop}<img use:fadeIn src={c.backdrop} srcset={artSet(c.backdrop)} sizes="100vw" alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
       {/key}
     </div>
     {#if session.me?.manage}
@@ -440,7 +440,7 @@
             <li>
               <a class="pl" href={personHref(p)} title="{p.name} - фильмография">
                 <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
-                  {#if p.photo}<img use:fadeIn src={p.photo} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p)}{/if}
+                  {#if p.photo}<img use:fadeIn src={artW(p.photo, 342)} alt="" loading="lazy" decoding="async" width="72" height="72" />{:else}{initials(p)}{/if}
                 </span>
                 <b>{p.name}</b>
                 {#if p.role}<small>{p.role}</small>{/if}

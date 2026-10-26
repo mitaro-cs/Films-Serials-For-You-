@@ -125,15 +125,7 @@ pub fn parse(raw: &str) -> Option<Parsed> {
 
 /// Свои сайты хоста (`video.sites`): домены, с чьих страниц видео открывается в нашем плеере.
 pub fn extra_sites(app: &App) -> Vec<String> {
-    let mut sites = super::json_list(
-        app.db.setting("video.sites").or_else(|| Some("[\"vikinmult.net\",\"garri-potter-lordfilms.com\"]".into())),
-    );
-    for host in crate::site_sources::HOSTS {
-        if !sites.iter().any(|s| s == host) {
-            sites.push((*host).to_owned());
-        }
-    }
-    sites
+    super::json_list(app.db.setting("video.sites"))
 }
 
 /// Домен сайта из того, что ввёл хост: «https://www.Kino.example/films» → «kino.example».

@@ -208,6 +208,7 @@ pub async fn poster(
         let _ = app.db.set_setting(&miss, &now_ms().to_string());
         return Err(ApiError::not_found());
     };
+    let name = discover::small_poster(&app, name).await;
     app.db.with(|c| c.execute("UPDATE ext_titles SET poster=?,poster_url=? WHERE id=?", params![name, url, id]))?;
     Ok(axum::response::Redirect::temporary(&format!("/img/{name}")))
 }
