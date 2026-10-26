@@ -254,7 +254,7 @@
       meta={[c.genres[0], c.year ? String(c.year) : '', count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')].filter(Boolean)}
       rating={c.rating}
       age={c.age}
-      tagline={t.tagline ?? c.overview}
+      tagline={c.overview}
       progress={seriesProgress}
       episodes={eps}
       seasons={t.seasons}
@@ -371,7 +371,6 @@
           {#if isSeries}<span>{count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')}</span>{/if}
           {#if c.age}<span class="age">{c.age}</span>{/if}
         </p>
-        {#if localized(t.tagline)}<p class="tagline">{localized(t.tagline)}</p>{/if}
         {#if c.overview}<p class="overview">{localized(c.overview, 'Описание на русском пока недоступно')}</p>{/if}
         {#if t.next && (started || (isSeries && t.next.label && c.status === 'watching'))}
           <!-- Где остановились: место в фильме или следующая серия сериала. -->
@@ -708,11 +707,6 @@
   }
   .meta .age::before {
     content: none !important;
-  }
-  .tagline {
-    margin: 4px 0 0;
-    color: #e4e4e7;
-    font-weight: 600;
   }
   .overview {
     margin: 0;

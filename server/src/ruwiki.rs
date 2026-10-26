@@ -87,18 +87,6 @@ pub async fn overview(http: &reqwest::Client, imdb: &str) -> Option<String> {
     (!intro.trim().is_empty()).then(|| trim(&intro))
 }
 
-/// Короткая фраза (слоган) по-русски - MyMemory, до 200 знаков.
-pub async fn translate(http: &reqwest::Client, text: &str) -> Option<String> {
-    if text.chars().count() > 200 || has_cyrillic(text) {
-        return None;
-    }
-    let u = Url::parse_with_params("https://api.mymemory.translated.net/get", &[("q", text), ("langpair", "en|ru")])
-        .ok()?;
-    let v = json(http, u).await?;
-    let t = v["responseData"]["translatedText"].as_str()?.trim().to_string();
-    (has_cyrillic(&t) && !t.to_uppercase().contains("MYMEMORY")).then_some(t)
-}
-
 /// Описания по-английски - по одному в фоне на русский (свои и из ленты). Не нашлось - помечаем,
 /// чтобы не спрашивать по кругу (`settings ruwiki.tried` - до 5000 id).
 pub async fn backfill(app: Arc<App>) {

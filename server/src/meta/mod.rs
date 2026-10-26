@@ -334,18 +334,13 @@ pub async fn apply(
     d: Details,
     status: &str,
 ) -> anyhow::Result<()> {
-    // Сюжет у IMDb - по-английски: русский - из Википедии, слоган - переводом.
+    // Сюжет у IMDb - по-английски: русский - из Википедии. Слоган не переводим: машинный перевод
+    // выходил бессмыслицей («Классно...» у «Тёмного рыцаря»), на страницах его больше нет.
     let mut d = d;
     let imdb = d.imdb_id.clone().or_else(|| (provider == "imdb").then(|| provider_id.to_string()));
     if let Some(imdb) = imdb.filter(|_| d.overview.as_deref().is_none_or(|o| !crate::ruwiki::has_cyrillic(o))) {
         if let Some(ru) = crate::ruwiki::overview(&app.http, &imdb).await {
             d.overview = Some(ru);
-        }
-        if let Some(tr) = match &d.tagline {
-            Some(t) => crate::ruwiki::translate(&app.http, t).await,
-            None => None,
-        } {
-            d.tagline = Some(tr);
         }
     }
     let im = &app.images;

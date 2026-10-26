@@ -46,11 +46,21 @@ static LEADING_NUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(\d{1,3}
 static SEASON_DIR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^\s*(?:season|сезон|s)[ ._-]*(\d{1,2})\b|^\s*(\d{1,2})[ ._-]*(?:season|сезон)\b").unwrap()
 });
+/// Сезон в середине имени папки: «Friends - 1 сезон», «Игра престолов (сезон 2)», «Shogun.2024.S01.1080p».
+static SEASON_IN_DIR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)[ ._\-(\[](?:(\d{1,2})[ ._-]*(?:season|сезон)|(?:season|сезон)[ ._-]*(\d{1,2})|s(\d{2}))(?:$|[ ._\-)\]])",
+    )
+    .unwrap()
+});
+static TRAILING_NUM: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[ ._-](\d{1,3})\s*$").unwrap());
+/// Метки раздач и вторые названия в скобках: «[rutracker.org] Название», «Название (Original) [HDRezka]».
+static BRACKETS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\[[^\]]*\]|\([^)]*\)|\{[^}]*\}").unwrap());
 static PLEX_DIR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\s*(.+?)\s*[(\[]((?:19|20)\d{2})[)\]]\s*$").unwrap());
 static DIGITS4: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d{4,}").unwrap());
 static JUNK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)(?:^|[ .\[(_-])(?:2160p|1080p|1080i|720p|576p|480p|4k|uhd|hdr10?|dv|web[ .-]?dl|web[ .-]?rip|webrip|hdtv|bdrip|brrip|bluray|blu[ .-]?ray|dvdrip|dvd5|dvd9|hdrip|remux|x264|x265|h\.?264|h\.?265|hevc|avc|aac|ac3|dts|ddp?5\.1|5\.1|7\.1|mvo|dvo|avo|dub|itunes|proper|repack|extended|unrated|imax|rus|eng|ukr|sub|subs|lostfilm|newstudio|amedia|kinozal|rutracker)(?:$|[ .\])_-])",
+        r"(?i)(?:^|[ .\[(_-])(?:2160p|1080p|1080i|720p|576p|480p|4k|uhd|hdr10?|dv|web[ .-]?dl|web[ .-]?rip|webrip|hdtv|bdrip|brrip|bluray|blu[ .-]?ray|dvdrip|dvd5|dvd9|hdrip|remux|x264|x265|h\.?264|h\.?265|hevc|avc|aac|ac3|dts|ddp?5\.1|5\.1|7\.1|mvo|dvo|avo|dub|itunes|proper|repack|extended|unrated|imax|rus|eng|ukr|sub|subs|lostfilm|newstudio|amedia|kinozal|rutracker|hdrezka|rezka|hd|720|1080|дубляж|дублированный|многоголосый|open[ .]matte)(?:$|[ .\])_-])",
     )
     .unwrap()
 });
@@ -92,7 +102,27 @@ fn title_year(s: &str) -> (String, Option<i32>) {
             cut = j.start();
         }
     }
-    (tidy(&s[..cut]), year)
+    (clean(&s[..cut]), year)
+}
+
+/// Название без меток в скобках, без слова «Фильм» в начале и без второго (латинского) названия после
+/// русского: «Бойцовский клуб. Fight Club» → «Бойцовский клуб» (IMDb находит фильм и по русскому).
+fn clean(t: &str) -> String {
+    let stripped = tidy(&BRACKETS.replace_all(t, " "));
+    let t = if stripped.is_empty() { tidy(t) } else { stripped };
+    let mut words: Vec<&str> = t.split_whitespace().collect();
+    if words.len() > 1 && ["фильм", "сериал", "мультфильм"].contains(&words[0].to_lowercase().as_str())
+    {
+        words.remove(0);
+    }
+    let cyr = |w: &str| w.chars().any(|c| matches!(c, 'а'..='я' | 'А'..='Я' | 'ё' | 'Ё'));
+    let lat = |w: &str| w.chars().any(|c| c.is_ascii_alphabetic());
+    if let Some(i) = (1..words.len())
+        .find(|&i| lat(words[i]) && words[..i].iter().any(|w| cyr(w)) && !words[i..].iter().any(|w| cyr(w)))
+    {
+        words.truncate(i);
+    }
+    words.join(" ").trim_end_matches(|c: char| " .,:;|/_-".contains(c)).to_string()
 }
 
 /// Имя похоже на серию без сезона: «01. Пилот», «Серия 5», «E07». Несколько таких в одной папке -
@@ -109,6 +139,8 @@ pub fn parse(rel: &Path, force: Option<bool>) -> Parsed {
 
     // Папка сезона и папка сериала над ней.
     let mut season_dir: Option<(usize, i32)> = None;
+    // Папка «Название - 1 сезон»: название сериала - в ней самой, если папки выше нет.
+    let mut named_season: Option<String> = None;
     for (i, d) in dirs.iter().enumerate().rev() {
         if let Some(c) = SEASON_DIR.captures(d) {
             let n = c.get(1).or(c.get(2)).and_then(|m| m.as_str().parse().ok());
@@ -117,10 +149,18 @@ pub fn parse(rel: &Path, force: Option<bool>) -> Parsed {
                 break;
             }
         }
+        if let Some(c) = SEASON_IN_DIR.captures(d) {
+            let n = c.get(1).or(c.get(2)).or(c.get(3)).and_then(|m| m.as_str().parse().ok());
+            if let Some(n) = n {
+                season_dir = Some((i, n));
+                named_season = Some(d[..c.get(0).unwrap().start()].to_string());
+                break;
+            }
+        }
     }
     let show_dir = match season_dir {
         Some((i, _)) if i > 0 => Some(dirs[i - 1].clone()),
-        Some(_) => None,
+        Some(_) => named_season,
         None => dirs.last().cloned(),
     };
 
@@ -150,6 +190,10 @@ pub fn parse(rel: &Path, force: Option<bool>) -> Parsed {
             } else if let Some(c) = LEADING_NUM.captures(&stem) {
                 episode = c[1].parse().ok();
                 before = "";
+            } else if let Some(c) = TRAILING_NUM.captures(&stem).filter(|_| title_year(&stem).1.is_none()) {
+                // «Игра престолов 05» в папке сезона.
+                episode = c[1].parse().ok();
+                before = &stem[..c.get(0).unwrap().start()];
             }
             season = season_dir.map(|(_, n)| n).or(Some(1));
         }
@@ -231,6 +275,29 @@ mod tests {
     }
 
     #[test]
+    fn release_names() {
+        for (path, title, year) in [
+            ("Бойцовский клуб (Fight Club) 1999 BDRip.mkv", "Бойцовский клуб", Some(1999)),
+            ("Бойцовский клуб. Fight Club.1999.BDRip.1080p.mkv", "Бойцовский клуб", Some(1999)),
+            ("Бойцовский клуб _ Fight Club (1999) BDRip 1080p.mkv", "Бойцовский клуб", Some(1999)),
+            ("[NOOBDL] Fight.Club.1999.1080p.mkv", "Fight Club", Some(1999)),
+            ("[rutracker.org] Бойцовский клуб 1999.avi", "Бойцовский клуб", Some(1999)),
+            ("Fight Club (Director's Cut) 1999.mkv", "Fight Club", Some(1999)),
+            ("Фильм Бойцовский клуб.mp4", "Бойцовский клуб", None),
+            ("Бойцовский клуб [HDRezka].mp4", "Бойцовский клуб", None),
+            ("Бойцовский клуб HD 720.mp4", "Бойцовский клуб", None),
+            ("Брат 2 (2000) BDRip.avi", "Брат 2", Some(2000)),
+            ("Джон Уик 4 (2023).mkv", "Джон Уик 4", Some(2023)),
+            ("Тачки 2 Cars 2 2011.mkv", "Тачки 2", Some(2011)),
+            ("The Hateful Eight 2015.mkv", "The Hateful Eight", Some(2015)),
+            ("Фильм.mp4", "Фильм", None),
+        ] {
+            let m = p(path);
+            assert_eq!((m.title.as_str(), m.year), (title, year), "{path}");
+        }
+    }
+
+    #[test]
     fn episodes() {
         let e = p("The.Office.US.S02E05.720p.mkv");
         assert_eq!((e.title.as_str(), e.season, e.episode), ("The Office US", Some(2), Some(5)));
@@ -246,6 +313,12 @@ mod tests {
         assert_eq!((e.title.as_str(), e.episode), ("Слово пацана", Some(3)));
         let e = p("Сериал/Сезон 1 Серия 4.mkv");
         assert_eq!((e.title.as_str(), e.season, e.episode), ("Сериал", Some(1), Some(4)));
+        let e = p("Друзья/Friends - 1 сезон/01.mkv");
+        assert_eq!((e.title.as_str(), e.season, e.episode), ("Друзья", Some(1), Some(1)));
+        let e = p("Игра престолов (2 сезон)/Игра престолов 05.mkv");
+        assert_eq!((e.title.as_str(), e.season, e.episode), ("Игра престолов", Some(2), Some(5)));
+        let e = p("Shogun.2024.S01.1080p/Shogun.2024.S01E03.1080p.mkv");
+        assert_eq!((e.title.as_str(), e.year, e.season, e.episode), ("Shogun", Some(2024), Some(1), Some(3)));
     }
 
     #[test]

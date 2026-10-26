@@ -5,6 +5,7 @@
   import type Hls from 'hls.js';
   import { trailerHeight } from './trailer-quality';
   import { qualityTier } from '$lib/player/quality-label';
+  import { measure, zoomFor } from './letterbox';
   // bare - без своих кнопок (на телефоне кнопку звука рисует MobileHero, как в макете);
   // available/muted - наружу, toggleSound() - через bind:this.
   let {
@@ -19,6 +20,27 @@
   let visible = $state(false);
   let playing = $state(false);
   let userPaused = false;
+  // Чёрные полосы в трейлере уходят за край: наименьшая полоса по трём кадрам (1, 3 и 6 с).
+  let zoom = $state(1);
+  let bars: number[] = [];
+  let probes: ReturnType<typeof setTimeout>[] = [];
+  function resetBars() {
+    probes.forEach(clearTimeout);
+    probes = [];
+    bars = [];
+    zoom = 1;
+  }
+  function probeBars() {
+    if (probes.length || !video) return;
+    probes = [1000, 3000, 6000].map((ms) =>
+      setTimeout(() => {
+        const bar = video ? measure(video) : null;
+        if (bar === null) return;
+        bars.push(bar);
+        if (bars.length >= 2) zoom = zoomFor(Math.min(...bars));
+      }, ms),
+    );
+  }
   $effect(() => {
     if (!root) return;
     const observer = new IntersectionObserver(([entry]) => visible = entry.isIntersecting,{threshold:.25});
@@ -86,7 +108,7 @@
       source='ru';
       return true;
     };
-    toRussian=async()=>{const ok=await russian();if(ok&&live&&!userPaused)void el.play().catch(()=>{});return ok;};
+    toRussian=async()=>{const ok=await russian();if(ok&&live&&!userPaused)void el.play().catch(()=>{el.muted=true;muted=true;void el.play().catch(()=>{});});return ok;};
     const timer=setTimeout(async()=>{
       try {
         el.muted=true;muted=true;
@@ -99,7 +121,10 @@
         }
         if(!live)return;
         reset();
-        if(await russian()&&live){available=true;if(!userPaused)void el.play().catch(()=>{});}
+        // Сам без звука - только официальный: русские с сайтов - чужие перезаливки (вшитые «16+»,
+        // полосы), по кадру не понять, что это трейлер. Они - по кнопке и сразу со звуком.
+        const preview=await api<{linkId:number|null}>(`/api/discover/title/${id}/trailer`,{signal:controller.signal}).catch(()=>null);
+        if(live&&preview?.linkId){source=null;available=true;}
       }catch{ /* Баннер остаётся на кадре, если трейлер недоступен. */ }
     },1200);
     const visibility=()=>{if(document.hidden)el.pause();else if(live&&available&&!userPaused)void el.play().catch(()=>{});};
@@ -107,9 +132,27 @@
     return()=>{live=false;toRussian=null;source=null;clearTimeout(timer);controller.abort();reset();playing=false;available=false;document.removeEventListener('visibilitychange',visibility);};
   });
 
+  // Официального нет, русский ещё не загружен - по нажатию и со звуком.
+  async function startRussian() {
+    if (!video || !toRussian) return;
+    muted = false;
+    video.muted = false;
+    userPaused = false;
+    if (!(await toRussian())) available = false;
+  }
+
+  function togglePlay() {
+    if (!video) return;
+    if (!source) return void startRussian();
+    userPaused = !video.paused;
+    if (video.paused) void video.play().catch(() => {});
+    else video.pause();
+  }
+
   // Звук: у официального HD - сначала попробовать русский трейлер.
   export async function toggleSound() {
     if (!video) return;
+    if (!source) return startRussian();
     if (muted && source === 'hd' && toRussian) {
       muted = false;
       video.muted = false;
@@ -132,10 +175,10 @@
   <!-- svelte-ignore a11y_media_has_caption -->
   <video bind:this={video} class:ready={playing} muted playsinline loop preload="none"
     onloadedmetadata={()=>{if(video&&qualityTier(video.videoHeight,video.videoWidth)<720){video.pause();video.removeAttribute('src');available=false;playing=false;}}}
-    onplaying={()=>playing=true} onpause={()=>playing=false}></video>
+    onloadstart={resetBars} onplaying={()=>{playing=true;probeBars();}} style:transform={zoom===1?undefined:`scale(${zoom})`} onpause={()=>playing=false}></video>
   <div class="shade"></div>
-  {#if available && !bare}<div class="controls"><span>Трейлер</span><button aria-label={playing?'Приостановить трейлер':'Включить трейлер'} onclick={()=>{userPaused=!video?.paused;if(video?.paused)void video.play().catch(()=>{});else video?.pause();}}><Icon name={playing?'pause':'play'} size={17}/></button><button aria-label={muted?'Включить звук трейлера':'Выключить звук трейлера'} onclick={toggleSound}><Icon name={muted?'mute':'volume'} size={18}/></button></div>{/if}
+  {#if available && !bare}<div class="controls"><span>Трейлер</span><button aria-label={playing?'Приостановить трейлер':'Включить трейлер'} onclick={togglePlay}><Icon name={playing?'pause':'play'} size={17}/></button><button aria-label={muted?'Включить звук трейлера':'Выключить звук трейлера'} onclick={toggleSound}><Icon name={muted?'mute':'volume'} size={18}/></button></div>{/if}
 </section>
 <style>
-  .trailer{position:absolute;inset:0;overflow:hidden;background:#000}.trailer.bare{background:transparent}img,video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 30%}video{opacity:0;transition:opacity .45s ease}video.ready{opacity:1}img{transition:opacity .45s ease}.dim{opacity:0}.shade{position:absolute;inset:0;background:linear-gradient(0deg,#000,transparent 30%,#0002);pointer-events:none}.controls{position:absolute;right:var(--gutter);bottom:28px;display:flex;align-items:center;gap:8px;color:#eee}.controls span{font-size:11px;letter-spacing:.08em;margin-right:8px}.controls button{width:38px;height:38px;border:1px solid #ffffff60;border-radius:50%;background:#000b;color:#fff;display:grid;place-items:center;cursor:pointer;transition:background .2s,transform .2s}.controls button:hover{background:#000;transform:scale(1.04)}
+  .trailer{position:absolute;inset:0;overflow:hidden;background:#000}.trailer.bare{background:transparent}img,video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 30%}video{opacity:0;transition:opacity .45s ease,transform .6s ease}video.ready{opacity:1}img{transition:opacity .45s ease}.dim{opacity:0}.shade{position:absolute;inset:0;background:linear-gradient(0deg,#000,transparent 30%,#0002);pointer-events:none}.controls{position:absolute;right:var(--gutter);bottom:28px;display:flex;align-items:center;gap:8px;color:#eee}.controls span{font-size:11px;letter-spacing:.08em;margin-right:8px}.controls button{width:38px;height:38px;border:1px solid #ffffff60;border-radius:50%;background:#000b;color:#fff;display:grid;place-items:center;cursor:pointer;transition:background .2s,transform .2s}.controls button:hover{background:#000;transform:scale(1.04)}
 </style>

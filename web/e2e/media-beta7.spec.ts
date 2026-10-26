@@ -3,7 +3,7 @@ import { env, url } from './util';
 import { execFileSync } from 'node:child_process';
 import { canDecodeWebm } from './media-capability';
 
-test('баннер запускает беззвучный трейлер и сохраняет ручную паузу', async ({ page }, info) => {
+test('русский трейлер с сайта - только по кнопке и со звуком, ручная пауза сохраняется', async ({ page }, info) => {
   test.skip((page.viewportSize()?.width ?? 0) <= 640, 'на телефоне верх страницы фильма - постер как у Disney+, без трейлера');
   const clip = execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=12:duration=10', '-c:v', 'libvpx', '-deadline', 'realtime', '-f', 'webm', 'pipe:1'], { maxBuffer: 8 * 1024 * 1024 });
   test.skip(!await canDecodeWebm(page,clip),'VP8 WebM не декодируется этой тестовой средой');
@@ -17,7 +17,12 @@ test('баннер запускает беззвучный трейлер и с�
   const banner = page.getByRole('region', { name: 'Баннер и трейлер' });
   await expect(banner).toBeVisible();
   const video = banner.locator('video');
-  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.muted && v.currentTime > 0)).toBe(true);
+  // Официального нет - сам ничего не играет (чужие перезаливки со вшитыми «16+» и рамками), только кнопка.
+  await expect(banner.getByRole('button', { name: 'Включить трейлер' })).toBeVisible();
+  await page.waitForTimeout(2500);
+  expect(await video.evaluate((v: HTMLVideoElement) => v.paused && !v.getAttribute('src'))).toBe(true);
+  await banner.getByRole('button', { name: 'Включить трейлер' }).click();
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0)).toBe(true);
   await banner.getByRole('button', { name: 'Приостановить трейлер' }).click();
   await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true);
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));

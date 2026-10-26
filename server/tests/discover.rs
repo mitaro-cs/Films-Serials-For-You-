@@ -463,3 +463,45 @@ async fn next_episode_stays_in_series_and_moves_to_next_season() {
     assert!(!public.send("POST", "/api/host/fullscreen", json!({"enabled":true})).await.status().is_success());
     running.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn seen_episode_marks_previous_seasons_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let (running, mut host) = common::start(dir.path()).await;
+    let app = &running.app;
+    fsfy::discover::upsert(app, &[ext("tt0460681", "Сверхъестественное", true)]).unwrap();
+    app.db
+        .with(|c| {
+            for s in 1..=3 {
+                c.execute(
+                    "INSERT INTO ext_seasons VALUES('tt0460681',?,?)",
+                    rusqlite::params![s, fsfy::util::now_ms()],
+                )?;
+            }
+            for (s, e) in [(0, 1), (1, 1), (1, 2), (2, 1), (2, 2), (3, 1), (3, 2)] {
+                c.execute(
+                    "INSERT INTO ext_episodes(ext_id,season,episode) VALUES('tt0460681',?,?)",
+                    rusqlite::params![s, e],
+                )?;
+            }
+            Ok(())
+        })
+        .unwrap();
+    let r =
+        host.send("PUT", "/api/discover/title/tt0460681/seen", json!({"season": 3, "episode": 1, "value": true})).await;
+    assert!(r.status().is_success(), "{}", r.status());
+    let seen: Vec<(i32, i32)> = app
+        .db
+        .with(|c| {
+            let mut st = c.prepare("SELECT season, episode FROM ext_seen WHERE ext_id='tt0460681' ORDER BY 1, 2")?;
+            let r = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            r.collect()
+        })
+        .unwrap();
+    assert_eq!(
+        seen,
+        vec![(1, 1), (1, 2), (2, 1), (2, 2), (3, 1)],
+        "прошлые сезоны - тоже, спецвыпуски и следующие - нет"
+    );
+    running.shutdown().await;
+}

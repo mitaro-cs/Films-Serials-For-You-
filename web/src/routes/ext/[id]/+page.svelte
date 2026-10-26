@@ -177,13 +177,15 @@
   const selected = $derived(eps.find((e) => e.current) ?? null);
   const episodeLinks = $derived(d?.links.filter((l) => !isSeries || (l.season === selected?.season && l.episode === selected?.episode && !l.label.toLowerCase().includes('(фильм'))) ?? []);
 
-  /** Галочка: не отмечена - «досюда посмотрел» (и все раньше в сезоне); отмечена - снять. */
+  /** Галочка: не отмечена - «досюда посмотрел» (и все раньше, с прошлыми сезонами); отмечена - снять. */
   async function seen(e: Ep) {
     if (!d || e.episode === null) return;
     const value = !e.done;
     const before = episodes.map((x) => ({ ...x }));
     episodes = episodes.map((x) =>
-      x.season === e.season && (value ? x.episode <= e.episode! : x.episode === e.episode) ? { ...x, seen: value } : x,
+      (value ? (x.season > 0 && x.season < e.season) || (x.season === e.season && x.episode <= e.episode!) : x.season === e.season && x.episode === e.episode)
+        ? { ...x, seen: value }
+        : x,
     );
     try {
       const r = await put<{ mark: ExtCard['mark'] }>(`/api/discover/title/${d.card.id}/seen`, { season: e.season, episode: e.episode, value });
@@ -425,7 +427,7 @@
     meta={[c.genres[0], c.year ? String(c.year) : '', d?.seasons.length ? `${d.seasons.length} сез.` : ''].filter((m): m is string => !!m)}
     rating={c.rating}
     age={d?.age ?? null}
-    tagline={d?.overview ?? d?.tagline ?? null}
+    tagline={d?.overview ?? null}
     progress={seriesProgress}
     episodes={eps}
     seasons={d?.seasons ?? []}
@@ -564,7 +566,6 @@
           {#if d?.age}<span class="age">{d.age}</span>{/if}
         </p>
         {#if c.original}<p class="orig">{c.original}</p>{/if}
-        {#if d?.tagline && localized(d.tagline, '')}<p class="tagline">{localized(d.tagline, '')}</p>{/if}
         {#if d?.overview}<p class="overview">{localized(d.overview, 'Описание на русском пока недоступно')}</p>{:else if !d}<p class="overview ph-text skeleton"></p>{/if}
         {#if c.genres.length}
           <div class="genres">
@@ -861,11 +862,6 @@
     margin: 0;
     color: var(--muted);
     font-size: 14px;
-  }
-  .tagline {
-    margin: 4px 0 0;
-    color: #e4e4e7;
-    font-weight: 600;
   }
   .overview {
     margin: 0;

@@ -482,7 +482,7 @@ pub async fn ratings(State(app): State<Arc<App>>, _v: Viewer, Path(id): Path<Str
 pub struct SeenBody {
     season: i32,
     episode: i32,
-    /// true - «досюда посмотрел» (эта и все раньше в сезоне), false - снять отметку с этой.
+    /// true - «досюда посмотрел» (эта и все раньше, с прошлыми сезонами), false - снять отметку с этой.
     value: bool,
 }
 
@@ -498,13 +498,21 @@ pub async fn seen(
         return Err(ApiError::not_found());
     }
     let (me, now) = (v.profile.id, now_ms());
+    if b.value {
+        // Серии прошлых сезонов могли ещё не загружаться (сезон не открывали) - подтянуть с IMDb.
+        for s in 1..b.season.min(60) {
+            if let Err(e) = crate::discover::season_data(&app, &id, s).await {
+                tracing::debug!(error = %e, season = s, "серии сезона не загрузились");
+            }
+        }
+    }
     app.db.tx(|c| {
         if b.value {
             c.execute("DELETE FROM ext_dropped WHERE profile_id = ? AND ext_id = ?", params![me, id])?;
             c.execute(
                 "INSERT OR IGNORE INTO ext_seen (profile_id, ext_id, season, episode, at)
                  SELECT ?1, ?2, season, episode, ?5 FROM ext_episodes
-                 WHERE ext_id = ?2 AND season = ?3 AND episode <= ?4",
+                 WHERE ext_id = ?2 AND ((season > 0 AND season < ?3) OR (season = ?3 AND episode <= ?4))",
                 params![me, id, b.season, b.episode, now],
             )?;
             c.execute(

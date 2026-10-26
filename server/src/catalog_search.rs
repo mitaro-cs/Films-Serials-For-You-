@@ -117,9 +117,19 @@ pub async fn wiki_search(app: &App, query: &str, people: bool) -> anyhow::Result
                 rating: None,
                 votes: None,
                 genres: vec![],
-                poster_url: images.get(qid).cloned(),
+                poster_url: None,
             };
             discover::upsert(app, &[item])?;
+            // Картинка статьи Википедии - часто постер прокатчика с его логотипом (у «Клана Сопрано» -
+            // «А» Амедиатеки): только если другого постера нет, постер IMDb она не заменяет.
+            if let Some(image) = images.get(qid) {
+                app.db.with(|c| {
+                    c.execute(
+                        "UPDATE ext_titles SET poster_url = ? WHERE id = ? AND poster_url IS NULL",
+                        params![image, id],
+                    )
+                })?;
+            }
             if let Some(ru) = e["labels"]["ru"]["value"].as_str() {
                 app.db.with(|c|c.execute("INSERT INTO title_localizations VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,data=excluded.data,at=excluded.at",
                     params![id,ru,data.to_string(),crate::util::now_ms()]))?;
