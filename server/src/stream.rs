@@ -97,6 +97,9 @@ pub struct PlayInfo {
     /// Понадобится перекодирование видео (тяжело для компьютера).
     pub transcode: bool,
     pub hevc: bool,
+    /// 10 бит на цвет (HEVC Main10, часто 4K HDR): браузер должен уметь именно этот профиль.
+    #[serde(rename = "tenBit")]
+    pub ten_bit: bool,
     pub duration: Option<f64>,
     pub width: Option<i64>,
     pub height: Option<i64>,
@@ -223,6 +226,7 @@ pub fn play_info(video: &Path, p: Option<&Probe>, has_ffmpeg: bool) -> PlayInfo 
             remux: has_ffmpeg,
             transcode: false,
             hevc: false,
+            ten_bit: false,
             duration: None,
             width: None,
             height: None,
@@ -273,6 +277,7 @@ pub fn play_info(video: &Path, p: Option<&Probe>, has_ffmpeg: bool) -> PlayInfo 
         remux: has_ffmpeg,
         transcode: !(DIRECT_VIDEO.contains(&vcodec) || hevc) || (ten_bit && vcodec == "h264"),
         hevc,
+        ten_bit,
         duration: p.duration,
         width: p.video.as_ref().map(|v| v.width),
         height: p.video.as_ref().map(|v| v.height),

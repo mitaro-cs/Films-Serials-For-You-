@@ -3,7 +3,8 @@ import { levels, trickFrame } from './levels';
 
 describe('плеер', () => {
   it('ступени качества как на сервере', () => {
-    expect(levels(2160)).toEqual([1080, 720, 480, 360]);
+    expect(levels(2160)).toEqual([2160, 1440, 1080, 720, 480, 360]);
+    expect(levels(1600)).toEqual([1440, 1080, 720, 480, 360]);
     expect(levels(720)).toEqual([720, 480, 360]);
     expect(levels(241)).toEqual([240]);
   });

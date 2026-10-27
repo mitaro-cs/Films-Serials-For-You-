@@ -4,7 +4,7 @@ import type { Trickplay } from '$lib/types';
 export function levels(sourceHeight: number | null): number[] {
   const h = sourceHeight ?? 1080;
   if (h < 360) return [h - (h % 2)];
-  return [1080, 720, 480, 360].filter((l) => l <= Math.max(h, 360));
+  return [2160, 1440, 1080, 720, 480, 360].filter((l) => l <= Math.max(h, 360));
 }
 
 /** Кадр для полосы перемотки: лист и смещение внутри него. */

@@ -30,6 +30,7 @@
   import { forgetCatalog } from '$lib/catalog.svelte';
   import { extChanged } from '$lib/discover/sheet.svelte';
   import { noteOwnSave, progressSync } from '$lib/progressSync.svelte';
+  import { heightLabel, hevcSupport } from './codecs';
 
 
   // `src` - видео не с компьютера хоста (Rutube, VK, свой сайт, прямая ссылка - поток через сервер):
@@ -157,8 +158,9 @@
   }
   let cues = $state<Cue[]>([]);
 
-  const hevcOk =
-    typeof document !== 'undefined' && document.createElement('video').canPlayType('video/mp4; codecs="hvc1"') !== '';
+  const hevc = hevcSupport(typeof document === 'undefined' ? null : (t) => document.createElement('video').canPlayType(t));
+  // Этот файл HEVC и браузер умеет именно его профиль (10 бит - Main10).
+  const hevcOk = $derived(info?.play.tenBit ? hevc.main10 : hevc.main);
   const nativeHls =
     typeof document !== 'undefined' &&
     document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== '' &&
@@ -220,7 +222,7 @@
       : mode === 'hls'
         ? quality === 'auto'
           ? `Авто${hlsHeight ? ` · ${qualityTier(hlsHeight)}p` : ''}`
-          : `${quality}p`
+          : typeof quality === 'number' ? heightLabel(quality) : 'Оригинал'
         : 'Оригинал',
   );
 
@@ -408,6 +410,7 @@
             remux: false,
             transcode: false,
             hevc: false,
+            tenBit: false,
             duration: null,
             width: null,
             height: null,
@@ -1247,7 +1250,7 @@
         <h4>Качество</h4>
         {#if origOk}
           <button role="menuitemradio" aria-checked={quality === 'orig'} class:on={quality === 'orig'} onclick={() => setQuality('orig')}>
-            <Icon name="check" size={16} /> Оригинал <small>как в файле</small>
+            <Icon name="check" size={16} /> Оригинал <small>{info?.play.height && qualityTier(info.play.height, info.play.width ?? undefined) >= 1440 ? `${heightLabel(qualityTier(info.play.height, info.play.width ?? undefined))}, как в файле` : 'как в файле'}</small>
           </button>
         {/if}
         <button role="menuitemradio" aria-checked={quality === 'auto'} class:on={quality === 'auto'} onclick={() => setQuality('auto')}>
@@ -1255,7 +1258,7 @@
         </button>
         {#each ladder as l (l)}
           <button role="menuitemradio" aria-checked={quality === l} class:on={quality === l} onclick={() => setQuality(l)}>
-            <Icon name="check" size={16} /> {l}p
+            <Icon name="check" size={16} /> {heightLabel(l)}{#if l > 1080}<small>перекодирование, нагружает компьютер</small>{/if}
           </button>
         {/each}
       {/if}

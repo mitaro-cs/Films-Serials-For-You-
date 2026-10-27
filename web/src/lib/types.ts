@@ -268,6 +268,8 @@ export interface PlayInfo {
     remux: boolean;
     transcode: boolean;
     hevc: boolean;
+    /** 10 бит на цвет (HEVC Main10). */
+    tenBit: boolean;
     duration: number | null;
     width: number | null;
     height: number | null;

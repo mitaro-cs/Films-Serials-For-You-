@@ -21,8 +21,11 @@ const AHEAD_MAX: u64 = 40;
 const KEEP_BEHIND: u64 = 10;
 const IDLE: Duration = Duration::from_secs(60);
 
-/// Ступени качества: высота кадра и битрейт видео (кбит/с).
-const LADDER: &[(i64, u32)] = &[(1080, 5000), (720, 2800), (480, 1200), (360, 700)];
+/// Ступени качества: высота кадра и битрейт видео (кбит/с). 4K и 1440p - только ручным выбором
+/// (`AUTO_MAX`): перекодировать их на лету тяжело, автокачество их не берёт.
+const LADDER: &[(i64, u32)] = &[(2160, 16000), (1440, 9000), (1080, 5000), (720, 2800), (480, 1200), (360, 700)];
+/// Выше этого автокачество (`master`) не поднимается.
+const AUTO_MAX: i64 = 1080;
 
 /// Ступени для источника: не выше исходного; совсем маленький файл - одна ступень своей высоты.
 pub fn levels(source_height: i64) -> Vec<i64> {
@@ -43,7 +46,7 @@ pub fn segments(duration: f64) -> u64 {
 
 pub fn master(source_height: i64, audio: usize) -> String {
     let mut s = String::from("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-INDEPENDENT-SEGMENTS\n");
-    for h in levels(source_height) {
+    for h in levels(source_height).into_iter().filter(|h| *h <= AUTO_MAX) {
         let w = (h * 16 / 9) & !1;
         let bw = (bitrate(h) + 160) * 1100;
         s.push_str(&format!(
@@ -122,18 +125,17 @@ pub fn args(input: &Path, dir: &Path, height: i64, source_height: i64, audio: us
             "-profile:v",
             "high",
             "-level",
-            "4.1",
+            if height > AUTO_MAX { "5.1" } else { "4.1" },
             "-pix_fmt",
             "yuv420p",
             "-crf",
             "23",
-            // Не больше 4 потоков: этого хватает на 1080p быстрее просмотра, а компьютер хоста
-            // не раскручивает вентилятор на все ядра.
-            "-threads",
-            "4",
         ]
         .map(String::from),
     );
+    // Не больше 4 потоков: этого хватает на 1080p быстрее просмотра, а компьютер хоста не раскручивает
+    // вентилятор на все ядра. 1440p и 4K (только по выбору зрителя) - на все ядра, иначе не успеть.
+    a.extend(["-threads".into(), if height > AUTO_MAX { "0".into() } else { "4".into() }]);
     a.extend(["-maxrate".into(), format!("{br}k"), "-bufsize".into(), format!("{}k", br * 2)]);
     a.extend(["-force_key_frames".into(), format!("expr:gte(t,n_forced*{SEG})"), "-sc_threshold".into(), "0".into()]);
     a.extend(["-c:a", "aac", "-ac", "2", "-b:a", "160k"].map(String::from));
@@ -255,7 +257,10 @@ mod tests {
 
     #[test]
     fn playlists() {
-        assert_eq!(levels(2160), vec![1080, 720, 480, 360]);
+        assert_eq!(levels(2160), vec![2160, 1440, 1080, 720, 480, 360]);
+        assert_eq!(levels(1600), vec![1440, 1080, 720, 480, 360], "4K «скоуп» 3840×1600");
+        assert!(!master(2160, 0).contains("2160/") && master(2160, 0).contains("1080/"), "авто - не выше 1080p");
+        assert!(args(Path::new("a.mkv"), Path::new("d"), 2160, 2160, 0, 0).windows(2).any(|w| w == ["-level", "5.1"]));
         assert_eq!(levels(720), vec![720, 480, 360]);
         assert_eq!(levels(240), vec![240]);
         let v = variant(13.5, 1);
