@@ -1109,7 +1109,7 @@
       {/if}
     </div>
     <div class="controls">
-      <button class="cbtn" aria-label={paused ? 'Смотреть' : 'Пауза'} onclick={toggle}>{#key paused}<span class="swap"><Icon name={paused ? 'play' : 'pause'} size={24} /></span>{/key}</button>
+      <button class="cbtn main" aria-label={paused ? 'Смотреть' : 'Пауза'} onclick={toggle}>{#key paused}<span class="swap"><Icon name={paused ? 'play' : 'pause'} size={24} /></span>{/key}</button>
       <button class="cbtn" aria-label="Назад на 10 секунд" onclick={() => seek(time - 10)}><Icon name="rewind" size={22} /></button>
       <button class="cbtn" aria-label="Вперёд на 10 секунд" onclick={() => seek(time + 10)}><Icon name="forward" size={22} /></button>
       <div class="vol">
@@ -1954,5 +1954,25 @@
   }
   :global(.no-motion) .swap {
     animation: none;
+  }
+  /* ---------- «Кинозал+» (alpha 0.5) ----------
+     Панель - не чёрная плашка, а затемнение снизу поверх кадра; полоса - тёплый акцент с белым бегунком,
+     кнопки - круглые, «Пауза» - крупная белая; «Пропустить заставку» - белая карточка. */
+  .bottom { background: linear-gradient(0deg, #000000e6 0%, #00000099 55%, transparent); border-top: 0; padding-top: 44px; }
+  .rail { height: 5px; border-radius: 5px; background: rgba(255, 255, 255, 0.2); }
+  .bar:hover .rail { height: 7px; }
+  .played { background: #d39a5b; }
+  .played::after { width: 16px; height: 16px; right: -8px; transform: translateY(-50%) scale(1); box-shadow: 0 0 0 5px #ffffff2e; }
+  .controls { gap: 8px; margin-top: 12px; }
+  .cbtn { height: 42px; min-width: 42px; border-radius: 999px; background: #ffffff14; }
+  .cbtn:hover, .cbtn.on { background: #ffffff29; }
+  .cbtn.main { height: 54px; min-width: 54px; background: #fff; color: #0a0a0a; }
+  .cbtn.main:hover { background: #e9e6e1; }
+  .cbtn.q { padding: 0 14px; }
+  .skip { border: 0; border-radius: 14px; background: #fffffff0; color: #0a0a0a; box-shadow: 0 16px 40px -16px #000; }
+  @media (max-width: 640px) {
+    .controls { gap: 4px; }
+    .cbtn { height: 38px; min-width: 38px; background: transparent; }
+    .cbtn.main { height: 44px; min-width: 44px; background: #fff; }
   }
 </style>

@@ -15,7 +15,7 @@ const WEEK: i64 = 7 * 86_400_000;
 const SEARCH: &str = r#"query S($t: String!) { mainSearch(first: 3, options: { searchTerm: $t, type: NAME, includeAdult: false }) {
   edges { node { entity { ... on Name { id nameText { text } } } } } } }"#;
 
-const NAME: &str = r#"query N($id: ID!, $cats: [String!]) { name(id: $id) { nameText { text } primaryImage { url }
+const NAME: &str = r#"query N($id: ID!, $cats: [ID!]) { name(id: $id) { nameText { text } primaryImage { url }
   credits(first: 80, filter: { categories: $cats }) { edges { node { title {
     id titleText { text } originalTitleText { text } titleType { id isSeries }
     releaseYear { year } ratingsSummary { aggregateRating voteCount }

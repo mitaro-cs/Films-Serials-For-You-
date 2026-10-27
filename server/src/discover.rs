@@ -27,9 +27,9 @@ pub enum Src {
     Soon,
 }
 
-const MOVIE: &[&str] = &["movie"];
-const SERIES: &[&str] = &["tvSeries", "tvMiniSeries"];
-const ANY: &[&str] = &["movie", "tvSeries", "tvMiniSeries"];
+pub const MOVIE: &[&str] = &["movie"];
+pub const SERIES: &[&str] = &["tvSeries", "tvMiniSeries"];
+pub const ANY: &[&str] = &["movie", "tvSeries", "tvMiniSeries"];
 
 /// Запрос - это жанр («фантастика», «комедии», «сериалы ужасы»): жанр IMDb, подпись и что искать
 /// (фильмы, сериалы или всё). Слова вроде «фильмы», «лучшие», «про» не мешают; любое другое
@@ -92,13 +92,18 @@ pub fn genre_query(query: &str) -> Option<(&'static str, &'static str, &'static 
     genre.map(|(en, ru)| (en, ru, types))
 }
 
-/// Популярное в жанре с IMDb (до 50, сначала самое популярное): ids в ленте, на 12 часов.
+/// Популярное в жанре с IMDb (до 50, сначала самое известное): ids в ленте, на 12 часов.
 pub async fn genre_search(
     app: &Arc<App>,
     genre: &'static str,
     types: &'static [&'static str],
 ) -> anyhow::Result<Vec<String>> {
-    let key = format!("genre:{genre}:{}:votes", types.len());
+    let src = Src::Search { types, genre: Some(genre), countries: &[], days: None, votes: 25_000 };
+    search_cached(app, &format!("genre:{genre}:{}:votes", types.len()), &src).await
+}
+
+/// Поиск IMDb по источнику (жанр, страны), больше всего оценок - первым; ids в ленте, на 12 часов.
+pub async fn search_cached(app: &Arc<App>, key: &str, src: &Src) -> anyhow::Result<Vec<String>> {
     let cached: Option<String> = app.db.with(|c| {
         c.query_row(
             "SELECT ids FROM catalog_search_cache WHERE query = ? AND at > ?",
@@ -111,8 +116,7 @@ pub async fn genre_search(
         return Ok(serde_json::from_str(&c)?);
     }
     let imdb = Imdb::new(app.http.clone());
-    let src = Src::Search { types, genre: Some(genre), countries: &[], days: None, votes: 25_000 };
-    let items = parse_chart(&fetch_feed(&imdb, &src, "USER_RATING_COUNT").await?);
+    let items = parse_chart(&fetch_feed(&imdb, src, "USER_RATING_COUNT").await?);
     upsert(app, &items)?;
     app.posters_kick.notify_one();
     let ids: Vec<String> = items.into_iter().map(|e| e.id).collect();
@@ -152,7 +156,7 @@ pub const FEEDS: &[(&str, &str, Src)] = &[
     (
         "russian_movies",
         "Российское кино",
-        Src::Search { types: MOVIE, genre: None, countries: &["RU", "SU"], days: None, votes: 3000 },
+        Src::Search { types: MOVIE, genre: None, countries: &["RU", "SUHH"], days: None, votes: 3000 },
     ),
     (
         "russian_series",

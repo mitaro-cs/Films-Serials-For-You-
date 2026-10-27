@@ -103,7 +103,39 @@ fn produced(dir: &Path) -> Option<u64> {
         .max()
 }
 
-pub fn args(input: &Path, dir: &Path, height: i64, source_height: i64, audio: usize, start: u64) -> Vec<String> {
+/// Умеет ли этот ffmpeg переводить HDR в обычный цвет (фильтры zscale и tonemap) - спрашиваем один раз.
+pub fn tonemap_ok(ffmpeg: &Path) -> bool {
+    static KNOWN: std::sync::OnceLock<Mutex<HashMap<PathBuf, bool>>> = std::sync::OnceLock::new();
+    let known = KNOWN.get_or_init(Default::default);
+    if let Some(ok) = known.lock().get(ffmpeg) {
+        return *ok;
+    }
+    let ok = std::process::Command::new(ffmpeg)
+        .args(["-hide_banner", "-filters"])
+        .output()
+        .map(|o| {
+            let list = String::from_utf8_lossy(&o.stdout);
+            list.contains(" zscale ") && list.contains(" tonemap ")
+        })
+        .unwrap_or(false);
+    known.lock().insert(ffmpeg.to_path_buf(), ok);
+    ok
+}
+
+/// Перевод HDR (PQ/HLG, BT.2020) в обычный BT.709: без него перекодированная 4K HDR картинка блёклая.
+const TONEMAP: &str =
+    "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv";
+
+#[allow(clippy::too_many_arguments)]
+pub fn args(
+    input: &Path,
+    dir: &Path,
+    height: i64,
+    source_height: i64,
+    audio: usize,
+    start: u64,
+    tonemap: bool,
+) -> Vec<String> {
     let br = bitrate(height);
     let t0 = start as f64 * SEG;
     let mut a: Vec<String> = ["-hide_banner", "-loglevel", "error", "-nostdin"].map(String::from).to_vec();
@@ -115,7 +147,8 @@ pub fn args(input: &Path, dir: &Path, height: i64, source_height: i64, audio: us
     a.extend(["-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1"].map(String::from));
     let scale =
         if height < source_height { format!("scale=-2:{height}") } else { "scale=trunc(iw/2)*2:trunc(ih/2)*2".into() };
-    a.extend(["-vf".into(), scale]);
+    let vf = if tonemap { format!("{scale},{TONEMAP},format=yuv420p") } else { scale };
+    a.extend(["-vf".into(), vf]);
     a.extend(
         [
             "-c:v",
@@ -160,6 +193,7 @@ impl Job {
         ffmpeg: &Path,
         input: &Path,
         source_height: i64,
+        hdr: bool,
         n: u64,
     ) -> ApiResult<PathBuf> {
         let dir = dir_of(app, self);
@@ -193,7 +227,7 @@ impl Job {
                     let permit = app.transcode.clone().try_acquire_owned().map_err(|_| crate::api::busy())?;
                     std::fs::create_dir_all(&dir)?;
                     let child = crate::library::probe::command(ffmpeg)
-                        .args(args(input, &dir, self.height, source_height, self.audio, n))
+                        .args(args(input, &dir, self.height, source_height, self.audio, n, hdr && tonemap_ok(ffmpeg)))
                         .stdout(Stdio::null())
                         .stderr(Stdio::null())
                         .spawn()?;
@@ -260,7 +294,15 @@ mod tests {
         assert_eq!(levels(2160), vec![2160, 1440, 1080, 720, 480, 360]);
         assert_eq!(levels(1600), vec![1440, 1080, 720, 480, 360], "4K «скоуп» 3840×1600");
         assert!(!master(2160, 0).contains("2160/") && master(2160, 0).contains("1080/"), "авто - не выше 1080p");
-        assert!(args(Path::new("a.mkv"), Path::new("d"), 2160, 2160, 0, 0).windows(2).any(|w| w == ["-level", "5.1"]));
+        let hdr = args(Path::new("a.mkv"), Path::new("d"), 1080, 2160, 0, 0, true);
+        let vf = &hdr[hdr.iter().position(|x| x == "-vf").unwrap() + 1];
+        assert!(
+            vf.starts_with("scale=-2:1080,zscale=t=linear") && vf.ends_with("format=yuv420p"),
+            "HDR - в обычный цвет: {vf}"
+        );
+        assert!(args(Path::new("a.mkv"), Path::new("d"), 2160, 2160, 0, 0, false)
+            .windows(2)
+            .any(|w| w == ["-level", "5.1"]));
         assert_eq!(levels(720), vec![720, 480, 360]);
         assert_eq!(levels(240), vec![240]);
         let v = variant(13.5, 1);

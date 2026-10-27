@@ -3,6 +3,7 @@
   import { getDetail, peekDetail } from '$lib/discover/details';
   import { genreRu } from '$lib/genres';
   import { motionOn } from '$lib/motion';
+  import { toggle, toggleMark } from '$lib/marks';
   import Loading from './Loading.svelte';
   import { localized } from '$lib/localized.svelte';
   import type { Card, ExtCard, ExtDetail } from '$lib/types';
@@ -57,79 +58,101 @@
   });
   function hold() { manual = true; save(); }
   function save() { try { sessionStorage.setItem('nova-showcase', JSON.stringify({ id: String(selected?.card?.id ?? selected?.ext?.id), manual })); } catch { /* приватный режим */ } }
-  function go(delta: number) { manual = true; at = (at + delta + items.length) % items.length; save(); }
+
+  // «Кинозал+»: надпись над названием и цвет кадра - по фильму (у своих - цвет постера).
+  const accent = $derived(selected?.card?.accent ?? '#c8894a');
+  const ext = $derived(selected?.ext);
+  const eyebrow = $derived(
+    selected?.card?.resume ? 'Вы смотрели'
+      : selected?.card ? 'Новое на Nova'
+        : ext?.mark === 'want' ? 'В ваших планах'
+          : ext?.mark === 'watching' ? 'Вы смотрите'
+            : 'Популярно сейчас',
+  );
+  const wanted = $derived(selected?.card ? selected.card.status === 'want' : ext?.mark === 'want');
+  function want(e: Event) {
+    e.stopPropagation();
+    if (selected?.card) void toggle(selected.card, 'want');
+    else if (selected?.ext) void toggleMark(selected.ext, 'want');
+  }
+  $effect(() => {
+    document.documentElement.style.setProperty('--hero-tint', accent);
+    return () => document.documentElement.style.removeProperty('--hero-tint');
+  });
 </script>
 
 {#if card}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <section class="showcase" aria-label="Рекомендуем" bind:this={root} onpointerenter={() => hovering = true} onpointerleave={() => hovering = false} onpointerdown={hold} onkeydown={hold}>
+  <section class="showcase" aria-label="Рекомендуем" style:--acc={accent} bind:this={root} onpointerenter={() => hovering = true} onpointerleave={() => hovering = false} onpointerdown={hold} onkeydown={hold}>
     {#key backdrop ?? poster}{#if backdrop || poster}<img class="backdrop" class:poster-backdrop={!backdrop} src={backdrop ?? poster ?? ''} srcset={backdrop ? heroSet(backdrop, selected?.card?.backdropSmall) : artSet(poster)} sizes="100vw" alt="" fetchpriority="high" />{/if}{/key}
     <div class="shade"></div>
     {#key card.id}<div class="copy">
-      <span class="eyebrow">NOVA · В ЦЕНТРЕ ВНИМАНИЯ</span>
+      <span class="eyebrow">{eyebrow}</span>
       <h1>{card.title}</h1>
       <p class="meta">
-        {#if card.rating}<span class="rating"><Icon name="star" size={16} /> {card.rating.toFixed(1)} <small>IMDb</small></span>{/if}
+        {#if card.rating}<span class="rating"><Icon name="star" size={14} /> {card.rating.toFixed(1)}</span>{/if}
         {#if card.year}<span>{card.year}</span>{/if}
-        <span>{card.kind === 'series' ? 'Сериал' : 'Фильм'}</span>
-        {#each card.genres.slice(0, 2) as genre (genre)}<span>{genreRu(genre)}</span>{/each}
+        {#if card.genres.length}<span>{card.genres.slice(0, 2).map(genreRu).join(', ')}</span>{:else}<span>{card.kind === 'series' ? 'Сериал' : 'Фильм'}</span>{/if}
       </p>
-      {#if overview}<p class="description">{overview}</p>{:else}<p class="description">Ваша следующая история начинается здесь. Откройте подробности, выберите источник и смотрите в Nova.</p>{/if}
+      {#if overview}<p class="description">{overview}</p>{/if}
       <div class="actions">
-        {#if selected.card?.resume}<a class="btn primary" href="/watch/{selected.card.resume.fileId}"><Icon name="play" size={18} /> Продолжить</a>{:else}<a class="btn primary" {href}><Icon name="play" size={18} /> Подробнее</a>{/if}
-        <a class="btn" href="/discover">Открыть подборки <Icon name="right" size={16} /></a>
+        {#if selected.card?.resume}<a class="btn primary" href="/watch/{selected.card.resume.fileId}"><Icon name="play" size={18} /> Продолжить</a>{:else}<a class="btn primary" {href}><Icon name="play" size={18} /> Смотреть</a>{/if}
+        <button class="btn glass" class:on={wanted} aria-pressed={wanted} onclick={want}><Icon name={wanted ? 'check' : 'plus'} size={18} /> {wanted ? 'В планах' : 'Хочу'}</button>
       </div>
       {#if !detail && selected.ext}<Loading compact label="Подробности загружаются в фоне" />{/if}
     </div>{/key}
-    {#if poster}<a class="poster" {href} tabindex="-1" aria-hidden="true"><img src={poster} alt="" fetchpriority="high" /></a>{/if}
     {#if items.length > 1}
-      <div class="pagination" aria-label="Кадры">
-        <button aria-label="Предыдущая рекомендация" onclick={() => go(-1)}><Icon name="back" size={18} /></button>
-        <span>{Math.min(at + 1, items.length)} / {items.length}</span>
-        <button aria-label="Следующая рекомендация" onclick={() => go(1)}><Icon name="right" size={18} /></button>
-        <button onpointerdown={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} aria-label={manual ? 'Включить автоперелистывание' : 'Остановить автоперелистывание'} aria-pressed={!manual} onclick={() => { manual = !manual; save(); }}><Icon name={manual ? 'play' : 'pause'} size={14} /></button>
+      <div class="dots" role="tablist" aria-label="Кадры">
+        {#each items as it, i (it.card?.id ?? it.ext?.id)}
+          <button role="tab" aria-selected={i === at} class:on={i === at} aria-label={it.card?.title ?? it.ext?.title} onclick={() => { manual = true; at = i; save(); }}></button>
+        {/each}
       </div>
     {/if}
   </section>
 {/if}
 
 <style>
-  .showcase { position: relative; min-height: 510px; height: min(72svh, 780px); isolation: isolate; display: flex; align-items: center; padding: calc(var(--header) + 36px) var(--gutter) 70px; overflow: hidden; }
+  /* «Кинозал+» (alpha 0.5): кадр почти на весь экран, слева - надпись цветом фильма, крупное название,
+     оценка, описание и две капсулы; справа внизу - точки. Затемнение только слева и снизу. */
+  .showcase { position: relative; height: clamp(560px, 92svh, 1040px); isolation: isolate; display: flex; align-items: flex-end; padding: calc(var(--header) + 36px) var(--gutter) clamp(70px, 11vh, 130px); overflow: hidden; }
   .backdrop, .shade { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
-  .backdrop { object-fit: cover; object-position: center 30%; }
-  .shade { background: linear-gradient(90deg, #000e 0%, #0009 46%, #0002), linear-gradient(0deg, #000, transparent 65%); }
-  .poster-backdrop { opacity: .22; }
-  .copy { animation: feature-in .42s cubic-bezier(.2,.8,.2,1) both; }
-  .backdrop { animation: backdrop-in .6s ease both; }
+  .backdrop { object-fit: cover; object-position: center 35%; animation: backdrop-in .7s ease both, drift 14s ease-out both; }
+  .shade { background: linear-gradient(90deg, #07080aee 0%, #07080a99 32%, transparent 62%), linear-gradient(0deg, var(--bg) 0%, #07080a66 22%, transparent 45%); }
+  .poster-backdrop { opacity: .22; object-fit: contain; object-position: 85% center; }
+  .copy { max-width: min(46vw, 600px); animation: feature-in .45s cubic-bezier(.2,.8,.2,1) both; }
   @keyframes feature-in { from { opacity: 0; transform: translateY(14px); } }
   @keyframes backdrop-in { from { opacity: 0; } }
-  .copy { max-width: min(62%, 820px); }
-  .eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .16em; color: #ececee; }
-  h1 { font-size: clamp(30px, 4.3vw, 72px); line-height: 1.08; letter-spacing: -.035em; margin: 18px 0; overflow-wrap: break-word; }
-  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; font-size: 14px; color: #d1d1d6; }
+  @keyframes drift { from { transform: scale(1.06); } }
+  .eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--acc) 65%, #fff); }
+  .eyebrow::before { content: ''; width: 22px; height: 2px; background: currentColor; }
+  h1 { font-size: clamp(38px, 4.6vw, 72px); line-height: 1.02; letter-spacing: -.035em; font-weight: 800; margin: 14px 0; overflow-wrap: break-word; text-shadow: 0 2px 30px #0006; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 14px; font-weight: 500; color: #c9c4bb; margin: 0; }
   .rating { display: inline-flex; align-items: center; gap: 5px; color: #f5c518; font-weight: 800; }
-  .rating small { color: #aaa; font-weight: 500; }
-  .description { max-width: 62ch; font-size: 16px; line-height: 1.6; color: #d1d1d6; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 20px 0 24px; }
-  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
-  .poster { margin-left: auto; width: clamp(150px, 19vw, 290px); flex: none; box-shadow: 0 24px 60px #0008; border-radius: 14px; overflow: hidden; }
-  .poster img { display: block; width: 100%; aspect-ratio: 2/3; object-fit: cover; }
-  .pagination { position: absolute; bottom: 22px; right: var(--gutter); display: flex; align-items: center; gap: 14px; font-variant-numeric: tabular-nums; font-size: 12px; }
-  .pagination button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid #ffffff30; background: #0005; color: white; display: grid; place-items: center; cursor: pointer; }
-  @media(max-width: 640px) { .showcase { height: auto; min-height: 500px; padding-top: calc(var(--header) + 24px); padding-bottom: 64px; align-items: flex-end; } .copy { max-width: 100%; } .poster { display: none; } .shade { background: linear-gradient(0deg, var(--bg), #0009 70%, #0005); } .description { font-size: 14px; } .eyebrow { font-size: 10px; } }
-  /* «Кинозал»: главная кнопка кадра - белая капсула на любом экране. */
-  .actions .btn.primary { background: #fff; color: #0a0a0a; border: 0; height: 46px; padding: 0 26px; border-radius: 999px; font-weight: 700; transition: transform .15s ease; }
-  .actions .btn.primary:active { transform: scale(.96); }
-  /* Телефон - «Кинозал»: кадр почти на весь экран, внизу сведения, название и одна белая «Смотреть». */
+  .description { max-width: 60ch; font-size: 16px; line-height: 1.6; color: #ddd8d0; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 16px 0 0; }
+  .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 26px; }
+  .actions .btn { height: 52px; padding: 0 26px; border-radius: 999px; font-weight: 700; font-size: 15px; gap: 10px; border: 0; transition: transform .15s ease, background .2s; }
+  .actions .btn:active { transform: scale(.96); }
+  .actions .btn.primary { background: #fff; color: #0a0a0a; }
+  /* Стекло - только на маленькой капсуле. */
+  .actions .btn.glass { background: #ffffff1c; color: #fff; box-shadow: inset 0 0 0 1px #ffffff2e; backdrop-filter: blur(14px); }
+  .actions .btn.glass:hover { background: #ffffff2a; }
+  .actions .btn.glass.on { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 70%, #fff); }
+  .dots { position: absolute; right: var(--gutter); bottom: clamp(80px, 12vh, 140px); display: flex; gap: 6px; }
+  .dots button { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 99px; background: #ffffff55; cursor: pointer; transition: width .3s cubic-bezier(.2,.8,.2,1), background .3s; }
+  .dots button.on { width: 28px; background: #fff; }
+  :global(.no-motion) .backdrop, :global(.no-motion) .copy { animation: none; }
+  /* Телефон: кадр сверху почти целиком, всё по центру под ним. */
   @media (max-width: 640px) {
-    .showcase { min-height: 0; height: clamp(460px, 74svh, 640px); padding-bottom: 54px; }
-    .eyebrow, .description, .actions .btn:not(.primary) { display: none; }
-    .copy h1 { font-size: clamp(32px, 10vw, 44px); letter-spacing: -.035em; margin: 6px 0 12px; }
-    .meta { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; gap: 4px 10px; }
-    .pagination { bottom: 14px; }
-    /* Кадр 16:9 на высокий экран растягивался во всю высоту - виднелась четверть картинки. Теперь кадр
-       сверху почти целиком (4:3) и плавно уходит в фон, название - под ним. */
-    .showcase { height: auto; padding-top: calc(75vw - 64px); }
-    .backdrop { bottom: auto; height: auto; aspect-ratio: 4 / 3; object-position: center 35%; -webkit-mask-image: linear-gradient(#000 62%, transparent); mask-image: linear-gradient(#000 62%, transparent); }
+    .showcase { height: auto; min-height: 0; padding: calc(75vw - 40px) var(--gutter) 50px; justify-content: center; text-align: center; }
+    .backdrop { bottom: auto; height: auto; aspect-ratio: 4 / 3; object-position: center 35%; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
     .shade { background: linear-gradient(0deg, var(--bg) 30%, #0000 70%), linear-gradient(180deg, #0006, #0000 30%); }
+    .copy { max-width: 100%; }
+    .eyebrow { justify-content: center; font-size: 11px; }
+    h1 { font-size: clamp(32px, 10vw, 44px); margin: 8px 0 10px; }
+    .meta { justify-content: center; font-size: 13px; }
+    .description { display: none; }
+    .actions { justify-content: center; margin-top: 20px; }
+    .actions .btn { height: 48px; padding: 0 22px; }
+    .dots { left: 0; right: 0; bottom: 18px; justify-content: center; }
   }
 </style>

@@ -914,6 +914,47 @@ pub async fn franchise(
     Ok(Json(json!(out)))
 }
 
+// ---------- тема недели ----------
+
+/// Тема недели для главной: подпись и фильмы (карточки ленты; свои - с `local`).
+pub async fn theme(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
+    let cur = tokio::time::timeout(Duration::from_secs(12), crate::themes::current(&app))
+        .await
+        .map_err(|_| ApiError::bad("imdb", "IMDb сейчас не отвечает - попробуйте позже"))?
+        .map_err(|e| ApiError::bad("imdb", format!("Тема недели недоступна: {e}")))?;
+    let items: Vec<ExtCard> = cur.ids.iter().filter_map(|id| ext_card(&app, &v, id).ok()).collect();
+    Ok(Json(json!({"key": cur.key, "title": cur.title, "subtitle": cur.subtitle, "items": items})))
+}
+
+pub async fn theme_settings(State(app): State<Arc<App>>, _m: Manager) -> ApiResult<Json<Value>> {
+    Ok(Json(json!({"choice": crate::themes::choice(&app), "themes": crate::themes::list(),
+                   "auto": crate::themes::auto(now_ms()).title})))
+}
+
+pub async fn save_theme(
+    State(app): State<Arc<App>>,
+    _m: Manager,
+    Json(mut b): Json<crate::themes::Choice>,
+) -> ApiResult<Json<Value>> {
+    let known = b.mode == "auto" || b.mode == "custom" || crate::themes::THEMES.iter().any(|t| t.key == b.mode);
+    if !known {
+        return Err(ApiError::bad("bad_theme", "Неизвестная тема"));
+    }
+    b.title = b.title.trim().chars().take(60).collect();
+    b.genre = b.genre.trim().chars().take(40).collect();
+    b.director = b.director.trim().chars().take(80).collect();
+    if b.mode == "custom" {
+        if b.title.is_empty() {
+            return Err(ApiError::bad("bad_theme", "Назовите тему"));
+        }
+        if b.director.is_empty() && crate::discover::genre_query(&b.genre).is_none() {
+            return Err(ApiError::bad("bad_theme", "Укажите режиссёра или жанр (например, «Фантастика»)"));
+        }
+    }
+    crate::themes::save(&app, &b)?;
+    Ok(Json(json!({"ok": true})))
+}
+
 #[cfg(test)]
 mod rank_tests {
     use super::search_rank;

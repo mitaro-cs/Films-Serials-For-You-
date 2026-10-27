@@ -29,7 +29,7 @@
       {#each shown as item (item.key)}
         {@const card = item.card ?? item.ext!}
         {@const art = item.art ?? card.poster}
-        <article>
+        <article style:--acc={item.card?.accent ?? '#c8894a'}>
           <a href={item.href} aria-label="{card.title} - {item.label} - {left(item.position, item.duration)}">
             <span class="art" style:background={art ? undefined : placeholder(card.title)}>
               {#if art}<img src={artW(art, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />{:else}<span class="ph">{card.title}</span>{/if}
@@ -80,9 +80,18 @@
     display: block;
     aspect-ratio: 16 / 9;
     overflow: hidden;
-    margin-bottom: 6px;
-    border-radius: 10px;
+    margin-bottom: 8px;
+    border-radius: 16px;
     background: #111;
+    box-shadow: 0 18px 40px -22px #000;
+  }
+  /* «Кинозал+»: низ кадра темнее - полоса просмотренного читается на любом кадре. */
+  .art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(0deg, #000a, transparent 45%);
+    pointer-events: none;
   }
   img {
     width: 100%;
@@ -104,8 +113,9 @@
   }
   .play {
     position: absolute;
-    left: 8px;
-    bottom: 14px;
+    z-index: 1;
+    left: 12px;
+    bottom: 20px;
     display: grid;
     place-items: center;
     width: 34px;
@@ -115,18 +125,21 @@
   }
   .track {
     position: absolute;
-    left: 8px;
-    right: 8px;
-    bottom: 6px;
-    height: 3px;
+    z-index: 1;
+    left: 12px;
+    right: 12px;
+    bottom: 10px;
+    height: 4px;
     overflow: hidden;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, 0.28);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.25);
   }
+  /* Полоса - цветом постера фильма. */
   .track i {
     display: block;
     height: 100%;
-    background: #fff;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--acc) 75%, #fff);
   }
   .meta {
     overflow: hidden;
@@ -137,7 +150,7 @@
   }
   b {
     overflow: hidden;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 700;
     white-space: nowrap;
     text-overflow: ellipsis;

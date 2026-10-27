@@ -53,6 +53,14 @@
     return () => { live = false; };
   });
   const sectionResumes = $derived(resumes.filter((r) => tab === 'home' ? true : tab === 'anime' ? isAnime(r.card ?? r.ext!) : (r.card ?? r.ext)?.kind === (tab === 'series' ? 'series' : 'movie')));
+  // Тема недели: ряд под «Продолжить» и пара кадров в герое.
+  let theme = $state<{ key: string; title: string; subtitle: string; items: ExtCard[] } | null>(null);
+  $effect(() => {
+    void extSheet.version;
+    let live = true;
+    api<NonNullable<typeof theme>>('/api/theme').then((t) => { if (live) theme = t; }, () => {});
+    return () => { live = false; };
+  });
   let feedFailed = $state(false);
   let generation = 0;
   let refresh = $state(0);
@@ -71,11 +79,16 @@
   });
   const kind = $derived(tab === 'series' ? 'series' : 'movie');
   const imdb = $derived(feed ? feed.rows.filter((r) => tab === 'home' ? !r.key.startsWith('anime_') : tab === 'anime' ? r.key.startsWith('anime_') : r.key.endsWith(tab === 'series' ? '_series' : '_movies')) : []);
+  // Герой: сначала своё (с местом, где остановились), потом ваши «Смотрю» и «Хочу» из Обзора, потом
+  // тема недели и популярное IMDb - без повторов и брошенного.
   const showcase = $derived.by(() => {
     const local = hero.slice(0, 3).map((card) => ({ card }));
-    const saved = marks ? [...marks.watching, ...marks.want].flatMap((m) => m.ext ? [m.ext] : []) : [];
-    const external = [...new Map([...saved, ...imdb.flatMap((r) => r.items)].filter((e) => e.mark !== 'dropped' && !e.local).map((e) => [e.id, e])).values()].slice(0, 6).map((ext) => ({ ext }));
-    return [...local, ...external].slice(0, 6);
+    const ok = (e: ExtCard) => e.mark !== 'dropped' && !e.local;
+    const saved = marks ? [...marks.watching, ...marks.want].flatMap((m) => (m.ext && ok(m.ext) ? [m.ext] : [])) : [];
+    const themed = (theme?.items ?? []).filter(ok).slice(0, 2);
+    const popular = imdb.flatMap((r) => r.items).filter(ok);
+    const ext = [...new Map([...saved.slice(0, 3), ...themed, ...popular].map((e) => [e.id, e])).values()];
+    return [...local, ...ext.map((e) => ({ ext: e }))].slice(0, 6);
   });
   const animeIds = $derived(new Set(feed?.rows.filter((r) => r.key.startsWith('anime_')).flatMap((r) => r.items.map((c) => c.id)) ?? []));
   const inSection = (m: Pick<Marks['want'][number], 'card' | 'ext'>) => tab === 'anime'
@@ -147,6 +160,7 @@
     <div class="rows">
       {#if tab === 'home'}
         {#if sectionResumes.length}<ContinueRow items={sectionResumes} />{:else if resumeFailed}{#each rows.filter((r) => r.key === 'continue') as row (row.key)}<Shelf title={row.title} items={row.items} eager droppable />{/each}{/if}
+        {#if theme?.items.length}<PosterRow title={theme.title} note={theme.subtitle || 'тема недели'} items={theme.items} />{/if}
         {#if going.length}<PosterRow title="Смотрю сейчас" items={going} />{/if}
         {#if favorites.length}<PosterRow title="Избранное" items={favorites} />{/if}
         {#if want.length}<PosterRow title="В планах на вечер" items={want} />{/if}

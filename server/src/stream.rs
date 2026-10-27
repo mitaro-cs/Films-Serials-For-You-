@@ -490,7 +490,13 @@ mod tests {
     #[test]
     fn decides_direct_play() {
         let mut p = Probe { format: "mov,mp4".into(), duration: Some(10.0), ..Default::default() };
-        p.video = Some(probe::Video { codec: "h264".into(), width: 1920, height: 1080, pix_fmt: "yuv420p".into() });
+        p.video = Some(probe::Video {
+            codec: "h264".into(),
+            width: 1920,
+            height: 1080,
+            pix_fmt: "yuv420p".into(),
+            transfer: String::new(),
+        });
         p.audio.push(probe::Track { codec: "aac".into(), ..Default::default() });
         assert!(play_info(Path::new("a.mp4"), Some(&p), false).direct);
         assert!(!play_info(Path::new("a.mkv"), Some(&p), true).direct);

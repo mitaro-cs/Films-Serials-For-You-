@@ -620,6 +620,11 @@ CREATE TABLE logins (
 );
 CREATE INDEX logins_at ON logins(at);
 "#,
+    // 23 (alpha 0.5): 10-битные видео - заново через ffprobe: нужна передаточная функция цвета
+    // (HDR10/HLG), чтобы при перекодировании переводить HDR в обычный цвет.
+    r#"
+UPDATE files SET probe = NULL WHERE probe LIKE '%10le"%' OR probe LIKE '%10be"%' OR probe LIKE '%p010%';
+"#,
 ];
 
 /// Сколько миграций должна знать версия Nova, чтобы работать с базой этой версии. Миграции

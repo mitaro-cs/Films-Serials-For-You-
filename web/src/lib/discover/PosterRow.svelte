@@ -13,7 +13,8 @@
     href = null,
     ranked = false,
     i = 0,
-  }: { title: string; items: Tile[] | ExtCard[]; href?: string | null; ranked?: boolean; i?: number } = $props();
+    note = null,
+  }: { title: string; items: Tile[] | ExtCard[]; href?: string | null; ranked?: boolean; i?: number; note?: string | null } = $props();
 
   // Элемент - карточка ленты или {ext | card} из «Буду смотреть» и списков.
   const tiles = $derived<Tile[]>(items.map((i) => ('id' in i ? { ext: i as ExtCard } : (i as Tile))));
@@ -40,7 +41,7 @@
 
 <section class="rise row" aria-label={title} style:--i={i}>
   <div class="head">
-    <h2>{title}</h2>
+    <h2>{title}{#if note}<small class="note">{note}</small>{/if}</h2>
     {#if href}<a class="all" {href}>Все <Icon name="right" size={16} /></a>{/if}
   </div>
   <div class="wrap">
@@ -78,6 +79,13 @@
   h2 {
     font-size: clamp(19px, 1.6vw, 24px);
     font-weight: 700;
+  }
+  /* Подпись к ряду (тема недели): мельче и спокойнее названия. */
+  .note {
+    margin-left: 10px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--muted);
   }
   .all {
     display: inline-flex;

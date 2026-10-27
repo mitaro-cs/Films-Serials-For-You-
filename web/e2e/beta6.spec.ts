@@ -44,13 +44,15 @@ test('баннер листается в покое и сохраняет руч
   await page.route('**/api/discover',r=>r.fulfill({json:{rows:[{key:'popular_movies',title:'Популярные фильмы',items:cards}]}}));
   await page.route('**/api/me/marks',r=>r.fulfill({json:{want:[],watching:[],watched:[]}}));
   await page.route('**/api/continue',r=>r.fulfill({json:[]}));
+  await page.route('**/api/theme',r=>r.fulfill({status:503,headers:{'x-fsfy':'1'},json:{}}));
   await page.route('**/api/discover/title/*',r=>r.fulfill({json:{card:cards.find(c=>r.request().url().endsWith(c.id)),overview:null,backdrop:null,posterLarge:null,refreshing:false}}));
   await page.goto(url('/'));
   const hero=page.getByRole('region',{name:'Рекомендуем'});
   await expect(hero.getByRole('heading',{level:1})).toHaveText('Матрица');
   await page.mouse.move(0,0);
   await expect(hero.getByRole('heading',{level:1})).toHaveText('Матрица: Перезагрузка',{timeout:9000});
-  await hero.getByRole('button',{name:'Предыдущая рекомендация'}).click();
+  // Точки под кадром: выбрал - карусель стоит.
+  await hero.getByRole('tab',{name:'Матрица',exact:true}).click();
   await expect(hero.getByRole('heading',{level:1})).toHaveText('Матрица');
   await page.mouse.move(0,0);
   await page.waitForTimeout(6800);

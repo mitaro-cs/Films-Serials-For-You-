@@ -55,6 +55,16 @@ pub struct Video {
     pub height: i64,
     #[serde(default)]
     pub pix_fmt: String,
+    /// Передаточная функция цвета: `smpte2084` (HDR10), `arib-std-b67` (HLG) - это HDR.
+    #[serde(default)]
+    pub transfer: String,
+}
+
+impl Video {
+    /// HDR: при перекодировании в обычный H.264 нужен перевод цвета, иначе картинка блёклая.
+    pub fn hdr(&self) -> bool {
+        matches!(self.transfer.as_str(), "smpte2084" | "arib-std-b67")
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -202,6 +212,7 @@ pub fn from_json(v: &serde_json::Value) -> Probe {
                     width: st["width"].as_i64().unwrap_or(0),
                     height: st["height"].as_i64().unwrap_or(0),
                     pix_fmt: st["pix_fmt"].as_str().unwrap_or_default().to_string(),
+                    transfer: st["color_transfer"].as_str().unwrap_or_default().to_string(),
                 });
             }
             Some(kind @ ("audio" | "subtitle")) => {

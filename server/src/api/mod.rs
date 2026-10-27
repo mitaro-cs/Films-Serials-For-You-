@@ -96,6 +96,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/discover/title/{id}/reviews", get(social::ext_reviews).post(social::add_ext_review))
         .route("/api/discover/title/{id}/stars", delete(social::clear_ext_stars))
         .route("/api/me/marks", get(discover::my_marks))
+        .route("/api/theme", get(discover::theme))
+        .route("/api/admin/theme", get(discover::theme_settings).put(discover::save_theme))
         .route("/api/me/profile", patch(profile::set_decor))
         .route("/api/me/favorites", put(profile::set_favorite))
         .route(

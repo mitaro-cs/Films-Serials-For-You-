@@ -26,6 +26,7 @@ pub mod rooms;
 pub mod ruwiki;
 pub mod stream;
 pub mod taste;
+pub mod themes;
 pub mod totp;
 pub mod util;
 pub mod video_search;

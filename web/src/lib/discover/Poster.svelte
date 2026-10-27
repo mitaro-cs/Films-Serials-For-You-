@@ -75,10 +75,11 @@
     position: relative;
     display: block;
     aspect-ratio: 2 / 3;
-    margin-bottom: 8px;
-    border-radius: 12px;
+    margin-bottom: 10px;
+    border-radius: 14px;
     overflow: hidden;
     background: var(--surface);
+    box-shadow: 0 14px 30px -16px #000;
     transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
   .tile:hover .art,
@@ -139,7 +140,7 @@
   }
   .name {
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 700;
   }
   .sub {
     display: flex;

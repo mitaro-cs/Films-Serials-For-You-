@@ -21,6 +21,7 @@ test('при сбое IMDb сохранённые планы остаются б
   await page.route('**/api/library', (r) => r.fulfill({ json: { items: [], recent: [], counts: {} } }));
   await page.route('**/api/discover', (r) => r.fulfill({ status: 503, headers: { 'x-fsfy': '1' }, json: {} }));
   await page.route('**/api/me/marks', (r) => r.fulfill({ json: { want: [{ ext: { ...card, mark: 'want' } }], watching: [], watched: [] } }));
+  await page.route('**/api/theme', (r) => r.fulfill({ status: 503, headers: { 'x-fsfy': '1' }, json: {} }));
   await page.route('**/api/discover/title/*', (r) => r.fulfill({ status: 503, headers: { 'x-fsfy': '1' }, json: {} }));
   await page.goto(url('/'));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(card.title);
@@ -32,6 +33,7 @@ test('при недоступном IMDb главная предлагает п�
   await page.route('**/api/library', (r) => r.fulfill({ json: { items: [], recent: [], counts: {} } }));
   await page.route('**/api/discover', (r) => r.fulfill({ status: 503, headers: { 'x-fsfy': '1' }, json: { message: 'Подборки недоступны' } }));
   await page.route('**/api/me/marks', (r) => r.fulfill({ json: { want: [], watching: [], watched: [] } }));
+  await page.route('**/api/theme', (r) => r.fulfill({ status: 503, headers: { 'x-fsfy': '1' }, json: {} }));
   await page.goto(url('/'));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Что посмотрим сегодня?');
   await expect(page.getByRole('heading', { name: 'Подборки временно недоступны' })).toBeVisible();

@@ -445,7 +445,8 @@ pub async fn hls_segment(
     }
     let audio = q.audio.min(f.probe.as_ref().map(|p| p.audio.len().saturating_sub(1)).unwrap_or(0));
     let ffmpeg = app.tools.read().ffmpeg.clone().ok_or_else(no_ffmpeg)?;
-    let path = crate::hls::Job { file: id, height: h, audio }.segment(&app, &ffmpeg, &f.path, height, n).await?;
+    let hdr = f.probe.as_ref().and_then(|p| p.video.as_ref()).is_some_and(|v| v.hdr());
+    let path = crate::hls::Job { file: id, height: h, audio }.segment(&app, &ffmpeg, &f.path, height, hdr, n).await?;
     let bytes = tokio::fs::read(&path).await?;
     Ok(([(header::CONTENT_TYPE, "video/mp2t"), (header::CACHE_CONTROL, "private, max-age=600")], bytes).into_response())
 }

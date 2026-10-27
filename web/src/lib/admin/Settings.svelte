@@ -4,6 +4,7 @@
   import { api, errorText, post, put } from '$lib/api';
   import { loadMe, session } from '$lib/session.svelte';
   import LoginJournal from './LoginJournal.svelte';
+  import ThemeSettings from './ThemeSettings.svelte';
   import Icon from '$lib/ui/Icon.svelte';
 
   interface S {
@@ -180,6 +181,8 @@
       <button class="btn">Сохранить</button>
     </form>
   </section>
+
+  <ThemeSettings />
 
   <section class="card pane">
     <h3>Безопасность</h3>

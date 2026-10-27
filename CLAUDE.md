@@ -177,6 +177,13 @@
   русские постеры ленты - `tmdb::poster_ru` при ключе TMDB (upsert их не затирает). `body` -
   `user-select: none`, выделяемое - `input`, `textarea`, `.selectable`. Зрителям - «администрация/сервер
   Nova», не «хост».
+- Alpha 0.5: дизайн «Кинозал+» (выбор владельца из трёх макетов): `ui/Showcase.svelte` (герой главной:
+  надпись цветом `card.accent`, «Хочу» - `marks.toggle`), блоки «Кинозал+» в конце стилей `title/[id]`,
+  `ext/[id]` (≥981 px: `cinema-stage` - фон всего героя) и `Player.svelte`. Тема недели - `themes.rs`
+  (`THEMES`, `auto` по дате, `settings theme.choice`), `GET /api/theme`, `/api/admin/theme`, фронт -
+  `admin/ThemeSettings`, ряд на главной. HDR при перекодировании - `hls::tonemap_ok` + zscale/tonemap
+  (`Video.transfer`, миграция 23 пересканирует 10 бит). Снимки на демо-данных - `node scripts/look.mjs`
+  (`DEV=1` - интерфейс из исходников через vite).
 - Скорость у зрителя (Alpha 0.2): `/api/speedtest` (вошедшим, 20/мин, несжатый), `player/speed.ts` -
   старт «Оригинал» только при скорости ≥ 1,5 × битрейт (`info.bitrate`), остановка > 3 с или 2 за 30 с -
   автокачество; отчёт `net` в прогрессе → `App.playback` → «Сейчас смотрят».

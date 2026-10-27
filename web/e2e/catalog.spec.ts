@@ -11,7 +11,7 @@ test('главная: герой, ряды и сериалы рядом с фи�
   const hero = page.getByRole('region', { name: 'Рекомендуем' });
   await expect(hero.getByRole('heading', { level: 1 })).toBeVisible();
   const before = await hero.getByRole('heading', { level: 1 }).textContent();
-  await hero.getByRole('button', { name: 'Следующая рекомендация' }).click();
+  await hero.getByRole('tab', { selected: false }).first().click();
   await expect(hero.getByRole('heading', { level: 1 })).not.toHaveText(before!);
 
   // Где остановился - в «Продолжить просмотр», у сериала - следующая серия.

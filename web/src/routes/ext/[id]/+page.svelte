@@ -558,10 +558,12 @@
 
 
       <div class="info">
+        <span class="eyebrow">{kindLabel(c.kind)}{c.year ? ` · ${c.year}` : ''}</span>
         <h1>{c.title}</h1>
         <p class="meta">
-          {#if c.year}<span>{c.year}</span>{/if}
-          <span>{kindLabel(c.kind)}</span>
+          {#if c.rating}<span class="kz-rating"><Icon name="star" size={13} /> {c.rating.toFixed(1)} IMDb</span>{/if}
+          {#if c.year}<span class="year">{c.year}</span>{/if}
+          <span class="kind">{kindLabel(c.kind)}</span>
           {#if d?.runtime}<span>{runtime(d.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
           {#if d?.age}<span class="age">{d.age}</span>{/if}
         </p>
@@ -1570,5 +1572,37 @@
   .in-sheet {
     display: grid;
     gap: 10px;
+  }
+  /* ---------- «Кинозал+» (alpha 0.5, компьютер) ----------
+     Кадр с трейлером - на весь первый экран, поверх слева: надпись «Фильм · год» цветом постера,
+     название, оценка, описание и белая «Смотреть»; справа - карточки действий. Постер не нужен:
+     фильм уже на всём экране. */
+  @media (min-width: 981px) {
+    .hero { min-height: clamp(640px, 100svh, 1020px); display: flex; flex-direction: column; justify-content: flex-end; padding: calc(var(--header) + 24px) var(--gutter) 56px; }
+    .cinema-stage { position: absolute; inset: 0; height: auto; margin: 0; z-index: -2; }
+    .hero::after { content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none; background: linear-gradient(90deg, #07080af2 0%, #07080aa6 36%, #07080a1f 68%), linear-gradient(0deg, var(--bg) 0%, #07080a80 26%, transparent 52%); }
+    /* Кнопки трейлера - наверх справа (под «Обложка» и «Фон» хоста): внизу справа теперь действия. */
+    .cinema-stage :global(.controls) { top: calc(var(--header) + 64px); bottom: auto; }
+    .wrap { width: 100%; max-width: none; margin: 0; display: grid; grid-template-columns: minmax(0, 620px) minmax(0, 1fr) 340px; grid-template-areas: 'info . panel' 'go . panel'; align-items: end; gap: 22px 40px; }
+    .info { grid-area: info; gap: 14px; }
+    .poster-col { grid-area: go; justify-self: start; }
+    .poster { display: none; }
+    .watch.block { display: inline-flex; width: auto; height: 52px; padding: 0 30px; border-radius: 999px; background: #fff; color: #0a0a0a; border: 0; font-weight: 700; font-size: 15px; }
+    .panel { grid-area: panel; align-self: end; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--tint, #c8894a) 60%, #fff); }
+    .eyebrow::before { content: ''; width: 22px; height: 2px; background: currentColor; }
+    h1 { font-size: clamp(44px, 4.8vw, 76px); line-height: 1.02; letter-spacing: -.035em; font-weight: 800; text-shadow: 0 2px 30px #0007; }
+    .meta { color: #c9c4bb; font-weight: 500; }
+    .meta .kz-rating { display: inline-flex; align-items: center; gap: 5px; color: #f5c518; font-weight: 800; }
+    .meta .year, .meta .kind { display: none; }
+    .overview { color: #ddd8d0; font-size: 16px; max-width: 60ch; }
+    .genres .pill { background: #ffffff14; border: 0; box-shadow: inset 0 0 0 1px #ffffff1a; }
+    .box, .panel .btn { background: #0e0f12d9; border-color: #ffffff17; }
+    .box { border-radius: 20px; }
+    .orig { color: #a9a49b; }
+    .cinema-details { display: none; }
+  }
+  @media (max-width: 980px) {
+    .eyebrow, .meta .kz-rating { display: none; }
   }
 </style>
