@@ -19,6 +19,8 @@
   let text = $state(untrack(() => page.url.searchParams.get('q') ?? ''));
   let items = $state<Card[] | null>(null);
   let found = $state<ExtCard[] | null>(null);
+  // Запрос - жанр («фантастика»): сервер присылает его в заголовке, подпись ряда - по нему.
+  let genreName = $state<string | null>(null);
   let searching = $state(false);
   const query = $derived(text.trim());
   let kind = $state<'all' | 'movie' | 'series' | 'anime' | 'people'>('all');
@@ -71,7 +73,7 @@
         return;
       }
       let refreshing=false;
-      const load=()=>api<ExtCard[]>('/api/discover/search?q='+encodeURIComponent(q),{signal:controller.signal,headersReceived:(h)=>refreshing=h.get('x-nova-refreshing')==='1'})
+      const load=()=>api<ExtCard[]>('/api/discover/search?q='+encodeURIComponent(q),{signal:controller.signal,headersReceived:(h)=>{refreshing=h.get('x-nova-refreshing')==='1';const g=h.get('x-nova-genre');genreName=g?decodeURIComponent(g.replace(/\+/g,' ')):null;}})
         .then((r)=>{if(!live)return;const incoming=r.filter((e)=>!e.local);const old=found??[];const map=new Map(incoming.map((e)=>[e.id,e]));const seen=new Set(old.map((e)=>e.id));found=[...old.map((e)=>map.get(e.id)??e),...incoming.filter((e)=>!seen.has(e.id))];if(cache.size>=24)cache.delete(cache.keys().next().value!);if(!refreshing)cache.set(q.toLocaleLowerCase('ru'),found);if(refreshing)updateTimer=window.setTimeout(load,2500);},()=>{if(live){found=found??[];failure='Не удалось связаться с каталогом. Попробуйте ещё раз.';}})
         .finally(()=>{if(live)searching=false;});
       void load();
@@ -123,7 +125,7 @@
     {/if}
     {#if externalResults.length}
       <section aria-label="Все фильмы и сериалы">
-        <h2>Все фильмы и сериалы</h2>
+        <h2>{genreName ? `Жанр: ${genreName} - самое известное` : 'Все фильмы и сериалы'}</h2>
         <div class="posters">{#each externalResults as card, i (card.id)}<Poster {card} {i} />{/each}</div>
       </section>
     {:else if items === null || found === null || searching}

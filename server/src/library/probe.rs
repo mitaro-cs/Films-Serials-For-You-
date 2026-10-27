@@ -280,6 +280,9 @@ pub async fn square_image(ffmpeg: &Path, src: &Path, size: u32) -> anyhow::Resul
             .args(["-hide_banner", "-loglevel", "error", "-i"])
             .arg(src)
             .args([
+                // Без метаданных: в фото с телефона бывают место съёмки и модель (EXIF).
+                "-map_metadata",
+                "-1",
                 "-vf",
                 &format!("crop='min(iw,ih)':'min(iw,ih)',scale={size}:{size}"),
                 "-q:v",
@@ -308,6 +311,9 @@ pub async fn scale_image(ffmpeg: &Path, src: &Path, width: u32) -> anyhow::Resul
             .args(["-hide_banner", "-loglevel", "error", "-i"])
             .arg(src)
             .args([
+                // Без метаданных: в фото с телефона бывают место съёмки и модель (EXIF).
+                "-map_metadata",
+                "-1",
                 "-vf",
                 &format!("scale='min({width},iw)':-2"),
                 "-q:v",

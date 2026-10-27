@@ -81,15 +81,15 @@
 
   function load(want: string) {
     const empty: ReviewsData = { average: null, votes: 0, total: 0, items: [], canWrite: false };
-    Promise.all([
-      getDetail(want),
-      api<ReviewsData>(`/api/discover/title/${want}/reviews`).catch(() => empty),
-    ]).then(
-      ([r, reviews]) => {
+    // Отзывы - своим запросом: страница не ждёт их, чтобы показаться.
+    api<ReviewsData>(`/api/discover/title/${want}/reviews`).catch(() => empty).then((reviews) => {
+      if (want === id) rv = reviews;
+    });
+    getDetail(want).then(
+      (r) => {
         if (want !== id) return;
         d = r;
         if (r.refreshing) pollDetail(want);
-        rv = reviews;
         if (r.card.kind !== 'series' && !r.card.local && !r.links.length && online === null) lookOnline(r);
         if (r.card.kind === 'series' && !episodes.length) {
           const resume = r.links.find((l) => l.progress && l.season != null && l.episode != null);
@@ -105,7 +105,7 @@
 
   async function pollDetail(want: string) {
     for (let attempt = 0; attempt < 12 && want === id; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      await new Promise((resolve) => setTimeout(resolve, attempt < 4 ? 1500 : 3000));
       if (want !== id) return;
       try { const fresh = await getDetail(want); if (want !== id) return; d = fresh; if (!fresh.refreshing) return; } catch { return; }
     }
@@ -447,7 +447,7 @@
         <button class="ib" class:on={c?.mark === 'watched'} aria-pressed={c?.mark === 'watched'} aria-label="Просмотрел" title="Просмотрел" disabled={!d} onclick={() => mark('watched')}><Icon name="check" size={16} /><span>Просмотрел</span></button>
         <button class="ib" class:on={isFavorite(`x:${c?.id}`)} aria-pressed={isFavorite(`x:${c?.id}`)} aria-label="Любимый" title="Любимый" disabled={!d} onclick={() => toggleFavorite(`x:${c?.id}`)}><Icon name="star" size={16} /><span>Любимый</span></button>
         {#if canWish || c?.wished}
-          <button class="ib" class:on={c?.wished} aria-pressed={c?.wished} aria-label={c?.wished ? 'Попросили хоста' : 'Хочу на Nova'} title={c?.wished ? 'Попросили хоста' : 'Хочу на Nova'} disabled={!d} onclick={wish}><Icon name="mail" size={16} /><span>{c?.wished ? 'Попросили' : 'Хочу на Nova'}</span></button>
+          <button class="ib" class:on={c?.wished} aria-pressed={c?.wished} aria-label={c?.wished ? 'Попросили добавить на Nova' : 'Хочу на Nova'} title={c?.wished ? 'Попросили добавить на Nova' : 'Хочу на Nova'} disabled={!d} onclick={wish}><Icon name="mail" size={16} /><span>{c?.wished ? 'Попросили' : 'Хочу на Nova'}</span></button>
         {/if}
         <button class="ib" aria-label="В список" title="В список" aria-expanded={lists} disabled={!d} onclick={() => (lists = !lists)}><Icon name="list" size={16} /><span>В список</span></button>
         <button class="ib" aria-label="Добавить видео" title="Добавить видео" disabled={!d} onclick={() => (finding = true)}><Icon name="link" size={16} /><span>Видео</span></button>
@@ -566,7 +566,7 @@
           {#if d?.age}<span class="age">{d.age}</span>{/if}
         </p>
         {#if c.original}<p class="orig">{c.original}</p>{/if}
-        {#if d?.overview}<p class="overview">{localized(d.overview, 'Описание на русском пока недоступно')}</p>{:else if !d}<p class="overview ph-text skeleton"></p>{/if}
+        {#if d?.overview}<p class="overview selectable">{localized(d.overview, 'Описание на русском пока недоступно')}</p>{:else if !d}<p class="overview ph-text skeleton"></p>{/if}
         {#if c.genres.length}
           <div class="genres">
             {#each c.genres as g (g)}<span class="pill">{g}</span>{/each}

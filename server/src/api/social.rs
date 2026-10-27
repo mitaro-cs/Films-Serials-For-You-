@@ -534,7 +534,7 @@ pub async fn unfriend(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64
 // ---------- переписка ----------
 
 /// id, от кого, текст, когда, прочитано, фильм.
-type MessageRow = (i64, i64, String, i64, Option<i64>, Option<i64>);
+type MessageRow = (i64, i64, String, i64, Option<i64>, Option<i64>, Option<String>);
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -545,6 +545,14 @@ pub struct Message {
     pub created_at: i64,
     pub read: bool,
     pub title: Option<Value>,
+    /// Фильм из ленты (Обзор): карточка как в `/api/discover`.
+    pub ext: Option<Value>,
+}
+
+/// Карточка фильма из ленты для сообщения (нет в базе - пусто).
+fn ext_of(app: &App, v: &Viewer, id: Option<String>) -> Option<Value> {
+    let id = id?;
+    super::discover::ext_card(app, v, &id).ok().and_then(|c| serde_json::to_value(c).ok())
 }
 
 fn friends_only(app: &App, me: i64, other: i64) -> ApiResult<()> {
@@ -561,7 +569,7 @@ pub async fn chats(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Val
     let items: Vec<Value> = app.db.with(|c| {
         let mut st = c.prepare(&format!(
             "SELECT {PERSON_COLS},
-                    (SELECT body FROM messages m WHERE (m.from_id = p.id AND m.to_id = ?1) OR (m.from_id = ?1 AND m.to_id = p.id) ORDER BY m.id DESC LIMIT 1),
+                    (SELECT CASE WHEN body = '' THEN 'Фильм' ELSE body END FROM messages m WHERE (m.from_id = p.id AND m.to_id = ?1) OR (m.from_id = ?1 AND m.to_id = p.id) ORDER BY m.id DESC LIMIT 1),
                     (SELECT MAX(created_at) FROM messages m WHERE (m.from_id = p.id AND m.to_id = ?1) OR (m.from_id = ?1 AND m.to_id = p.id)) AS last_at,
                     (SELECT COUNT(*) FROM messages m WHERE m.from_id = p.id AND m.to_id = ?1 AND m.read_at IS NULL)
              FROM friends f JOIN profiles p ON p.id = CASE WHEN f.a = ?1 THEN f.b ELSE f.a END
@@ -597,29 +605,49 @@ pub async fn chat(
     friends_only(&app, me, id)?;
     let after = q.after.unwrap_or(0);
     let before = q.before.unwrap_or(i64::MAX);
-    let mut items: Vec<Message> = app.db.with(|c| {
-        let mut st = c.prepare(&format!(
-            "SELECT m.id, m.from_id, m.body, m.created_at, m.read_at, m.title_id
+    let mut items: Vec<Message> = app
+        .db
+        .with(|c| {
+            let mut st = c.prepare(&format!(
+                "SELECT m.id, m.from_id, m.body, m.created_at, m.read_at, m.title_id, m.ext_id
              FROM messages m
              WHERE ((m.from_id = ?1 AND m.to_id = ?2) OR (m.from_id = ?2 AND m.to_id = ?1)) AND m.id > ?3 AND m.id < ?4
              ORDER BY m.id DESC LIMIT {PAGE}"
-        ))?;
-        let rows: Vec<MessageRow> = st
-            .query_map(params![me, id, after, before], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-            })?
-            .collect::<rusqlite::Result<_>>()?;
-        let mut tst = c.prepare(&format!("SELECT {CARD_COLS} FROM titles t WHERE t.id = ? AND {}", visible(false)))?;
-        rows.into_iter()
-            .map(|(mid, from, body, at, read, title)| {
-                let title = match title {
-                    Some(t) => tst.query_row([t], |r| card_at(r, 0)).optional()?,
-                    None => None,
-                };
-                Ok(Message { id: mid, mine: from == me, body, created_at: at, read: read.is_some(), title })
-            })
-            .collect()
-    })?;
+            ))?;
+            let rows: Vec<MessageRow> = st
+                .query_map(params![me, id, after, before], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+                })?
+                .collect::<rusqlite::Result<_>>()?;
+            let mut tst =
+                c.prepare(&format!("SELECT {CARD_COLS} FROM titles t WHERE t.id = ? AND {}", visible(false)))?;
+            rows.into_iter()
+                .map(|(mid, from, body, at, read, title, ext)| {
+                    let title = match title {
+                        Some(t) => tst.query_row([t], |r| card_at(r, 0)).optional()?,
+                        None => None,
+                    };
+                    Ok((
+                        Message {
+                            id: mid,
+                            mine: from == me,
+                            body,
+                            created_at: at,
+                            read: read.is_some(),
+                            title,
+                            ext: None,
+                        },
+                        ext,
+                    ))
+                })
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })?
+        .into_iter()
+        .map(|(mut m, ext)| {
+            m.ext = ext_of(&app, &v, ext);
+            m
+        })
+        .collect();
     items.reverse();
     app.db.with(|c| {
         c.execute(
@@ -636,6 +664,8 @@ pub struct SendBody {
     #[serde(default)]
     body: String,
     title_id: Option<i64>,
+    /// Фильм из ленты IMDb (`tt…`), если нет своего.
+    ext_id: Option<String>,
 }
 
 pub async fn send(
@@ -652,7 +682,15 @@ pub async fn send(
     if let Some(t) = b.title_id {
         title_visible(&app, &v, t)?;
     }
-    if body.is_empty() && b.title_id.is_none() {
+    let ext_id = match b.ext_id.filter(|_| b.title_id.is_none()) {
+        Some(e) if crate::discover::valid_id(&e) => {
+            super::discover::ext_card(&app, &v, &e)?;
+            Some(e)
+        }
+        Some(_) => return Err(ApiError::not_found()),
+        None => None,
+    };
+    if body.is_empty() && b.title_id.is_none() && ext_id.is_none() {
         return Err(ApiError::bad("empty", "Пустое сообщение"));
     }
     if !app.message_limit.blocked(&me.to_string()) {
@@ -663,8 +701,8 @@ pub async fn send(
     let at = now_ms();
     let (mid, title) = app.db.with(|c| {
         c.execute(
-            "INSERT INTO messages (from_id, to_id, body, title_id, created_at) VALUES (?, ?, ?, ?, ?)",
-            params![me, id, body, b.title_id, at],
+            "INSERT INTO messages (from_id, to_id, body, title_id, ext_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            params![me, id, body, b.title_id, ext_id, at],
         )?;
         let mid = c.last_insert_rowid();
         let title = match b.title_id {
@@ -675,7 +713,8 @@ pub async fn send(
         };
         Ok((mid, title))
     })?;
-    Ok(Json(Message { id: mid, mine: true, body, created_at: at, read: false, title }))
+    let ext = ext_of(&app, &v, ext_id);
+    Ok(Json(Message { id: mid, mine: true, body, created_at: at, read: false, title, ext }))
 }
 
 /// Для значков в шапке: просьбы дружбы и непрочитанные сообщения.
@@ -732,7 +771,7 @@ pub async fn set_photo(
     // Квадрат 256 px: аватар грузится мгновенно. Без ffmpeg - как есть.
     let ffmpeg = app.tools.read().ffmpeg.clone();
     let a = app.clone();
-    let raw = body.to_vec();
+    let raw = crate::images::strip_metadata(&body);
     let name = tokio::task::spawn_blocking(move || a.images.save(&raw))
         .await
         .map_err(ApiError::internal)?

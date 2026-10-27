@@ -767,7 +767,7 @@
   .tagline { display: -webkit-box; -webkit-line-clamp: 4; line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; max-width: 54ch; }
   .bg::after { background: linear-gradient(90deg, #000b, #0005 48%, #000c), linear-gradient(0deg, var(--bg), transparent 65%); }
   .ep { border-radius: 16px; overflow: hidden; }
-  .ep.cur { box-shadow: inset 0 0 0 1px #c4ceef88; }
+  /* Рамка - только у карточки серии (.cur .card): вторая рамка вокруг строки с галочкой выходила за список. */
   .still { background: #080808; }
   .still-label { position: absolute; inset: 0; display: grid; place-content: center; gap: 4px; font-size: 12px; color: var(--brand); text-align: center; }
 

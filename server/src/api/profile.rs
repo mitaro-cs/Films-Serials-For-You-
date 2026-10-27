@@ -326,7 +326,7 @@ pub async fn set_cover(State(app): State<Arc<App>>, v: Viewer, body: axum::body:
         return Err(ApiError::bad("bad_image", "Нужна картинка: JPEG, PNG или WebP"));
     }
     let a = app.clone();
-    let raw = body.to_vec();
+    let raw = crate::images::strip_metadata(&body);
     let name = tokio::task::spawn_blocking(move || a.images.save(&raw))
         .await
         .map_err(ApiError::internal)?

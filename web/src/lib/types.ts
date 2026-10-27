@@ -215,6 +215,7 @@ export interface MiniTitle {
   title: string;
   year: number | null;
   poster: string | null;
+  rating?: number | null;
 }
 
 export interface Message {
@@ -224,6 +225,8 @@ export interface Message {
   createdAt: number;
   read: boolean;
   title: MiniTitle | null;
+  /** Фильм из ленты IMDb (Обзор). */
+  ext?: (Omit<MiniTitle, 'id'> & { id: string }) | null;
 }
 
 export interface User {

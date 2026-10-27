@@ -137,18 +137,37 @@ pub async fn search(
             .map_err(|e| ApiError::bad("search", format!("Не удалось найти людей: {e}")))?;
         return Ok(axum::response::IntoResponse::into_response(Json(json!(result))));
     }
-    let ids = crate::catalog_search::search(&app, query)
-        .await
-        .map_err(|e| ApiError::bad("search", format!("Поиск временно недоступен: {e}")))?;
-    let mut out = Vec::new();
-    for id in &ids {
-        if let Ok(c) = ext_card(&app, &v, id) {
-            out.push(c);
+    // «Фантастика», «комедии», «сериалы ужасы» - сначала популярное в жанре, потом совпадения названий.
+    let genre = discover::genre_query(query);
+    let (by_genre, by_title) = match genre {
+        Some((g, _, types)) => {
+            tokio::join!(discover::genre_search(&app, g, types), crate::catalog_search::search(&app, query))
+        }
+        None => (Ok(vec![]), crate::catalog_search::search(&app, query).await),
+    };
+    let by_genre = by_genre.unwrap_or_else(|e| {
+        tracing::debug!("жанр с IMDb: {e:#}");
+        vec![]
+    });
+    let ids = match by_title {
+        Ok(ids) => ids,
+        Err(_) if !by_genre.is_empty() => vec![],
+        Err(e) => return Err(ApiError::bad("search", format!("Поиск временно недоступен: {e}"))),
+    };
+    let cards = |ids: &[String]| ids.iter().filter_map(|id| ext_card(&app, &v, id).ok()).collect::<Vec<_>>();
+    let mut out = cards(&by_genre);
+    let mut titles = cards(&ids);
+    let norm = crate::util::norm(query);
+    titles.sort_by_key(|c| search_rank(&norm, &c.title, c.original.as_deref(), c.rating));
+    titles.retain(|c| !by_genre.contains(&c.id));
+    out.extend(titles);
+    let mut response = axum::response::IntoResponse::into_response(Json(json!(out)));
+    if let Some((_, ru, _)) = genre {
+        let value = url::form_urlencoded::byte_serialize(ru.as_bytes()).collect::<String>();
+        if let Ok(h) = axum::http::HeaderValue::from_str(&value) {
+            response.headers_mut().insert("x-nova-genre", h);
         }
     }
-    let norm = crate::util::norm(query);
-    out.sort_by_key(|c| search_rank(&norm, &c.title, c.original.as_deref(), c.rating));
-    let mut response = axum::response::IntoResponse::into_response(Json(json!(out)));
     if app.detail_jobs.lock().contains(&format!("search:{}", crate::util::norm(query))) {
         response.headers_mut().insert("x-nova-refreshing", axum::http::HeaderValue::from_static("1"));
     }
@@ -279,6 +298,33 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
             }
             a.detail_jobs.lock().remove(&title_id);
         });
+    }
+    // Ссылку на HD-трейлер ищем заранее, пока страница грузится: баннер спросит её через полсекунды.
+    if app.detail_jobs.lock().insert(format!("hd:{id}")) {
+        let a = app.clone();
+        let tid = id.clone();
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(Duration::from_secs(8), super::previews::hd_url(&a, &tid)).await;
+            a.detail_jobs.lock().remove(&format!("hd:{tid}"));
+        });
+    }
+    // Фильм из ленты без кадра: кадр, описание и актёры приходят с IMDb за ~1 с. Подождать их до 2 с
+    // выгоднее, чем отдать пустую страницу и переспрашивать (баннер появлялся через 5-9 с). Кадр уже
+    // есть - не ждём: старые подробности покажутся сразу, новые подтянутся опросом. Картинки не ждём никогда.
+    let no_backdrop: bool = app.db.with(|c| {
+        c.query_row("SELECT backdrop IS NULL OR backdrop = '' FROM ext_titles WHERE id = ?", [&id], |r| r.get(0))
+    })?;
+    if no_backdrop && known != Some(discover::DETAILED) && app.detail_jobs.lock().contains(&id) {
+        let until = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < until {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let detailed: Option<i64> = app.db.with(|c| {
+                c.query_row("SELECT detailed FROM ext_titles WHERE id = ?", [&id], |r| r.get(0)).optional()
+            })?;
+            if detailed == Some(discover::DETAILED) || !app.detail_jobs.lock().contains(&id) {
+                break;
+            }
+        }
     }
     let card = ext_card(&app, &v, &id)?;
     type Row = (Option<String>, Option<i64>, Option<i64>, Option<String>, Option<String>);

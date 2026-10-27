@@ -277,7 +277,7 @@ fn no_ffmpeg() -> ApiError {
     ApiError::new(
         StatusCode::NOT_IMPLEMENTED,
         "no_ffmpeg",
-        "Этот формат браузер не играет, а ffmpeg у хоста не установлен",
+        "Этот формат браузер не играет, а на сервере Nova нет ffmpeg",
     )
 }
 
@@ -285,7 +285,7 @@ pub fn busy() -> ApiError {
     ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,
         "busy",
-        "Компьютер хоста сейчас перекодирует другие видео - попробуйте через минуту",
+        "Сервер Nova сейчас перекодирует другие видео - попробуйте через минуту",
     )
 }
 

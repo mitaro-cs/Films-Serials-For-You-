@@ -119,7 +119,7 @@ const HD: &str =
 /// Официальный трейлер IMDb в HD (mp4 1080p, иначе 720p) - для беззвучного баннера: у русских трейлеров
 /// с сайтов картинка часто пережатая («720p» по подписи, мыло на деле). Ссылка IMDb подписана и живёт
 /// сутки - держим 6 часов; нет HD - None (баннер возьмёт русский трейлер или останется на кадре).
-async fn hd_url(app: &App, id: &str) -> Option<String> {
+pub async fn hd_url(app: &App, id: &str) -> Option<String> {
     let key = format!("trailer.hd.{id}");
     if let Some(v) = app.db.setting(&key).and_then(|raw| serde_json::from_str::<Value>(&raw).ok()) {
         if now_ms() - v["at"].as_i64().unwrap_or(0) < 6 * 3_600_000 {

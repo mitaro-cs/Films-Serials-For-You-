@@ -605,6 +605,21 @@ UPDATE settings SET value = (
     WHERE value NOT IN ('vikinmult.net', 'garri-potter-lordfilms.com')
 ) WHERE key = 'video.sites' AND json_valid(value);
 "#,
+    // 22 (alpha 0.4): фильм из ленты в сообщении (`ext_id`), вход в два шага (`users.totp`) и журнал входов.
+    r#"
+ALTER TABLE messages ADD COLUMN ext_id TEXT;
+ALTER TABLE users ADD COLUMN totp TEXT;
+CREATE TABLE logins (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  login TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  via TEXT NOT NULL,
+  agent TEXT,
+  at INTEGER NOT NULL
+);
+CREATE INDEX logins_at ON logins(at);
+"#,
 ];
 
 /// Сколько миграций должна знать версия Nova, чтобы работать с базой этой версии. Миграции

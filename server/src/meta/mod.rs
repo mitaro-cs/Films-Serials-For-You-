@@ -240,6 +240,18 @@ pub enum Provider {
     Kp(kp::Kp),
 }
 
+/// TMDB для русских постеров ленты: есть ключ - даже если описания берутся с IMDb.
+pub fn tmdb_posters(app: &App) -> Option<tmdb::Tmdb> {
+    let db = &app.db;
+    let key = db.setting("meta.tmdb.key").filter(|k| !k.is_empty())?;
+    Some(tmdb::Tmdb {
+        key,
+        api: db.setting_or("meta.tmdb.api", "https://api.themoviedb.org/3"),
+        images: db.setting_or("meta.tmdb.images", "https://image.tmdb.org/t/p"),
+        http: app.http.clone(),
+    })
+}
+
 impl Provider {
     /// Источник из настроек; `None` - описания выключены или нет ключа.
     pub fn from_settings(app: &App) -> Option<Provider> {

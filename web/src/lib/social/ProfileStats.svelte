@@ -209,4 +209,17 @@
     font-size: 10.5px;
     color: var(--faint);
   }
+  /* Узкий телефон: двенадцать подписей не помещаются - через одну (выбранный месяц - всегда). */
+  @media (max-width: 480px) {
+    .months {
+      gap: 3px;
+    }
+    .col:nth-child(odd):not(.selected) small {
+      visibility: hidden;
+    }
+    .col small,
+    .value {
+      font-size: 9.5px;
+    }
+  }
 </style>

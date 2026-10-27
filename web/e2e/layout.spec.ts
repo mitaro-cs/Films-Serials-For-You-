@@ -68,15 +68,19 @@ test('вёрстка: вход (без сессии)', async ({ browser }) => {
 // размеры задаём сами).
 test('вёрстка: любые размеры экрана', async ({ page }, info) => {
   test.skip(info.project.name !== 'desktop', 'размеры задаёт сам тест');
-  test.setTimeout(240_000);
+  test.setTimeout(480_000);
   const sizes = [
     [320, 640],
+    [360, 780],
+    [430, 932],
     [844, 390],
     [1024, 700],
     [1920, 1080],
     [2560, 1440],
   ];
-  const paths = ['/', '/?tab=series', '/discover', '/search?q=на', '/lists', '/profile', `/title/${env().ids['Тьма']}`, `/title/${env().ids['Ла-Ла Ленд']}`];
+  // Узкие телефоны (320, 360) и большие (430): нижняя панель из шести разделов, капсулы профиля, серии.
+  const { people } = env();
+  const paths = ['/', '/?tab=series', '/discover', '/search?q=на', '/lists', '/profile', '/profile?tab=account', `/people/${people.me}`, `/chats/${people.anna}`, '/ext/tt1196946', `/title/${env().ids['Тьма']}`, `/title/${env().ids['Ла-Ла Ленд']}`];
   for (const [width, height] of sizes) {
     await page.setViewportSize({ width, height });
     for (const path of paths) {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CHARACTERS } from '$lib/ui/characters';
   import EmailSettings from '$lib/account/EmailSettings.svelte';
+  import Security from '$lib/account/Security.svelte';
   import PasswordInput from '$lib/ui/PasswordInput.svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
@@ -164,6 +165,7 @@
       <button class="btn">Сохранить пароль</button>
     </form>
     <EmailSettings />
+    {#if me.hasPassword}<Security />{/if}
     </div>
     {/if}
     {#if err}<p class="error">{err}</p>{/if}

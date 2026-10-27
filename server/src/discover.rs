@@ -29,6 +29,104 @@ pub enum Src {
 
 const MOVIE: &[&str] = &["movie"];
 const SERIES: &[&str] = &["tvSeries", "tvMiniSeries"];
+const ANY: &[&str] = &["movie", "tvSeries", "tvMiniSeries"];
+
+/// Запрос - это жанр («фантастика», «комедии», «сериалы ужасы»): жанр IMDb, подпись и что искать
+/// (фильмы, сериалы или всё). Слова вроде «фильмы», «лучшие», «про» не мешают; любое другое
+/// слово - значит, ищут название.
+pub fn genre_query(query: &str) -> Option<(&'static str, &'static str, &'static [&'static str])> {
+    const STEMS: &[(&str, &str, &str)] = &[
+        ("фантаст", "Sci-Fi", "Фантастика"),
+        ("научн", "Sci-Fi", "Фантастика"),
+        ("комеди", "Comedy", "Комедия"),
+        ("комедийн", "Comedy", "Комедия"),
+        ("ужас", "Horror", "Ужасы"),
+        ("хоррор", "Horror", "Ужасы"),
+        ("боевик", "Action", "Боевик"),
+        ("экшн", "Action", "Боевик"),
+        ("драм", "Drama", "Драма"),
+        ("триллер", "Thriller", "Триллер"),
+        ("детектив", "Mystery", "Детектив"),
+        ("мелодрам", "Romance", "Мелодрама"),
+        ("романтич", "Romance", "Мелодрама"),
+        ("приключен", "Adventure", "Приключения"),
+        ("фэнтези", "Fantasy", "Фэнтези"),
+        ("фентези", "Fantasy", "Фэнтези"),
+        ("мульт", "Animation", "Мультфильм"),
+        ("анимац", "Animation", "Мультфильм"),
+        ("документальн", "Documentary", "Документальный"),
+        ("криминал", "Crime", "Криминал"),
+        ("военн", "War", "Военный"),
+        ("войн", "War", "Военный"),
+        ("вестерн", "Western", "Вестерн"),
+        ("биограф", "Biography", "Биография"),
+        ("историческ", "History", "История"),
+        ("мюзикл", "Musical", "Мюзикл"),
+        ("спортивн", "Sport", "Спорт"),
+        ("семейн", "Family", "Семейный"),
+        ("нуар", "Film-Noir", "Нуар"),
+    ];
+    const FILLER: &[&str] =
+        &["лучш", "топ", "про", "кино", "новы", "популярн", "интересн", "хорош", "смотреть", "жанр"];
+    let q = crate::util::norm(query);
+    let mut genre = None;
+    let mut types: &'static [&'static str] = ANY;
+    for w in q.split_whitespace() {
+        if w.starts_with("сериал") {
+            types = SERIES;
+        } else if w.starts_with("фильм") && !w.starts_with("фильмограф") {
+            types = MOVIE;
+        } else if let Some(&(_, en, ru)) = STEMS.iter().find(|(s, ..)| w.starts_with(s)) {
+            // «мультсериалы» - мультфильм и сериал.
+            if w.contains("сериал") {
+                types = SERIES;
+            }
+            if genre.is_some_and(|(g, _)| g != en) {
+                return None;
+            }
+            genre = Some((en, ru));
+        } else if !FILLER.iter().any(|f| w.starts_with(f)) {
+            return None;
+        }
+    }
+    genre.map(|(en, ru)| (en, ru, types))
+}
+
+/// Популярное в жанре с IMDb (до 50, сначала самое популярное): ids в ленте, на 12 часов.
+pub async fn genre_search(
+    app: &Arc<App>,
+    genre: &'static str,
+    types: &'static [&'static str],
+) -> anyhow::Result<Vec<String>> {
+    let key = format!("genre:{genre}:{}:votes", types.len());
+    let cached: Option<String> = app.db.with(|c| {
+        c.query_row(
+            "SELECT ids FROM catalog_search_cache WHERE query = ? AND at > ?",
+            params![key, now_ms() - 12 * 3_600_000],
+            |r| r.get(0),
+        )
+        .optional()
+    })?;
+    if let Some(c) = cached {
+        return Ok(serde_json::from_str(&c)?);
+    }
+    let imdb = Imdb::new(app.http.clone());
+    let src = Src::Search { types, genre: Some(genre), countries: &[], days: None, votes: 25_000 };
+    let items = parse_chart(&fetch_feed(&imdb, &src, "USER_RATING_COUNT").await?);
+    upsert(app, &items)?;
+    app.posters_kick.notify_one();
+    let ids: Vec<String> = items.into_iter().map(|e| e.id).collect();
+    if !ids.is_empty() {
+        app.db.with(|c| {
+            c.execute(
+                "INSERT INTO catalog_search_cache VALUES (?, ?, ?)
+                 ON CONFLICT(query) DO UPDATE SET ids = excluded.ids, at = excluded.at",
+                params![key, json!(ids).to_string(), now_ms()],
+            )
+        })?;
+    }
+    Ok(ids)
+}
 
 const fn genre(types: &'static [&'static str], g: &'static str, votes: i64) -> Src {
     Src::Search { types, genre: Some(g), countries: &[], days: None, votes }
@@ -90,10 +188,12 @@ const NODE: &str = "id titleText { text } originalTitleText { text } titleType {
     releaseYear { year } ratingsSummary { aggregateRating voteCount }
     primaryImage { url } genres { genres { text } }";
 
-fn search_query() -> String {
+/// Поиск IMDb: `POPULARITY` - сначала модное сейчас, `USER_RATING_COUNT` - больше всего оценок (классика жанра).
+fn search_query(sort: &str) -> String {
+    let order = if sort == "POPULARITY" { "ASC" } else { "DESC" };
     format!(
         "query A($c: AdvancedTitleSearchConstraints!) {{ advancedTitleSearch(first: 50, constraints: $c,
-           sort: {{ sortBy: POPULARITY, sortOrder: ASC }}) {{ edges {{ node {{ title {{ {NODE} }} }} }} }} }}"
+           sort: {{ sortBy: {sort}, sortOrder: {order} }}) {{ edges {{ node {{ title {{ {NODE} }} }} }} }} }}"
     )
 }
 
@@ -121,7 +221,7 @@ pub fn ymd(ms: i64) -> String {
 }
 
 /// Подборка с IMDb в виде `chartTitles` (`edges[].node` - фильм).
-async fn fetch_feed(imdb: &Imdb, src: &Src) -> anyhow::Result<Value> {
+async fn fetch_feed(imdb: &Imdb, src: &Src, sort: &str) -> anyhow::Result<Value> {
     let now = now_ms();
     match src {
         Src::Chart(chart) => imdb.data(CHART, json!({ "chart": chart }), "chartTitles").await,
@@ -141,7 +241,7 @@ async fn fetch_feed(imdb: &Imdb, src: &Src) -> anyhow::Result<Value> {
                 c["releaseDateConstraint"] =
                     json!({ "releaseDateRange": { "start": ymd(now - d * 86_400_000), "end": ymd(now) } });
             }
-            let v = imdb.data(&search_query(), json!({ "c": c }), "advancedTitleSearch").await?;
+            let v = imdb.data(&search_query(sort), json!({ "c": c }), "advancedTitleSearch").await?;
             let edges: Vec<Value> =
                 v["edges"].as_array().into_iter().flatten().map(|e| json!({ "node": e["node"]["title"] })).collect();
             Ok(json!({ "edges": edges }))
@@ -168,7 +268,8 @@ const SIMILAR: &str = r#"query S($id: ID!) { title(id: $id) { moreLikeThisTitles
 /// Описание фильма из ленты в нынешнем виде (`ext_titles.detailed`): 1 - только сюжет (0.6),
 /// 2 - со своей страницей: кадр, актёры, кадры, похожие; 3 (1.0) - и сезоны сериала (второй
 /// запрос IMDb снова работает: актёры, кадры и русские названия - заново).
-pub const DETAILED: i64 = 4;
+/// 5 (alpha 0.4) - кадр баннера из фильма (`still_frame` около 16:9), а не рекламный плакат.
+pub const DETAILED: i64 = 5;
 
 const EVERY: Duration = Duration::from_secs(12 * 3600);
 
@@ -240,8 +341,10 @@ pub fn upsert(app: &App, items: &[Ext]) -> rusqlite::Result<()> {
                  ON CONFLICT(id) DO UPDATE SET kind = ?2, title = ?3, original = COALESCE(?4, original),
                    year = COALESCE(?5, year), rating = COALESCE(?6, rating), votes = COALESCE(?7, votes),
                    genres = CASE WHEN ?8 = '[]' THEN genres ELSE ?8 END,
-                   poster = CASE WHEN poster_url IS NOT ?9 AND ?9 IS NOT NULL THEN NULL ELSE poster END,
-                   poster_url = COALESCE(?9, poster_url), updated_at = ?10",
+                   poster = CASE WHEN COALESCE(poster_url, '') NOT LIKE '%tmdb.org/%' AND poster_url IS NOT ?9 AND ?9 IS NOT NULL
+                     THEN NULL ELSE poster END,
+                   poster_url = CASE WHEN poster_url LIKE '%tmdb.org/%' THEN poster_url ELSE COALESCE(?9, poster_url) END,
+                   updated_at = ?10",
                 params![
                     e.id,
                     if e.series { "series" } else { "movie" },
@@ -276,7 +379,7 @@ pub async fn refresh(app: &Arc<App>) -> anyhow::Result<usize> {
     let mut done = 0;
     let mut last = None;
     for (key, _, src) in FEEDS {
-        match tokio::time::timeout(Duration::from_secs(8), fetch_feed(&imdb, src))
+        match tokio::time::timeout(Duration::from_secs(8), fetch_feed(&imdb, src, "POPULARITY"))
             .await
             .unwrap_or_else(|e| Err(e.into()))
         {
@@ -459,6 +562,18 @@ async fn fetch_detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
         poster_url: d.poster.as_deref().map(|u| sized(u, 342)),
     };
     upsert(app, &[e])?;
+    // Есть ключ TMDB - русский постер вместо промо-плаката IMDb (upsert его потом не затирает).
+    if let Some(tmdb) = crate::meta::tmdb_posters(app) {
+        if let Ok(Ok(Some(url))) = tokio::time::timeout(Duration::from_secs(4), tmdb.poster_ru(id)).await {
+            app.db.with(|c| {
+                c.execute(
+                    "UPDATE ext_titles SET poster_url = ?1, poster = NULL WHERE id = ?2 AND poster_url IS NOT ?1",
+                    params![url, id],
+                )
+            })?;
+            app.posters_kick.notify_one();
+        }
+    }
     let mut extra = json!({"tagline":d.tagline,"age":d.age,"countries":d.countries,"languages":d.languages,"releaseDate":d.release_date,"aka":d.aka,
       "poster":d.poster.as_deref().map(crate::media_meta::art),"people":d.people.iter().take(16).map(|p|json!({"name":p.name,"job":p.job,"role":p.role,"photo":p.photo.as_deref().map(crate::media_meta::art),"id":p.id})).collect::<Vec<_>>(),
       "gallery":d.gallery.iter().take(6).map(|u|crate::media_meta::art(u)).collect::<Vec<_>>(),"similar":[],"seasons":d.seasons});
@@ -632,6 +747,20 @@ pub fn card(r: &rusqlite::Row) -> rusqlite::Result<ExtCard> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn genre_queries() {
+        let g = |q: &str| genre_query(q).map(|(en, _, t)| (en, t.len()));
+        assert_eq!(g("Фантастика"), Some(("Sci-Fi", 3)));
+        assert_eq!(g("комедии"), Some(("Comedy", 3)));
+        assert_eq!(g("сериалы ужасы"), Some(("Horror", 2)));
+        assert_eq!(g("лучшие фильмы про войну"), Some(("War", 1)));
+        assert_eq!(g("военные фильмы"), Some(("War", 1)));
+        assert_eq!(g("мультсериалы"), Some(("Animation", 2)));
+        assert_eq!(g("Тёмный рыцарь"), None);
+        assert_eq!(g("фантастика драма"), None);
+        assert_eq!(g("фильмы"), None);
+    }
 
     #[test]
     fn parses_charts() {

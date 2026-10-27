@@ -41,6 +41,26 @@ impl Tmdb {
         path.as_str().map(|p| format!("{}/{size}{p}", self.images.trim_end_matches('/')))
     }
 
+    /// Постер на русском (или без языка, или английский) по id IMDb - для ленты Обзора. `None` - не нашли.
+    pub async fn poster_ru(&self, imdb: &str) -> anyhow::Result<Option<String>> {
+        let found = self.get(&format!("/find/{imdb}"), &[("external_source", "imdb_id".into())]).await?;
+        let (kind, id) = match (found["movie_results"][0]["id"].as_i64(), found["tv_results"][0]["id"].as_i64()) {
+            (Some(id), _) => ("movie", id),
+            (None, Some(id)) => ("tv", id),
+            _ => return Ok(None),
+        };
+        let images =
+            self.get(&format!("/{kind}/{id}/images"), &[("include_image_language", "ru,null,en".into())]).await?;
+        let posters = images["posters"].as_array().cloned().unwrap_or_default();
+        let best = ["ru", "", "en"].iter().find_map(|lang| {
+            posters
+                .iter()
+                .filter(|p| p["iso_639_1"].as_str().unwrap_or("") == *lang)
+                .max_by(|a, b| a["vote_count"].as_i64().cmp(&b["vote_count"].as_i64()))
+        });
+        Ok(best.and_then(|p| self.img("w500", &p["file_path"])))
+    }
+
     pub async fn search(&self, query: &str, year: Option<i32>, series: bool) -> anyhow::Result<Vec<Candidate>> {
         let kind = if series { "tv" } else { "movie" };
         let mut q = vec![("query", query.to_string()), ("language", "ru-RU".into()), ("include_adult", "false".into())];

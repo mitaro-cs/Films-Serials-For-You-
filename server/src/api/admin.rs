@@ -158,6 +158,7 @@ pub async fn settings(State(app): State<Arc<App>>, _m: Manager) -> Out {
         "metadataLanguage": db.setting_or("meta.language", "ru"),
         "registration": db.setting_or("site.registration", crate::api::account::REGISTRATION_DEFAULT),
         "downloads": db.setting_or("site.downloads", "1") == "1",
+        "manageRemote": db.setting_or("security.manage_remote", "0") == "1",
         "provider": db.setting_or("meta.provider", "imdb"),
         "tmdbKeySet": !db.setting_or("meta.tmdb.key", "").is_empty(),
         "kpKeySet": !db.setting_or("meta.kp.key", "").is_empty(),
@@ -178,6 +179,8 @@ pub struct SettingsBody {
     site_name: Option<String>,
     registration: Option<String>,
     downloads: Option<bool>,
+    /// Управление не только из окна приложения (только хост, только с входом в два шага).
+    manage_remote: Option<bool>,
     provider: Option<String>,
     tmdb_key: Option<String>,
     kp_key: Option<String>,
@@ -232,6 +235,12 @@ pub async fn save_settings(State(app): State<Arc<App>>, m: Manager, Json(b): Jso
             return Err(ApiError::bad("bad_value", "Неизвестный режим регистрации"));
         }
         db.set_setting("site.registration", &r)?;
+    }
+    if let Some(r) = b.manage_remote {
+        if m.0.role != "host" || !m.0.local {
+            return Err(ApiError::new(StatusCode::FORBIDDEN, "host_only", "Это меняет только хост в окне приложения"));
+        }
+        db.set_setting("security.manage_remote", if r { "1" } else { "0" })?;
     }
     if let Some(d) = b.downloads {
         db.set_setting("site.downloads", if d { "1" } else { "0" })?;
@@ -966,4 +975,20 @@ pub async fn cloudpub_logout(State(app): State<Arc<App>>, _m: Manager) -> Out {
 pub async fn access_logout(State(app): State<Arc<App>>, _m: Manager) -> Out {
     Access::logout(&app);
     ok()
+}
+
+/// Журнал входов по паролю: кто, удачно ли, с какого браузера (адреса не храним).
+pub async fn logins(State(app): State<Arc<App>>, _m: Manager) -> Out {
+    let items: Vec<Value> = app.db.with(|c| {
+        let mut st = c.prepare(
+            "SELECT l.login, u.name, l.ok, l.agent, l.at FROM logins l LEFT JOIN users u ON u.id = l.user_id
+             ORDER BY l.id DESC LIMIT 100",
+        )?;
+        let r = st.query_map([], |r| {
+            Ok(json!({"login": r.get::<_, String>(0)?, "name": r.get::<_, Option<String>>(1)?, "ok": r.get::<_, bool>(2)?,
+                      "agent": r.get::<_, Option<String>>(3)?, "at": r.get::<_, i64>(4)?}))
+        })?;
+        r.collect()
+    })?;
+    Ok(Json(json!({"items": items})))
 }

@@ -61,7 +61,7 @@ const MAIN: &str = r#"query T($id: ID!) { title(id: $id) {
 const EXTRA: &str = r#"query X($id: ID!) { title(id: $id) {
   taglines(first: 1) { edges { node { text } } }
   akas(first: 80) { edges { node { text country { id } language { id } } } }
-  images(first: 40) { edges { node { url width height } } }
+  images(first: 40) { edges { node { url width height type caption { plainText } } } }
   cast: credits(first: 12, filter: { categories: ["actor", "actress"] }) {
     edges { node { name { id nameText { text } primaryImage { url } } ... on Cast { characters { name } } } }
   }
@@ -235,17 +235,39 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
         people.extend(cast);
     }
 
-    // Фон и галерея - широкие кадры из «images».
-    let mut wide: Vec<(String, i64)> = edges(&x["images"])
+    // Фон и галерея - широкие кадры из «images». Раньше брали самую широкую картинку - выходили
+    // рекламные плакаты с надписями и портреты крупным планом. Теперь лучше кадр из фильма
+    // (`still_frame`) около 16:9, где в кадре несколько человек («X and Y in …»), не меньше 1280 px.
+    let mut wide: Vec<(String, i64, i64)> = edges(&x["images"])
         .filter_map(|i| {
             let (w, h) = (i["width"].as_i64()?, i["height"].as_i64()?);
-            (w >= 1000 && w * 10 >= h * 14).then(|| text(&i["url"]).map(|u| (u, w))).flatten()
+            if w < 1000 || w * 10 < h * 14 {
+                return None;
+            }
+            let url = text(&i["url"])?;
+            let ratio = w as f64 / h as f64;
+            let mut score = 0;
+            if i["type"].as_str() == Some("still_frame") {
+                score += 40;
+            }
+            if (1.6..=2.0).contains(&ratio) {
+                score += 20;
+            } else if ratio > 2.4 {
+                score -= 30;
+            }
+            if w >= 1280 {
+                score += 10;
+            }
+            if i["caption"]["plainText"].as_str().is_some_and(|c| c.contains(" and ")) {
+                score += 5;
+            }
+            Some((url, w, score))
         })
         .collect();
     wide.dedup_by(|a, b| a.0 == b.0);
-    wide.sort_by_key(|(_, width)| std::cmp::Reverse(*width));
-    let backdrop = wide.first().map(|(u, width)| sized(u, (*width as u32).min(3840)));
-    let gallery = wide.iter().skip(1).take(8).map(|(u, _)| sized(u, 640)).collect();
+    wide.sort_by_key(|(_, width, score)| (std::cmp::Reverse(*score), std::cmp::Reverse(*width)));
+    let backdrop = wide.first().map(|(u, width, _)| sized(u, (*width as u32).min(3840)));
+    let gallery = wide.iter().skip(1).take(8).map(|(u, ..)| sized(u, 640)).collect();
 
     Details {
         title,
@@ -351,7 +373,9 @@ mod tests {
         let x = json!({
             "akas": {"edges": [{"node": {"text": "Ла-Ла Ленд", "country": {"id": "RU"}, "language": null}}]},
             "images": {"edges": [
-                {"node": {"url": "https://m.media-amazon.com/images/M/w._V1_.jpg", "width": 2000, "height": 1000}},
+                {"node": {"url": "https://m.media-amazon.com/images/M/promo._V1_.jpg", "width": 3000, "height": 1000, "type": "publicity"}},
+                {"node": {"url": "https://m.media-amazon.com/images/M/w._V1_.jpg", "width": 2000, "height": 1100, "type": "still_frame",
+                          "caption": {"plainText": "Ryan Gosling and Emma Stone in La La Land (2016)"}}},
                 {"node": {"url": "https://m.media-amazon.com/images/M/tall._V1_.jpg", "width": 1000, "height": 1500}}
             ]},
             "cast": {"edges": [{"node": {"name": {"nameText": {"text": "Emma Stone"}}, "characters": [{"name": "Mia"}]}}]},
@@ -363,7 +387,10 @@ mod tests {
         assert_eq!(d.runtime, Some(128));
         assert_eq!(d.genres, vec!["Комедия", "Драма"]);
         assert_eq!(d.release_date.as_deref(), Some("2016-12-25"));
-        assert!(d.backdrop.unwrap().contains("UX2000"));
+        assert!(
+            d.backdrop.as_deref().is_some_and(|b| b.contains("/w._V1_") && b.contains("UX2000")),
+            "кадр из фильма, не плакат"
+        );
         assert_eq!(d.people.iter().filter(|p| p.job == "actor").count(), 1);
         assert_eq!(d.people[1].role.as_deref(), Some("Mia"));
         assert_eq!(d.seasons, vec![1, 2]);

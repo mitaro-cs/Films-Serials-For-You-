@@ -384,6 +384,24 @@ pub async fn list(State(app): State<Arc<App>>, v: Viewer, Query(q): Query<ListQu
             ));
             words.iter().all(|w| hay.contains(w))
         });
+        // «Фантастика», «сериалы ужасы» - это жанр: своё в этом жанре, если названий таких нет.
+        if items.is_empty() {
+            if let Some((_, ru, types)) = crate::discover::genre_query(&query) {
+                let kind = kind.or_else(|| match types.len() {
+                    1 => Some("movie".to_string()),
+                    2 => Some("series".to_string()),
+                    _ => None,
+                });
+                items = cards(
+                    &app,
+                    v.profile.kids,
+                    "(?1 IS NULL OR t.kind = ?1) AND EXISTS (SELECT 1 FROM json_each(t.genres) WHERE value = ?2)",
+                    order,
+                    5000,
+                    &[&kind, &ru],
+                )?;
+            }
+        }
     }
     let taste = Taste::load(&app, v.profile.id)?;
     taste.apply(&mut items);

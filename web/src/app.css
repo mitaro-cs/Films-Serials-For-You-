@@ -73,12 +73,30 @@ body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+  /* Интерфейс как у приложения: случайное выделение (двойной клик, долгое нажатие) не красит
+     карточки и подписи синим. Выделять можно то, что копируют: поля ввода, сообщения, описания. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input,
+textarea,
+[contenteditable],
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* clip, а не hidden: hidden делал body контейнером прокрутки, и в iOS Safari нижняя панель
    (position: fixed) уезжала вместе со страницей. */
 html {
   overflow-x: clip;
+  /* iOS сам увеличивает текст (поворот экрана, «крупный текст») - подписи вылезали за кнопки. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 body {
   min-height: 100dvh;

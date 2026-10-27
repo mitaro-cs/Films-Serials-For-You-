@@ -168,6 +168,15 @@
   секретом `TAURI_SIGNING_PRIVATE_KEY` (+ `_PASSWORD`; ключ у владельца, открытый - в tauri.conf.json).
   Выпуски 0.x-alpha - обычные, не предварительные: иначе `releases/latest` их не отдаёт. Приложение
   ставит только подписанное и перед установкой копирует базу в `backups/` (три последние, `update.rs`).
+- Alpha 0.4 (миграция 22): вход в два шага - `totp.rs` (свой SHA-1/HMAC, RFC 6238), `users.totp`,
+  `/api/me/totp*`, `/api/me/security`; журнал `logins` (без адресов, 500 последних, `/api/admin/logins`).
+  `auth::manage_here`: `Manager` - только окно хоста, из интернета - если `security.manage_remote` и у
+  аккаунта есть второй шаг. Картинки людей - `images::strip_metadata` (EXIF) + `-map_metadata -1`.
+  Сообщения - и с фильмом ленты (`messages.ext_id`). Поиск-жанр - `discover::genre_query` (+ заголовок
+  `x-nova-genre`), `genre_search` по числу оценок. Кадр баннера - `still_frame` около 16:9 (`DETAILED` 5),
+  русские постеры ленты - `tmdb::poster_ru` при ключе TMDB (upsert их не затирает). `body` -
+  `user-select: none`, выделяемое - `input`, `textarea`, `.selectable`. Зрителям - «администрация/сервер
+  Nova», не «хост».
 - Скорость у зрителя (Alpha 0.2): `/api/speedtest` (вошедшим, 20/мин, несжатый), `player/speed.ts` -
   старт «Оригинал» только при скорости ≥ 1,5 × битрейт (`info.bitrate`), остановка > 3 с или 2 за 30 с -
   автокачество; отчёт `net` в прогрессе → `App.playback` → «Сейчас смотрят».

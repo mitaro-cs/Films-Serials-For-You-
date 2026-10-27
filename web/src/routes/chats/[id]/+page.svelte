@@ -3,7 +3,7 @@
   import { api, errorText, post } from '$lib/api';
   import { refreshBadges } from '$lib/social/badges.svelte';
   import ChatList from '$lib/social/ChatList.svelte';
-  import type { Card, Message, Person } from '$lib/types';
+  import type { Card, ExtCard, Message, Person } from '$lib/types';
   import { placeholder } from '$lib/ui/art';
   import Avatar from '$lib/ui/Avatar.svelte';
   import Icon from '$lib/ui/Icon.svelte';
@@ -20,7 +20,17 @@
   let scroller = $state<HTMLDivElement>();
   let picking = $state(false);
   let q = $state('');
-  let found = $state<Card[]>([]);
+  // Фильм для сообщения: свой (titleId) или из ленты IMDb (extId).
+  type Pick = { key: string; titleId: number | null; extId: string | null; title: string; year: number | null; poster: string | null; rating: number | null; kind: Card['kind'] };
+  let found = $state<Pick[]>([]);
+  let searching = $state(false);
+  let shelves = $state<{ name: string; items: Pick[] }[] | null>(null);
+  const fromCard = (c: Card): Pick => ({ key: 't' + c.id, titleId: c.id, extId: null, title: c.title, year: c.year, poster: c.poster, rating: c.rating, kind: c.kind });
+  const fromExt = (e: ExtCard): Pick => {
+    const base = { title: e.title, year: e.year, poster: e.poster, rating: e.rating, kind: e.kind };
+    return e.local ? { ...base, key: 't' + e.local, titleId: e.local, extId: null } : { ...base, key: 'e' + e.id, titleId: null, extId: e.id };
+  };
+  const uniq = (list: Pick[]) => list.filter((x, i) => list.findIndex((y) => y.key === x.key) === i);
 
   const lastId = () => items.filter((m) => !m.pending).at(-1)?.id ?? 0;
   const nearBottom = () => !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
@@ -74,14 +84,16 @@
     requestAnimationFrame(() => scroller && (scroller.scrollTop += scroller.scrollHeight - h));
   }
 
-  async function send(body: string, titleId: number | null = null, title: Card | null = null) {
-    if (!body.trim() && !titleId) return;
+  async function send(body: string, film: Pick | null = null) {
+    if (!body.trim() && !film) return;
+    const mini = film && { title: film.title, kind: film.kind, year: film.year, poster: film.poster, rating: film.rating };
     const temp = { id: -Date.now(), mine: true, body: body.trim(), createdAt: Date.now(), read: false, pending: true,
-      title: title ? { id: title.id, kind: title.kind, title: title.title, year: title.year, poster: title.poster } : null };
+      title: film?.titleId && mini ? { ...mini, id: film.titleId } : null,
+      ext: film?.extId && mini ? { ...mini, id: film.extId } : null };
     items = [...items, temp];
     toBottom(true);
     try {
-      const m = await post<Message>(`/api/chats/${id}`, { body, titleId });
+      const m = await post<Message>(`/api/chats/${id}`, { body, titleId: film?.titleId ?? null, extId: film?.extId ?? null });
       items = items.map((x) => (x.id === temp.id ? m : x));
     } catch (e) {
       items = items.filter((x) => x.id !== temp.id);
@@ -104,22 +116,53 @@
     }
   }
 
+  // Окно открылось - сразу то, что человек смотрит и хочет посмотреть.
+  type Mark = { card?: Card; ext?: ExtCard };
   $effect(() => {
-    const query = q.trim();
-    if (!picking || !query) {
-      found = [];
-      return;
-    }
-    const t = setTimeout(() => api<Card[]>(`/api/titles?q=${encodeURIComponent(query)}`).then((r) => (found = r.slice(0, 12)), () => {}), 200);
-    return () => clearTimeout(t);
+    if (!picking || shelves) return;
+    api<Record<'watching' | 'want' | 'watched', Mark[]>>('/api/me/marks').then((m) => {
+      const pick = (l: Mark[] = []) => uniq(l.map((x) => (x.card ? fromCard(x.card) : fromExt(x.ext!)))).slice(0, 12);
+      shelves = [
+        { name: 'Смотрю', items: pick(m.watching) },
+        { name: 'Буду смотреть', items: pick(m.want) },
+        { name: 'Просмотрено', items: pick(m.watched) },
+      ].filter((s) => s.items.length);
+    }, () => (shelves = []));
   });
 
-  function share(c: Card) {
+  // Поиск: своя коллекция и весь каталог IMDb (там же - опечатки и русские названия).
+  $effect(() => {
+    const query = q.trim();
+    if (!picking || query.length < 2) {
+      found = [];
+      searching = false;
+      return;
+    }
+    searching = true;
+    const controller = new AbortController();
+    const t = setTimeout(async () => {
+      const [own, world] = await Promise.all([
+        api<Card[]>(`/api/titles?q=${encodeURIComponent(query)}`, { signal: controller.signal }).catch(() => [] as Card[]),
+        api<ExtCard[]>(`/api/discover/search?q=${encodeURIComponent(query)}`, { signal: controller.signal }).catch(() => [] as ExtCard[]),
+      ]);
+      if (controller.signal.aborted) return;
+      found = uniq([...own.map(fromCard), ...world.map(fromExt)]).slice(0, 24);
+      searching = false;
+    }, 250);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
+  });
+
+  function share(film: Pick) {
     picking = false;
     q = '';
-    send(text, c.id, c);
+    send(text, film);
     text = '';
   }
+
+  const kindName = (k: string) => (k === 'series' ? 'Сериал' : 'Фильм');
 
   const time = (ms: number) => new Date(ms).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   const dayOf = (ms: number) => new Date(ms).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
@@ -140,21 +183,26 @@
         <button class="btn ghost sm older" onclick={older}>Ранее</button>
       {/if}
       {#each items as m, i (m.id)}
+        {@const film = m.title ?? m.ext}
         {#if i === 0 || dayOf(items[i - 1].createdAt) !== dayOf(m.createdAt)}
           <p class="day">{dayOf(m.createdAt)}</p>
         {/if}
         <div class="msg" class:mine={m.mine} class:pending={m.pending}>
-          {#if m.title}
-            <a class="film" href="/title/{m.title.id}">
-              <span class="pic" style:background={m.title.poster ? undefined : placeholder(m.title.title)}>
-                {#if m.title.poster}<img src={m.title.poster} alt="" loading="lazy" width="44" height="66" />{/if}
+          {#if film}
+            <a class="film" href={m.title ? `/title/${m.title.id}` : `/ext/${m.ext?.id}`}>
+              <span class="pic" style:background={film.poster ? undefined : placeholder(film.title)}>
+                {#if film.poster}<img src={film.poster} alt="" loading="lazy" width="64" height="96" />{/if}
               </span>
-              <span><b>{m.title.title}</b><small>{m.title.year ?? ''} · Обсудим?</small></span>
+              <span class="about">
+                <b>{film.title}</b>
+                <small>{[kindName(film.kind), film.year].filter(Boolean).join(' - ')}{#if film.rating}<span class="star"> ★ {film.rating.toFixed(1)}</span>{/if}</small>
+                <span class="open">Открыть</span>
+              </span>
             </a>
           {/if}
           {#if m.body}
             {@const room = m.body.match(/\/room\/([a-z0-9]{6,12})/)}
-            <p>{room ? m.body.replace(room[0], '').replace(/:\s*$/, '') : m.body}</p>
+            <p class="selectable">{room ? m.body.replace(room[0], '').replace(/:\s*$/, '') : m.body}</p>
             {#if room}<a class="btn sm white join" href="/room/{room[1]}"><Icon name="party" size={14} /> Войти в комнату</a>{/if}
           {/if}
           <small class="t">{time(m.createdAt)}{#if m.mine}{m.pending ? ' · …' : m.read ? ' · прочитано' : ''}{/if}</small>
@@ -175,21 +223,43 @@
   </section>
 </div>
 
+{#snippet grid(list: Pick[])}
+  <ul class="grid">
+    {#each list as f (f.key)}
+      <li>
+        <button onclick={() => share(f)} aria-label="Прислать: {f.title}">
+          <span class="pic" style:background={f.poster ? undefined : placeholder(f.title)}>
+            {#if f.poster}<img src={f.poster} alt="" loading="lazy" width="96" height="144" />{/if}
+          </span>
+          <b>{f.title}</b>
+          <small class="muted">{f.year ?? ''}{#if f.rating}<span class="star"> ★ {f.rating.toFixed(1)}</span>{/if}</small>
+        </button>
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
 <Modal bind:open={picking} title="Какой фильм обсудим?">
   <div class="pick">
-    <input class="input" bind:value={q} placeholder="Название" aria-label="Название фильма" />
-    <ul>
-      {#each found as c (c.id)}
-        <li>
-          <button onclick={() => share(c)}>
-            <span class="pic" style:background={c.poster ? undefined : placeholder(c.title)}>
-              {#if c.poster}<img src={c.poster} alt="" width="40" height="60" />{/if}
-            </span>
-            <span><b>{c.title}</b><small class="muted">{c.year ?? ''}</small></span>
-          </button>
-        </li>
-      {/each}
-    </ul>
+    <input class="input" bind:value={q} placeholder="Название фильма или сериала" aria-label="Название фильма" />
+    <div class="results">
+      {#if q.trim().length >= 2}
+        {#if found.length}
+          {@render grid(found)}
+        {:else}
+          <p class="muted note">{searching ? 'Ищем…' : 'Ничего не нашлось - попробуйте иначе'}</p>
+        {/if}
+      {:else if shelves === null}
+        <p class="muted note">Загружаем…</p>
+      {:else if shelves.length}
+        {#each shelves as s (s.name)}
+          <h3>{s.name}</h3>
+          {@render grid(s.items)}
+        {/each}
+      {:else}
+        <p class="muted note">Введите название - найдём в коллекции и на IMDb</p>
+      {/if}
+    </div>
   </div>
 </Modal>
 
@@ -298,24 +368,51 @@
   .film {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 6px;
-    border-radius: 12px;
+    gap: 12px;
+    padding: 6px 14px 6px 6px;
+    border-radius: 14px;
     background: rgba(127, 127, 127, 0.16);
     min-width: 0;
+    width: min(300px, 100%);
   }
-  .film > span:last-child {
+  .film .pic {
+    width: 64px;
+    border-radius: 9px;
+  }
+  .about {
     display: grid;
+    gap: 3px;
     min-width: 0;
   }
   .film b {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: 15px;
+    line-height: 1.25;
   }
   .film small {
-    font-size: 11.5px;
-    opacity: 0.7;
+    font-size: 12px;
+    opacity: 0.75;
+  }
+  .star {
+    color: #e8b931;
+  }
+  .open {
+    justify-self: start;
+    margin-top: 4px;
+    padding: 4px 12px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #fff;
+    color: #0a0a0a;
+  }
+  .msg.mine .open {
+    background: #0a0a0a;
+    color: #fff;
   }
   .pic {
     flex: none;
@@ -358,33 +455,60 @@
     display: grid;
     gap: 12px;
   }
-  .pick ul {
+  .results {
+    max-height: min(60dvh, 560px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .results h3 {
+    margin: 14px 0 8px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .results h3:first-child {
+    margin-top: 2px;
+  }
+  .note {
+    margin: 18px 0;
+    text-align: center;
+  }
+  .grid {
     list-style: none;
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 4px;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 12px 10px;
   }
-  .pick button {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+  .grid button {
+    display: grid;
+    gap: 4px;
     width: 100%;
-    padding: 6px;
+    min-width: 0;
+    padding: 0;
     border: 0;
-    border-radius: 10px;
     background: none;
+    color: inherit;
     text-align: left;
     cursor: pointer;
   }
-  .pick button:hover {
-    background: var(--surface-2);
+  .grid .pic {
+    width: 100%;
+    border-radius: 10px;
+    transition: transform 0.2s;
   }
-  .pick button .pic {
-    width: 40px;
+  .grid button:hover .pic {
+    transform: scale(1.03);
   }
-  .pick button > span:last-child {
-    display: grid;
+  .grid b {
+    font-size: 13px;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .grid small {
+    font-size: 12px;
   }
   @media (max-width: 860px) {
     .chat-page {

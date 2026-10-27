@@ -96,7 +96,7 @@
 
 {#if net.down}
   <div class="down" role="status">
-    <Icon name="offline" size={18} /> Компьютер хоста сейчас недоступен - фильмы вернутся, когда он включится
+    <Icon name="offline" size={18} /> Сервер Nova сейчас недоступен - фильмы вернутся, когда он включится
   </div>
 {/if}
 

@@ -84,6 +84,22 @@ fn with_cookie(body: Value, cookie: String) -> Response {
 pub struct LoginBody {
     login: String,
     password: String,
+    /// Код из приложения - если у аккаунта включён вход в два шага.
+    #[serde(default)]
+    code: Option<String>,
+}
+
+/// Журнал входов (без адресов: о людях храним минимум) - последние 500 записей.
+fn journal(app: &App, user: Option<i64>, login: &str, ok: bool, headers: &HeaderMap) {
+    let agent: Option<String> =
+        headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).map(|a| a.chars().take(160).collect());
+    let _ = app.db.with(|c| {
+        c.execute(
+            "INSERT INTO logins (user_id, login, ok, via, agent, at) VALUES (?, ?, ?, 'password', ?, ?)",
+            params![user, login.chars().take(64).collect::<String>(), ok, agent, now_ms()],
+        )?;
+        c.execute("DELETE FROM logins WHERE id <= (SELECT MAX(id) FROM logins) - 500", [])
+    });
 }
 
 pub async fn login(
@@ -104,15 +120,15 @@ pub async fn login(
             "Слишком много попыток. Подождите 10 минут",
         ));
     }
-    let row: Option<(i64, Option<String>, bool)> = app.db.with(|c| {
-        c.query_row("SELECT id, pass, disabled FROM users WHERE login = ?", [&login], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+    let row: Option<(i64, Option<String>, bool, Option<String>)> = app.db.with(|c| {
+        c.query_row("SELECT id, pass, disabled, totp FROM users WHERE login = ?", [&login], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })
         .optional()
     })?;
     let pw = b.password;
     let ok = match row.clone() {
-        Some((_, Some(hash), false)) => {
+        Some((_, Some(hash), false, _)) => {
             auth::password_job(move || auth::verify_password(&pw, &hash)).await.unwrap_or(false)
         }
         _ => {
@@ -121,15 +137,36 @@ pub async fn login(
             false
         }
     };
+    // Второй шаг: пароль верный - нужен ещё код из приложения.
+    let totp = row.as_ref().and_then(|r| r.3.clone()).filter(|_| ok);
+    if let Some(secret) = &totp {
+        match b.code.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+            None => {
+                return Err(ApiError::new(StatusCode::UNAUTHORIZED, "totp_required", "Введите код из приложения"));
+            }
+            Some(code) if !crate::totp::check(secret, code, now_ms()) => {
+                keys.iter().for_each(|k| app.login_limit.fail(k));
+                app.account_limit.fail(&account);
+                journal(&app, row.as_ref().map(|r| r.0), &login, false, &headers);
+                tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+                return Err(ApiError::new(StatusCode::UNAUTHORIZED, "bad_totp", "Неверный код из приложения"));
+            }
+            Some(_) => {}
+        }
+    }
     if !ok {
         keys.iter().for_each(|k| app.login_limit.fail(k));
         app.account_limit.fail(&account);
-        if matches!(row, Some((_, _, true))) {
-            return Err(ApiError::new(StatusCode::FORBIDDEN, "disabled", "Доступ закрыт хостом"));
+        journal(&app, row.as_ref().map(|r| r.0), &login, false, &headers);
+        // Каждая неудача - ещё и пауза: подбор пароля идёт в разы медленнее.
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+        if matches!(row, Some((_, _, true, _))) {
+            return Err(ApiError::new(StatusCode::FORBIDDEN, "disabled", "Доступ закрыт администрацией Nova"));
         }
         return Err(ApiError::new(StatusCode::UNAUTHORIZED, "bad_credentials", "Неверный логин или пароль"));
     }
     let id = row.map(|r| r.0).unwrap_or_default();
+    journal(&app, Some(id), &login, true, &headers);
     keys.iter().for_each(|k| app.login_limit.clear(k));
     app.account_limit.clear(&account);
     let t = auth::create_session(&app, id, false)?;
@@ -213,7 +250,7 @@ pub async fn register(
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "closed",
-            "Регистрация закрыта - попросите приглашение у хоста",
+            "Регистрация закрыта - попросите приглашение у администрации Nova",
         ));
     }
     if need_invite && !code.as_deref().map(|c| invite_ok(&app, c)).transpose()?.unwrap_or(false) {
@@ -288,7 +325,7 @@ pub async fn me(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>
         "user": v,
         "favorites": super::json_list(Some(favorites)),
         "hasPassword": has_pass,
-        "manage": v.manages(),
+        "manage": v.manages() && auth::manage_here(&app, &v),
         "window": v.local,
         "site": site_json(&app),
     })))
@@ -363,4 +400,78 @@ pub async fn password(
         Ok(())
     })?;
     Ok(Json(json!({"ok": true, "login": v.login})))
+}
+
+// ---------- вход в два шага и журнал входов ----------
+
+/// Безопасность аккаунта: включён ли второй шаг и последние входы в этот аккаунт.
+pub async fn security(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
+    let totp: Option<String> =
+        app.db.with(|c| c.query_row("SELECT totp FROM users WHERE id = ?", [v.id], |r| r.get(0)))?;
+    let logins: Vec<Value> = app.db.with(|c| {
+        let mut st = c.prepare("SELECT ok, agent, at FROM logins WHERE user_id = ? ORDER BY id DESC LIMIT 20")?;
+        let r = st.query_map([v.id], |r| {
+            Ok(json!({"ok": r.get::<_, bool>(0)?, "agent": r.get::<_, Option<String>>(1)?, "at": r.get::<_, i64>(2)?}))
+        })?;
+        r.collect()
+    })?;
+    Ok(Json(json!({"totp": totp.is_some(), "logins": logins})))
+}
+
+/// Начать включение: новый ключ (пока не сохранён - только после верного кода).
+pub async fn totp_setup(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
+    let secret = crate::totp::new_secret();
+    app.db.set_setting(&format!("totp.pending.{}", v.id), &format!("{secret}|{}", now_ms()))?;
+    Ok(Json(json!({"secret": secret, "uri": crate::totp::uri(&secret, &v.login)})))
+}
+
+#[derive(Deserialize)]
+pub struct TotpBody {
+    code: String,
+}
+
+/// Включить: код из приложения по ключу из `totp_setup` (ключ живёт 15 минут).
+pub async fn totp_enable(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<TotpBody>) -> ApiResult<Json<Value>> {
+    let key = format!("totp.pending.{}", v.id);
+    let pending = app.db.setting(&key).unwrap_or_default();
+    let (secret, at) = pending.split_once('|').unwrap_or(("", "0"));
+    if secret.is_empty() || now_ms() - at.parse::<i64>().unwrap_or(0) > 15 * 60_000 {
+        return Err(ApiError::bad("totp_expired", "Ключ устарел - начните заново"));
+    }
+    if app.login_limit.blocked(&format!("totp:{}", v.id)) {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Слишком много попыток. Подождите 10 минут",
+        ));
+    }
+    if !crate::totp::check(secret, &b.code, now_ms()) {
+        app.login_limit.fail(&format!("totp:{}", v.id));
+        return Err(ApiError::bad("bad_totp", "Код не подошёл - проверьте время на телефоне"));
+    }
+    app.db.with(|c| {
+        c.execute("UPDATE users SET totp = ? WHERE id = ?", params![secret, v.id])?;
+        c.execute("DELETE FROM settings WHERE key = ?", [&key])
+    })?;
+    Ok(Json(json!({"ok": true})))
+}
+
+/// Выключить: нужен текущий код (украденная сессия сама второй шаг не снимет).
+pub async fn totp_disable(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<TotpBody>) -> ApiResult<Json<Value>> {
+    let secret: Option<String> =
+        app.db.with(|c| c.query_row("SELECT totp FROM users WHERE id = ?", [v.id], |r| r.get(0)))?;
+    let Some(secret) = secret else { return Ok(Json(json!({"ok": true}))) };
+    if app.login_limit.blocked(&format!("totp:{}", v.id)) {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limited",
+            "Слишком много попыток. Подождите 10 минут",
+        ));
+    }
+    if !crate::totp::check(&secret, &b.code, now_ms()) {
+        app.login_limit.fail(&format!("totp:{}", v.id));
+        return Err(ApiError::bad("bad_totp", "Неверный код из приложения"));
+    }
+    app.db.with(|c| c.execute("UPDATE users SET totp = NULL WHERE id = ?", [v.id]))?;
+    Ok(Json(json!({"ok": true})))
 }

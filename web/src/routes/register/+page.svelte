@@ -13,7 +13,7 @@
 {#if site}
   <AuthShell
     title="Регистрация"
-    subtitle={site.registration === 'open' ? `Добро пожаловать в «${site.name}»` : 'Введите код из приглашения хоста'}
+    subtitle={site.registration === 'open' ? `Добро пожаловать в «${site.name}»` : 'Введите код из приглашения'}
   >
     <RegisterForm askInvite={site.registration !== 'open'} />
   </AuthShell>

@@ -29,6 +29,52 @@ pub fn sniff(b: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// Картинка от человека без метаданных: в фото с телефона EXIF хранит место съёмки, время и
+/// модель. JPEG - без APP1 (EXIF, XMP) и APP13 (IPTC), PNG - без eXIf и текстовых блоков.
+/// Остальное (WebP, битый файл) - как есть: дальше картинку всё равно пережимает ffmpeg.
+pub fn strip_metadata(b: &[u8]) -> Vec<u8> {
+    match sniff(b) {
+        Some("jpg") => {
+            let mut out = vec![0xFF, 0xD8];
+            let mut i = 2;
+            while i + 4 <= b.len() && b[i] == 0xFF {
+                let marker = b[i + 1];
+                // Начало данных кадра (SOS) - дальше сегментов нет.
+                if marker == 0xDA {
+                    out.extend_from_slice(&b[i..]);
+                    return out;
+                }
+                let len = u16::from_be_bytes([b[i + 2], b[i + 3]]) as usize;
+                if len < 2 || i + 2 + len > b.len() {
+                    return b.to_vec();
+                }
+                if marker != 0xE1 && marker != 0xED {
+                    out.extend_from_slice(&b[i..i + 2 + len]);
+                }
+                i += 2 + len;
+            }
+            b.to_vec()
+        }
+        Some("png") => {
+            let mut out = b[..8].to_vec();
+            let mut i = 8;
+            while i + 12 <= b.len() {
+                let len = u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as usize;
+                let end = i + 12 + len;
+                if end > b.len() {
+                    return b.to_vec();
+                }
+                if !matches!(&b[i + 4..i + 8], b"eXIf" | b"tEXt" | b"iTXt" | b"zTXt") {
+                    out.extend_from_slice(&b[i..end]);
+                }
+                i = end;
+            }
+            out
+        }
+        _ => b.to_vec(),
+    }
+}
+
 /// https и не адрес этого компьютера или локальной сети.
 pub fn public_https(u: &reqwest::Url) -> bool {
     use std::net::IpAddr;
@@ -226,6 +272,32 @@ fn hsl(h: f64, s: f64, l: f64) -> (f64, f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strips_exif_from_jpeg_and_png() {
+        // JPEG: APP0 (JFIF) остаётся, APP1 (EXIF с «GPS») уходит, данные кадра - как были.
+        let mut jpg = vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 4, 1, 2];
+        jpg.extend_from_slice(&[0xFF, 0xE1, 0, 7, b'G', b'P', b'S', 0, 0]);
+        jpg.extend_from_slice(&[0xFF, 0xDA, 0, 2, 9, 9, 0xFF, 0xD9]);
+        let clean = strip_metadata(&jpg);
+        assert_eq!(clean, [0xFF, 0xD8, 0xFF, 0xE0, 0, 4, 1, 2, 0xFF, 0xDA, 0, 2, 9, 9, 0xFF, 0xD9]);
+        // PNG: блок eXIf уходит, IHDR и IEND остаются.
+        let chunk = |kind: &[u8], data: &[u8]| {
+            let mut c = (data.len() as u32).to_be_bytes().to_vec();
+            c.extend_from_slice(kind);
+            c.extend_from_slice(data);
+            c.extend_from_slice(&[0, 0, 0, 0]);
+            c
+        };
+        let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+        png.extend(chunk(b"IHDR", &[1; 13]));
+        png.extend(chunk(b"eXIf", b"GPS"));
+        png.extend(chunk(b"IEND", &[]));
+        let clean = strip_metadata(&png);
+        assert!(!clean.windows(4).any(|w| w == b"eXIf") && clean.windows(4).any(|w| w == b"IEND"));
+        // Не картинка или битый JPEG - не трогаем.
+        assert_eq!(strip_metadata(b"hello"), b"hello");
+    }
 
     #[test]
     fn saves_by_hash_and_rejects_non_images() {

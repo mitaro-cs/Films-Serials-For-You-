@@ -2,7 +2,8 @@
   import MailSettings from './MailSettings.svelte';
   import NightMode from './NightMode.svelte';
   import { api, errorText, post, put } from '$lib/api';
-  import { loadMe } from '$lib/session.svelte';
+  import { loadMe, session } from '$lib/session.svelte';
+  import LoginJournal from './LoginJournal.svelte';
   import Icon from '$lib/ui/Icon.svelte';
 
   interface S {
@@ -10,6 +11,7 @@
     siteName: string;
     registration: 'invite' | 'open' | 'closed';
     downloads: boolean;
+    manageRemote: boolean;
     provider: 'imdb' | 'tmdb' | 'kinopoisk' | 'off';
     tmdbKeySet: boolean;
     kpKeySet: boolean;
@@ -102,7 +104,10 @@
         </button>
       {/each}
     </div>
-    {#if s.provider === 'tmdb'}
+    {#if s.provider !== 'tmdb'}
+      <p class="muted hint">Русские постеры в Обзоре вместо рекламных плакатов IMDb - с бесплатным ключом TMDB (описания остаются из выбранного источника).</p>
+    {/if}
+    {#if s.provider !== 'off'}
       <form class="line" onsubmit={(e) => (e.preventDefault(), save({ tmdbKey }, 'Ключ сохранён'), (tmdbKey = ''))}>
         <label class="field grow">
           <span>Ключ TMDB (API key или Read Access Token) {s.tmdbKeySet ? '· задан' : ''}</span>
@@ -118,7 +123,8 @@
           <button class="btn">Сохранить</button>
         </form>
       </details>
-    {:else if s.provider === 'kinopoisk'}
+    {/if}
+    {#if s.provider === 'kinopoisk'}
       <form class="line" onsubmit={(e) => (e.preventDefault(), save({ kpKey }, 'Ключ сохранён'), (kpKey = ''))}>
         <label class="field grow">
           <span>Ключ api.kinopoisk.dev {s.kpKeySet ? '· задан' : ''}</span>
@@ -173,6 +179,19 @@
       <input class="input grow" bind:value={s.ffmpegPath} placeholder="Путь к ffmpeg (если не нашёлся сам)" />
       <button class="btn">Сохранить</button>
     </form>
+  </section>
+
+  <section class="card pane">
+    <h3>Безопасность</h3>
+    <label class="check">
+      <input type="checkbox" checked={s.manageRemote} disabled={!session.me?.window} onchange={(e) => save({ manageRemote: (e.target as HTMLInputElement).checked })} />
+      «Управление» не только в окне приложения
+    </label>
+    <p class="muted hint">
+      Выключено - управлять можно только здесь, на этом компьютере. Включено - и с телефона, но только тем, у кого в профиле включён вход в два шага.
+      {#if !session.me?.window}Менять можно только в окне приложения.{/if}
+    </p>
+    <LoginJournal />
   </section>
 {/if}
 

@@ -59,8 +59,13 @@ test('переписка: фильм карточкой и ответы', async 
   await expect(page.locator('.msg').first()).toContainText('Дюна');
   await expect(page.locator('.msg .film').first()).toHaveAttribute('href', `/title/${env().ids['Дюна']}`);
   await page.getByRole('button', { name: 'Приложить фильм' }).click();
+  // Сразу, без ввода - то, что смотрю и хочу посмотреть.
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Смотрю' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /Прислать: Начало/ })).toBeVisible();
   await page.getByRole('textbox', { name: 'Название фильма' }).fill('Амели');
-  await page.getByRole('button', { name: /Амели/ }).click();
+  // Своё - первым, дальше - то же название с IMDb.
+  await dialog.getByRole('button', { name: /Амели/ }).first().click();
   await expect(page.locator('.msg.mine .film', { hasText: 'Амели' }).last()).toBeVisible();
 });
 

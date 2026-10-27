@@ -59,7 +59,7 @@ impl From<anyhow::Error> for ApiError {
 impl From<std::io::Error> for ApiError {
     fn from(e: std::io::Error) -> Self {
         if e.kind() == std::io::ErrorKind::NotFound {
-            Self::new(StatusCode::NOT_FOUND, "file_missing", "Файл не найден на компьютере хоста")
+            Self::new(StatusCode::NOT_FOUND, "file_missing", "Файл сейчас недоступен на сервере Nova")
         } else {
             Self::internal(e)
         }

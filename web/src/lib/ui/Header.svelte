@@ -477,15 +477,24 @@
       display: grid;
       justify-items: center;
       gap: 2px;
+      min-width: 0;
       padding: 4px 0;
       border: 0;
       background: none;
       font: inherit;
-      font-size: 11px;
+      /* Шесть разделов на 320 px: подпись уменьшается с экраном и не выходит за свою кнопку. */
+      font-size: clamp(9.5px, 3vw, 11px);
       font-weight: 600;
       color: var(--faint);
       cursor: pointer;
       transition: color 0.15s;
+    }
+    .tabs a > span,
+    .tabs button > span:last-child {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .tabs .on {
       color: var(--text);

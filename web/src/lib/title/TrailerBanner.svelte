@@ -56,12 +56,12 @@
     let live=true, player:Hls | null=null;
     const controller=new AbortController();
     const reset=()=>{player?.destroy();player=null;el.pause();el.removeAttribute('src');el.load();};
-    // Официальный HD: грузится или нет (ошибка, нет трейлера) - за 8 секунд.
+    // Официальный HD: грузится или нет (ошибка, нет трейлера) - за 4 секунды.
     const tryHd=()=>new Promise<boolean>((resolve)=>{
       const done=(ok:boolean)=>{clearTimeout(t);el.removeEventListener('loadedmetadata',meta);el.removeEventListener('error',fail);resolve(ok);};
       const meta=()=>done(qualityTier(el.videoHeight,el.videoWidth)>=720);
       const fail=()=>done(false);
-      const t=setTimeout(()=>done(false),8000);
+      const t=setTimeout(()=>done(false),4000);
       el.addEventListener('loadedmetadata',meta);el.addEventListener('error',fail);
       el.src=`/api/discover/title/${id}/trailer/hd`;el.load();
     });
@@ -126,7 +126,7 @@
         const preview=await api<{linkId:number|null}>(`/api/discover/title/${id}/trailer`,{signal:controller.signal}).catch(()=>null);
         if(live&&preview?.linkId){source=null;available=true;}
       }catch{ /* Баннер остаётся на кадре, если трейлер недоступен. */ }
-    },1200);
+    },400);
     const visibility=()=>{if(document.hidden)el.pause();else if(live&&available&&!userPaused)void el.play().catch(()=>{});};
     document.addEventListener('visibilitychange',visibility);
     return()=>{live=false;toRussian=null;source=null;clearTimeout(timer);controller.abort();reset();playing=false;available=false;document.removeEventListener('visibilitychange',visibility);};

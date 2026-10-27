@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="Alpha 0.3" src="https://img.shields.io/badge/версия-Alpha%200.3-white?style=flat-square&labelColor=111">
+  <img alt="Alpha 0.4" src="https://img.shields.io/badge/версия-Alpha%200.4-white?style=flat-square&labelColor=111">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-white?style=flat-square&labelColor=111">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-axum-white?style=flat-square&labelColor=111">
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-white?style=flat-square&labelColor=111">

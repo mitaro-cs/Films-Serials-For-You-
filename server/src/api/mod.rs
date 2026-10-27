@@ -49,6 +49,9 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/host/fullscreen", post(account::fullscreen))
         .route("/api/host/night", post(account::night))
         .route("/api/me", get(account::me).patch(account::update_me))
+        .route("/api/me/security", get(account::security))
+        .route("/api/me/totp/setup", post(account::totp_setup))
+        .route("/api/me/totp", put(account::totp_enable).delete(account::totp_disable))
         .route("/api/me/password", put(account::password))
         // каталог
         .route("/api/home", get(catalog::home))
@@ -162,6 +165,7 @@ pub fn router(app: Arc<App>) -> Router {
         // управление
         .route("/api/admin/status", get(admin::status))
         .route("/api/admin/settings", get(admin::settings).put(admin::save_settings))
+        .route("/api/admin/logins", get(admin::logins))
         .route("/api/admin/libraries", get(admin::libraries).post(admin::add_library))
         .route("/api/admin/libraries/pick", post(admin::pick_folder))
         .route("/api/admin/libraries/{id}", delete(admin::remove_library))

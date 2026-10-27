@@ -371,7 +371,7 @@
           {#if isSeries}<span>{count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')}</span>{/if}
           {#if c.age}<span class="age">{c.age}</span>{/if}
         </p>
-        {#if c.overview}<p class="overview">{localized(c.overview, 'Описание на русском пока недоступно')}</p>{/if}
+        {#if c.overview}<p class="overview selectable">{localized(c.overview, 'Описание на русском пока недоступно')}</p>{/if}
         {#if t.next && (started || (isSeries && t.next.label && c.status === 'watching'))}
           <!-- Где остановились: место в фильме или следующая серия сериала. -->
           <div class="where">

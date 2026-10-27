@@ -20,7 +20,7 @@
     <RegisterForm invite={code} askInvite={false} />
   </AuthShell>
 {:else if state}
-  <AuthShell title="Приглашение не действует" subtitle="Ссылка устарела или уже использована. Попросите у хоста новую.">
+  <AuthShell title="Приглашение не действует" subtitle="Ссылка устарела или уже использована. Попросите новую у администрации Nova.">
     <form><a class="btn block" href="/login">Войти</a></form>
   </AuthShell>
 {/if}

@@ -175,6 +175,21 @@ impl Viewer {
     }
 }
 
+/// Можно ли управлять отсюда. Окно приложения на компьютере хоста - всегда. Из интернета - только
+/// если хост разрешил (`security.manage_remote`) и у аккаунта включён вход в два шага: украденный
+/// пароль администратора без телефона ничего не даст.
+pub fn manage_here(app: &App, v: &Viewer) -> bool {
+    if v.local {
+        return true;
+    }
+    if app.db.setting_or("security.manage_remote", "0") != "1" {
+        return false;
+    }
+    app.db
+        .with(|c| c.query_row("SELECT totp IS NOT NULL FROM users WHERE id = ?", [v.id], |r| r.get::<_, bool>(0)))
+        .unwrap_or(false)
+}
+
 /// Тот, кто управляет сайтом: хост или администратор.
 pub struct Manager(pub Viewer);
 
@@ -317,6 +332,13 @@ impl FromRequestParts<Arc<App>> for Manager {
         let v = load(app, parts).ok_or_else(ApiError::unauthorized)?;
         if !v.manages() {
             return Err(ApiError::forbidden());
+        }
+        if !manage_here(app, &v) {
+            return Err(ApiError::new(
+                axum::http::StatusCode::FORBIDDEN,
+                "manage_local",
+                "Управление - только в приложении Nova на компьютере хоста",
+            ));
         }
         Ok(Manager(v))
     }
