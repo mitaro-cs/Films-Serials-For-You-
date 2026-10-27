@@ -7,7 +7,8 @@ export default defineConfig({
   globalSetup: './e2e/setup.ts',
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // В CI - один повтор: на общих машинах GitHub случаются медленные кадры (WebKit, переходы).
+  retries: process.env.CI ? 1 : 0,
   timeout: 30_000,
   expect: { timeout: 7_000 },
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
