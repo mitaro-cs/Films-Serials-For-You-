@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { fadeIn } from '$lib/ui/fade';
+  import { fitTitle } from '$lib/ui/fitTitle';
   import { artSet, artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
 
@@ -63,7 +64,7 @@
       {#if poster}<img use:fadeIn src={artW(poster, 640)} alt={title} width="460" height="690" decoding="async" />{:else}<span>{title}</span>{/if}
     </div>
     <div class="text">
-      <h1>{title}</h1>
+      <h1 use:fitTitle={title}>{title}</h1>
       {#if meta.length || age}
         <p class="meta">
           {#each meta as m, i (i)}{#if i}<i aria-hidden="true">|</i>{/if}<span>{m}</span>{/each}
@@ -87,7 +88,8 @@
 <style>
   /* 1 s = 1 px макета при ширине 1440 и высоте 900; меньше окно - всё пропорционально меньше. */
   .rwh {
-    --s: min(calc(100vw / 1440), calc(100svh / 900));
+    /* 0.82: меньше места под текст и кнопки - больше под сам кадр, как на макете. */
+    --s: calc(min(calc(100vw / 1440), calc(100svh / 900)) * 0.82);
     position: relative;
     height: 100svh;
     min-height: 560px;
@@ -193,11 +195,8 @@
     line-height: 1.06;
     font-weight: 700;
     letter-spacing: -0.02em;
-    overflow-wrap: anywhere;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
+    white-space: nowrap;
+    text-overflow: ellipsis;
     overflow: hidden;
     text-shadow: 0 2px 28px #0008;
   }
@@ -252,11 +251,15 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    height: max(44px, calc(60 * var(--s)));
+    min-height: max(40px, calc(58 * var(--s)));
+    padding: 6px calc(14 * var(--s));
+    box-sizing: border-box;
+    text-align: center;
+    line-height: 1.15;
     border-radius: 999px;
     background: #fff;
     color: #0a0a0a;
-    font-size: max(14px, calc(19 * var(--s)));
+    font-size: max(13px, calc(18 * var(--s)));
     font-weight: 600;
     transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.4);
   }
@@ -284,8 +287,8 @@
   .pill {
     display: inline-flex;
     align-items: center;
-    height: max(40px, calc(60 * var(--s)));
-    padding: 0 calc(26 * var(--s));
+    height: max(38px, calc(58 * var(--s)));
+    padding: 0 calc(24 * var(--s));
     border-radius: 999px;
     background: #2b2b2bd9;
     font-size: max(13px, calc(18 * var(--s)));
@@ -368,8 +371,8 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    height: max(40px, calc(58 * var(--s)));
-    padding: 0 calc(16 * var(--s));
+    height: max(38px, calc(56 * var(--s)));
+    padding: 0 calc(14 * var(--s));
     border: 0;
     border-radius: 999px;
     background: #2e2e2eb3;
@@ -383,6 +386,12 @@
     transition:
       background 0.2s,
       transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+  }
+  /* «Смотреть вместе» - на виду, рядом с оценкой: светлая обводка отличает её от остальных капсул. */
+  .plate :global(.rw-btn.together) {
+    background: #ffffff1f;
+    box-shadow: inset 0 0 0 1.5px #ffffffb8;
+    font-weight: 600;
   }
   .plate :global(.rw-btn:hover) {
     background: #444444d9;

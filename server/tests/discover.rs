@@ -471,24 +471,25 @@ async fn feed_marks_wishes_groups_links() {
         let r = anna.send("PUT", "/api/me/favorites", json!({"key": format!("t:{}", 100 + i), "value": true})).await;
         assert!(r.status().is_success());
     }
-    // По пять отдельно у фильмов и у сериалов: пятый фильм можно, шестой - нет.
+    // По четыре отдельно у фильмов и у сериалов: пятый фильм - нельзя, пока не убрать один.
     let fifth = anna.send("PUT", "/api/me/favorites", json!({"key": "t:200", "value": true})).await;
-    assert!(fifth.status().is_success());
-    let sixth = anna.send("PUT", "/api/me/favorites", json!({"key": "t:201", "value": true})).await;
-    assert_eq!(sixth.status(), 200, "избранное больше не ограничено пятью фильмами");
+    assert_eq!(fifth.status(), 400, "пятый любимый фильм");
     let r: Value =
         anna.send("PUT", "/api/me/favorites", json!({"key": "t:100", "value": false})).await.json().await.unwrap();
-    assert_eq!(r["favorites"].as_array().unwrap().len(), 6);
+    assert_eq!(r["favorites"].as_array().unwrap().len(), 4);
+    let again = anna.send("PUT", "/api/me/favorites", json!({"key": "t:200", "value": true})).await;
+    assert!(again.status().is_success(), "место освободилось");
     assert_eq!(anna.send("PUT", "/api/me/favorites", json!({"key": "zz", "value": true})).await.status(), 400);
 
-    // Любимые режиссёры и лента просмотренного на обложке.
-    let r = anna
-        .send("PATCH", "/api/me/profile", json!({"directors": [" Нолан ", "нолан", "Финчер"], "coverKind": "ribbon"}))
-        .await;
+    // Любимый режиссёр - один, и лента просмотренного на обложке. Два режиссёра - нельзя.
+    let two = anna.send("PATCH", "/api/me/profile", json!({"directors": ["Нолан", "Финчер"]})).await;
+    assert_eq!(two.status(), 400);
+    let r =
+        anna.send("PATCH", "/api/me/profile", json!({"directors": [" Нолан ", "нолан"], "coverKind": "ribbon"})).await;
     assert!(r.status().is_success());
     app.db.with(|c| c.execute("UPDATE ext_titles SET poster = ? WHERE id = 'tt0903747'", [&poster])).unwrap();
     let page = host.json(&format!("/api/members/{pa}")).await;
-    assert_eq!(page["decor"]["directors"], json!(["Нолан", "Финчер"]));
+    assert_eq!(page["decor"]["directors"], json!(["Нолан"]));
     assert_eq!(page["decor"]["coverKind"], "ribbon");
     assert_eq!(page["decor"]["ribbon"], json!([format!("/img/{poster}")]));
     assert_eq!(anna.send("PATCH", "/api/me/profile", json!({"coverKind": "video"})).await.status(), 400);

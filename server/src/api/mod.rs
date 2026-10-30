@@ -100,6 +100,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/admin/theme", get(discover::theme_settings).put(discover::save_theme))
         .route("/api/me/profile", patch(profile::set_decor))
         .route("/api/me/favorites", put(profile::set_favorite))
+        .route("/api/me/people", get(profile::my_people).put(profile::like_person))
+        .route("/api/people/{id}/watched", get(profile::watched))
         .route(
             "/api/me/cover",
             put(profile::set_cover)

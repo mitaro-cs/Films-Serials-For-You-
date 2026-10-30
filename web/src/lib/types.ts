@@ -353,6 +353,8 @@ export interface ExtCard {
 
 export interface ExtDetail {
   refreshing?: boolean;
+  /** Последняя отмеченная серия: страница сериала открывается на следующей. */
+  lastSeen?: { season: number; episode: number } | null;
   card: ExtCard;
   overview: string | null;
   runtime: number | null;
@@ -436,6 +438,8 @@ export interface ProfileStats {
 }
 
 export interface ProfileDecor {
+  /** Актёры и режиссёры, которым человек поставил «нравится». */
+  likedPeople?: { name: string; role: string; photo: string | null }[];
   cover: string | null;
   /** Обложка: лента просмотренного или своя картинка. */
   coverKind: 'ribbon' | 'image';

@@ -27,9 +27,18 @@
     e.preventDefault();
     open = false;
   }
+
+  // Клик по затемнению вокруг окна закрывает его: у ::backdrop цель клика - сам <dialog>, но
+  // координаты вне его рамки.
+  function outside(e: MouseEvent) {
+    if (e.target !== dialog || !dialog) return;
+    const r = dialog.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) open = false;
+  }
 </script>
 
-<dialog bind:this={dialog} class:wide class:sheet class:closing onclose={() => (open = false)} oncancel={cancel} aria-label={title}>
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+<dialog bind:this={dialog} class:wide class:sheet class:closing onclose={() => (open = false)} oncancel={cancel} onclick={outside} aria-label={title}>
   {#if open || closing}
     <header>
       <h2>{title}</h2>

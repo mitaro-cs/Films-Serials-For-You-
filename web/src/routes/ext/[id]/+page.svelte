@@ -97,9 +97,14 @@
         d = r;
         if (r.refreshing) pollDetail(want);
         if (r.card.kind === 'series' && !episodes.length) {
+          // Открываем там, где остановились: недосмотренная серия или следующая за последней отмеченной.
           const resume = r.links.find((l) => l.progress && l.season != null && l.episode != null);
-          if (resume) chosen = `${resume.season}-${resume.episode! + (resume.progress && resume.progress.position >= resume.progress.duration * .95 ? 1 : 0)}`;
-          loadSeason(resume?.season ?? r.seasons[0] ?? 1);
+          const spots: { s: number; e: number }[] = [];
+          if (resume) spots.push({ s: resume.season!, e: resume.episode! + (resume.progress && resume.progress.position >= resume.progress.duration * 0.95 ? 1 : 0) });
+          if (r.lastSeen) spots.push({ s: r.lastSeen.season, e: r.lastSeen.episode + 1 });
+          const spot = spots.sort((a, b) => a.s - b.s || a.e - b.e).pop();
+          if (spot) chosen = `${spot.s}-${spot.e}`;
+          loadSeason(spot?.s ?? r.seasons[0] ?? 1);
         }
       },
       (x) => {
@@ -587,6 +592,7 @@
           </div>
           <div class="rw-rate"><small>Оценка</small><StarInput value={mine?.stars ?? null} onchange={setStars} size={28} label="Ваша оценка" /></div>
         </div>
+        {#if !c?.local}<button class="rw-btn together" disabled={!d || roomBusy || (!first && !firstFound)} onclick={together}><Icon name="party" size={18} /> Смотреть вместе</button>{/if}
         <button class="rw-btn" disabled={!d} onclick={() => { lists = true; moreOpen = true; }}>В списки</button>
         <div class="rw-row">
           <button class="rw-btn" onclick={writeReview}>Отзыв</button>

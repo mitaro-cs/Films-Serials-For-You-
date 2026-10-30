@@ -461,6 +461,31 @@ select.input option {
     }
   }
 }
+/* Цвет фильма на главной: кадр героя ставит --tone на <html>, фон страницы плавно перетекает в новый цвет. */
+@property --tone {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #15161a;
+}
+:root {
+  --tone-dark: color-mix(in srgb, var(--tone) 55%, #000);
+}
+html {
+  transition: --tone 0.9s ease;
+}
+.homepage {
+  background: linear-gradient(180deg, var(--tone-dark) 0, var(--tone-dark) 780px, var(--bg) 1500px);
+}
+/* Заставка входа: пока идут буквы, страница скрыта и чуть увеличена, потом плавно ложится на место. */
+.intro-reveal main {
+  animation: intro-page 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) 1.7s both;
+}
+@keyframes intro-page {
+  from {
+    opacity: 0;
+    transform: scale(1.05);
+  }
+}
 /* Значок пустого экрана чуть покачивается. */
 .empty > svg:first-child {
   animation: bob 3.2s ease-in-out infinite;

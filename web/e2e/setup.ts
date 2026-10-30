@@ -146,7 +146,7 @@ export default async function setup(_: FullConfig) {
   await boris.c.dispose();
 
   // Фильм из ленты IMDb со своей страницей (/ext/…): без сети — описание, кадр, актёры и похожие
-  // кладём прямо в базу (`detailed` = 5 = `discover::DETAILED` - сервер к IMDb не пойдёт), картинки — в images/.
+  // кладём прямо в базу (`detailed` = 6 = `discover::DETAILED` - сервер к IMDb не пойдёт), картинки — в images/.
   const data = join(base, 'data');
   const img = (src: string) => {
     const name = `${createHash('sha256').update(readFileSync(src)).digest('hex')}.jpg`;
@@ -164,7 +164,7 @@ export default async function setup(_: FullConfig) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const similar = ['tt0000001', 'tt0000002', 'tt0000003'];
-  similar.forEach((s, i) => put.run(s, 'series', `Похожий сериал ${i + 1}`, null, 2010 + i, 7.5, 1000, '["Драма"]', null, null, art, null, JSON.stringify({ at: Date.now(), imdbBackdrop: art }), 5, Date.now()));
+  similar.forEach((s, i) => put.run(s, 'series', `Похожий сериал ${i + 1}`, null, 2010 + i, 7.5, 1000, '["Драма"]', null, null, art, null, JSON.stringify({ at: Date.now(), imdbBackdrop: art }), 6, Date.now()));
   const extra = {
     // Кадр IMDb уже есть - страница не идёт за ним в сеть и не затирает описание и актёров из базы.
     imdbBackdrop: still,
@@ -184,7 +184,7 @@ export default async function setup(_: FullConfig) {
     at: Date.now(),
   };
   put.run('tt1196946', 'series', 'Менталист', 'The Mentalist', 2008, 8.2, 257674, '["Криминал","Драма","Детектив"]',
-    'Известный «экстрасенс» Патрик Джейн признаётся, что он мошенник, и помогает полиции искать Красного Джона.', 43, art, still, JSON.stringify(extra), 5, Date.now());
+    'Известный «экстрасенс» Патрик Джейн признаётся, что он мошенник, и помогает полиции искать Красного Джона.', 43, art, still, JSON.stringify(extra), 6, Date.now());
   db.prepare("INSERT OR REPLACE INTO ext_charts (chart, pos, ext_id) VALUES ('popular_series', 0, 'tt1196946')").run();
   db.close();
   // Своё видео у фильма — страница не ищет его на Rutube и VK (в CI это была бы сеть).

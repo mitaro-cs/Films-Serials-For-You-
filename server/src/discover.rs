@@ -273,7 +273,7 @@ const SIMILAR: &str = r#"query S($id: ID!) { title(id: $id) { moreLikeThisTitles
 /// 2 - со своей страницей: кадр, актёры, кадры, похожие; 3 (1.0) - и сезоны сериала (второй
 /// запрос IMDb снова работает: актёры, кадры и русские названия - заново).
 /// 5 (alpha 0.4) - кадр баннера из фильма (`still_frame` около 16:9), а не рекламный плакат.
-pub const DETAILED: i64 = 5;
+pub const DETAILED: i64 = 6;
 
 const EVERY: Duration = Duration::from_secs(12 * 3600);
 

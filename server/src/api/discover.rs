@@ -340,6 +340,16 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
     let local: Vec<Card> =
         card.local.map(|t| cards_by_ids(&app, v.profile.kids, &[t])).transpose()?.unwrap_or_default();
     let list = |k: &str| x[k].as_array().cloned().unwrap_or_default();
+    // Последняя отмеченная серия: страница сериала открывается на следующей за ней.
+    let last_seen: Option<(i64, i64)> = app.db.with(|c| {
+        c.query_row(
+            "SELECT season, episode FROM ext_seen WHERE profile_id = ? AND ext_id = ? AND season > 0
+             ORDER BY season DESC, episode DESC LIMIT 1",
+            rusqlite::params![v.profile.id, &id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+    })?;
     let refreshing = {
         let jobs = app.detail_jobs.lock();
         jobs.contains(&id) || jobs.contains(&format!("rich:{id}"))
@@ -356,6 +366,7 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
         "lists": super::lists::of_ext(&app, &v, &id)?,
         "links": super::links::of(&app, v.profile.id, None, Some(&id))?,
         "seasons": list("seasons"),
+        "lastSeen": last_seen.map(|(season, episode)| json!({"season": season, "episode": episode})),
         "friends": super::activity::of_title(&app, &v, None, Some(&id))?,
     })))
 }

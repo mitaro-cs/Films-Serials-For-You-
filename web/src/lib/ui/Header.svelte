@@ -124,11 +124,14 @@
         <span class="ic"><Icon name={it.icon} size={19} /></span><span class="lbl">{it.label}</span>
       </a>
     {/each}
-    <button role="menuitem" onclick={() => { menu = ''; window.dispatchEvent(new Event('nova-tour')); }} style:--k={items.length + more.length}>
+    <button role="menuitem" onclick={() => { menu = ''; window.dispatchEvent(new Event('nova-room-link')); }} style:--k={items.length + more.length}>
+      <span class="ic"><Icon name="party" size={19} /></span><span class="lbl">Комната по ссылке</span>
+    </button>
+    <button role="menuitem" onclick={() => { menu = ''; window.dispatchEvent(new Event('nova-tour')); }} style:--k={items.length + more.length + 1}>
       <span class="ic"><Icon name="sparkle" size={19} /></span><span class="lbl">Экскурсия по Nova</span>
     </button>
     {#if !session.me?.window}
-      <button role="menuitem" onclick={logout} style:--k={items.length + more.length + 1}>
+      <button role="menuitem" onclick={logout} style:--k={items.length + more.length + 2}>
         <span class="ic"><Icon name="logout" size={19} /></span><span class="lbl">Выйти</span>
       </button>
     {/if}

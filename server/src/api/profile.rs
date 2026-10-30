@@ -3,10 +3,12 @@
 
 use crate::auth::Viewer;
 use crate::error::{ApiError, ApiResult};
+use crate::util::now_ms;
 use crate::App;
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::Json;
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -156,7 +158,7 @@ pub fn decor(app: &App, v: &Viewer, id: i64) -> ApiResult<Value> {
                UNION ALL
                SELECT e.poster, m.at FROM ext_marks m JOIN ext_titles e ON e.id = m.ext_id
                  WHERE m.profile_id = ?1 AND m.status = 'watched')
-             WHERE p IS NOT NULL AND p != '' ORDER BY at DESC LIMIT 30",
+             WHERE p IS NOT NULL AND p != '' ORDER BY at DESC LIMIT 72",
             super::visible(v.profile.kids)
         ))?;
         let r = st.query_map([id], |r| r.get::<_, String>(0))?;
@@ -177,6 +179,7 @@ pub fn decor(app: &App, v: &Viewer, id: i64) -> ApiResult<Value> {
     Ok(json!({
         "cover": super::img(cover), "coverKind": kind, "accent": accent, "bio": bio, "favorites": favorites,
         "directors": super::json_list(Some(directors.clone())), "showActivity": show,
+        "likedPeople": liked_people(app, id)?,
         // Фото режиссёров - что уже известно (без запросов к IMDb; недостающее ищет `directors::warm`).
         "directorsInfo": super::json_list(Some(directors)).into_iter().map(|n| {
             let photo = crate::directors::cached(app, &n).and_then(|c| c.1);
@@ -199,8 +202,11 @@ pub struct DecorBody {
     show_activity: Option<bool>,
 }
 
-/// Большое избранное, отдельно фильмы и сериалы.
-pub const MAX_FAVORITES: usize = 100;
+/// Любимых в личном профиле: фильмов - четыре и сериалов - четыре (отдельно друг от друга).
+pub const MAX_FAVORITES: usize = 4;
+/// Любимый режиссёр в личном профиле - один; «нравятся» можно ставить любым актёрам и режиссёрам
+/// (`liked_people`), а любимый - один.
+pub const MAX_DIRECTORS: usize = 1;
 
 /// Фильм или сериал у ключа любимого («t:12» - с сервиса, «x:tt…» - из ленты).
 fn fav_kind(app: &App, key: &str) -> Option<String> {
@@ -254,6 +260,116 @@ pub async fn set_favorite(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<
     Ok(Json(json!({"favorites": list})))
 }
 
+/// Актёры и режиссёры, которым человек поставил «нравится» (новые первыми), с фото из того, что уже известно.
+pub fn liked_people(app: &App, id: i64) -> ApiResult<Vec<Value>> {
+    let rows: Vec<(String, String)> = app.db.with(|c| {
+        let mut st =
+            c.prepare("SELECT name, role FROM liked_people WHERE profile_id = ? ORDER BY at DESC LIMIT 200")?;
+        let r = st.query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        r.collect()
+    })?;
+    Ok(rows
+        .into_iter()
+        .map(|(name, role)| {
+            let photo = crate::directors::cached(app, &name).and_then(|c| c.1);
+            json!({"name": name, "role": role, "photo": super::img(photo)})
+        })
+        .collect())
+}
+
+pub async fn my_people(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Value>> {
+    Ok(Json(json!({"liked": liked_people(&app, v.profile.id)?, "directors": director_names(&app, v.profile.id)?})))
+}
+
+fn director_names(app: &App, id: i64) -> ApiResult<Vec<String>> {
+    let raw: String =
+        app.db.with(|c| c.query_row("SELECT directors FROM profiles WHERE id = ?", [id], |r| r.get(0)))?;
+    Ok(super::json_list(Some(raw)))
+}
+
+#[derive(Deserialize)]
+pub struct PersonLike {
+    name: String,
+    role: String,
+    value: bool,
+}
+
+/// «Нравится» актёру или режиссёру (со страницы человека) и обратно.
+pub async fn like_person(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<PersonLike>) -> ApiResult<Json<Value>> {
+    let name = b.name.trim();
+    if name.is_empty() || name.chars().count() > 80 {
+        return Err(ApiError::bad("bad_name", "Имя - от 1 до 80 символов"));
+    }
+    if b.role != "actor" && b.role != "director" {
+        return Err(ApiError::bad("bad_role", "Актёр или режиссёр"));
+    }
+    let me = v.profile.id;
+    app.db.with(|c| {
+        if b.value {
+            c.execute(
+                "INSERT OR IGNORE INTO liked_people (profile_id, name, role, at) VALUES (?, ?, ?, ?)",
+                params![me, name, b.role, now_ms()],
+            )?;
+        } else {
+            c.execute(
+                "DELETE FROM liked_people WHERE profile_id = ? AND name = ? AND role = ?",
+                params![me, name, b.role],
+            )?;
+        }
+        Ok::<(), rusqlite::Error>(())
+    })?;
+    Ok(Json(json!({"liked": liked_people(&app, me)?})))
+}
+
+#[derive(Deserialize)]
+pub struct WatchedQuery {
+    kind: Option<String>,
+}
+
+/// Что человек смотрел: фильмы или сериалы (с сервиса и из Обзора), свежее первым. Чужое - только если
+/// человек не скрыл, что смотрит.
+pub async fn watched(
+    State(app): State<Arc<App>>,
+    v: Viewer,
+    Path(id): Path<i64>,
+    Query(q): Query<WatchedQuery>,
+) -> ApiResult<Json<Value>> {
+    let kind = if q.kind.as_deref() == Some("series") { "series" } else { "movie" };
+    let show: bool = app
+        .db
+        .with(|c| c.query_row("SELECT show_activity FROM profiles WHERE id = ?", [id], |r| r.get(0)).optional())?
+        .ok_or_else(ApiError::not_found)?;
+    if id != v.profile.id && !show {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "hidden", "Человек скрыл, что смотрит"));
+    }
+    let local: Vec<i64> = app.db.with(|c| {
+        let mut st = c.prepare(
+            "SELECT t.id FROM titles t WHERE t.kind = ?2 AND (
+               EXISTS (SELECT 1 FROM watched w WHERE w.title_id = t.id AND w.profile_id = ?1)
+               OR EXISTS (SELECT 1 FROM progress p JOIN files f ON f.id = p.file_id WHERE f.title_id = t.id AND p.profile_id = ?1))
+             ORDER BY COALESCE((SELECT MAX(w.at) FROM watched w WHERE w.title_id = t.id AND w.profile_id = ?1), 0) DESC, t.id DESC
+             LIMIT 300",
+        )?;
+        let r = st.query_map(params![id, kind], |r| r.get(0))?;
+        r.collect()
+    })?;
+    let ext: Vec<String> = app.db.with(|c| {
+        let mut st = c.prepare(
+            "SELECT x.id FROM (
+               SELECT m.ext_id id, m.at at FROM ext_marks m WHERE m.profile_id = ?1 AND m.status IN ('watched', 'watching')
+               UNION ALL SELECT s.ext_id, MAX(s.at) FROM ext_seen s WHERE s.profile_id = ?1 GROUP BY s.ext_id) x
+             JOIN ext_titles e ON e.id = x.id
+             WHERE e.kind = ?2 AND NOT EXISTS (SELECT 1 FROM titles t WHERE t.imdb_id = e.id)
+             GROUP BY x.id ORDER BY MAX(x.at) DESC LIMIT 300",
+        )?;
+        let r = st.query_map(params![id, kind], |r| r.get(0))?;
+        r.collect()
+    })?;
+    let cards = super::cards_by_ids(&app, v.profile.kids, &local)?;
+    let ext_cards: Vec<_> = ext.iter().filter_map(|e| super::discover::ext_card(&app, &v, e).ok()).collect();
+    Ok(Json(json!({"kind": kind, "local": cards, "ext": ext_cards})))
+}
+
 fn valid_color(c: &str) -> bool {
     c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -288,8 +404,8 @@ pub async fn set_decor(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<Dec
                 keep.push(n.to_string());
             }
         }
-        if keep.len() > MAX_FAVORITES {
-            return Err(ApiError::bad("too_many", format!("Любимых режиссёров - не больше {MAX_FAVORITES}")));
+        if keep.len() > MAX_DIRECTORS {
+            return Err(ApiError::bad("too_many", "Любимый режиссёр - один: сначала уберите прежнего"));
         }
         let s = serde_json::to_string(&keep).unwrap_or_else(|_| "[]".into());
         app.db.with(|c| c.execute("UPDATE profiles SET directors = ? WHERE id = ?", params![s, me]))?;

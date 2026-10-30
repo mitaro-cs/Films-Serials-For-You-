@@ -625,6 +625,16 @@ CREATE INDEX logins_at ON logins(at);
     r#"
 UPDATE files SET probe = NULL WHERE probe LIKE '%10le"%' OR probe LIKE '%10be"%' OR probe LIKE '%p010%';
 "#,
+    // 24 (alpha 0.7): «нравится» актёрам и режиссёрам - любым, не только любимому режиссёру в профиле.
+    r#"
+CREATE TABLE liked_people (
+  profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  at INTEGER NOT NULL,
+  PRIMARY KEY (profile_id, name, role)
+);
+"#,
 ];
 
 /// Сколько миграций должна знать версия Nova, чтобы работать с базой этой версии. Миграции

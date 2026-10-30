@@ -61,7 +61,7 @@ const MAIN: &str = r#"query T($id: ID!) { title(id: $id) {
 const EXTRA: &str = r#"query X($id: ID!) { title(id: $id) {
   taglines(first: 1) { edges { node { text } } }
   akas(first: 80) { edges { node { text country { id } language { id } } } }
-  images(first: 40) { edges { node { url width height type caption { plainText } } } }
+  images(first: 100) { edges { node { url width height type caption { plainText } } } }
   cast: credits(first: 12, filter: { categories: ["actor", "actress"] }) {
     edges { node { name { id nameText { text } primaryImage { url } } ... on Cast { characters { name } } } }
   }
@@ -235,9 +235,9 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
         people.extend(cast);
     }
 
-    // Фон и галерея - широкие кадры из «images». Раньше брали самую широкую картинку - выходили
-    // рекламные плакаты с надписями и портреты крупным планом. Теперь лучше кадр из фильма
-    // (`still_frame`) около 16:9, где в кадре несколько человек («X and Y in …»), не меньше 1280 px.
+    // Фон и галерея - широкие кадры из «images»: кадр из самого фильма (`still_frame`), крупный
+    // (чем шире, тем лучше - фон растягивается на весь экран), около 16:9, не плакат и не съёмки.
+    // Меньше 1600 px берём, только если крупных нет вовсе.
     let mut wide: Vec<(String, i64, i64)> = edges(&x["images"])
         .filter_map(|i| {
             let (w, h) = (i["width"].as_i64()?, i["height"].as_i64()?);
@@ -246,20 +246,27 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
             }
             let url = text(&i["url"])?;
             let ratio = w as f64 / h as f64;
-            let mut score = 0;
-            if i["type"].as_str() == Some("still_frame") {
-                score += 40;
-            }
+            let mut score = match i["type"].as_str() {
+                Some("still_frame") => 40,
+                Some("production_art" | "publicity") => 8,
+                Some("behind_the_scenes" | "event" | "poster" | "promo") => -25,
+                _ => 0,
+            };
             if (1.6..=2.0).contains(&ratio) {
                 score += 20;
             } else if ratio > 2.4 {
                 score -= 30;
             }
-            if w >= 1280 {
-                score += 10;
-            }
-            if i["caption"]["plainText"].as_str().is_some_and(|c| c.contains(" and ")) {
-                score += 5;
+            score += match w {
+                3000.. => 26,
+                2000..=2999 => 18,
+                1600..=1999 => 10,
+                1280..=1599 => 0,
+                _ => -14,
+            };
+            // «X and Y in Фильм» - в кадре главные герои, а не массовка.
+            if i["caption"]["plainText"].as_str().is_some_and(|c| c.contains(" and ") || c.contains(" in ")) {
+                score += 6;
             }
             Some((url, w, score))
         })
@@ -269,6 +276,26 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
     let backdrop = wide.first().map(|(u, width, _)| sized(u, (*width as u32).min(3840)));
     let gallery = wide.iter().skip(1).take(8).map(|(u, ..)| sized(u, 1920)).collect();
 
+    // Постер: главная картинка IMDb, а если среди плакатов есть заметно крупнее (у старых фильмов
+    // главная бывает 300 px и на большом экране мылится) - самый крупный плакат.
+    let main_poster = text(&t["primaryImage"]["url"]);
+    let main_w = t["primaryImage"]["width"].as_i64().unwrap_or(0);
+    let big_poster = edges(&x["images"])
+        .filter(|i| i["type"].as_str() == Some("poster"))
+        .filter_map(|i| {
+            let (w, h) = (i["width"].as_i64()?, i["height"].as_i64()?);
+            let ratio = w as f64 / h as f64;
+            if !((0.6..=0.72).contains(&ratio) && w >= 800 && w > main_w * 3 / 2) {
+                return None;
+            }
+            Some((text(&i["url"])?, w))
+        })
+        .max_by_key(|(_, w)| *w);
+    let poster = match (big_poster, main_poster) {
+        (Some((u, w)), _) => Some(sized(&u, (w as u32).min(1500))),
+        (None, Some(u)) => Some(sized(&u, 600)),
+        (None, None) => None,
+    };
     Details {
         title,
         original,
@@ -302,7 +329,7 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
         // «Passed», «Approved», «Not Rated» - не возраст: не показываем.
         age: text(&t["certificate"]["rating"]).filter(|a| crate::taste::age_min(a).is_some()),
         release_date: date(&t["releaseDate"]),
-        poster: text(&t["primaryImage"]["url"]).map(|u| sized(&u, 600)),
+        poster,
         backdrop,
         gallery,
         aka,
@@ -394,6 +421,27 @@ mod tests {
         assert_eq!(d.people.iter().filter(|p| p.job == "actor").count(), 1);
         assert_eq!(d.people[1].role.as_deref(), Some("Mia"));
         assert_eq!(d.seasons, vec![1, 2]);
+    }
+
+    #[test]
+    fn sharp_frame_and_big_poster() {
+        let t = json!({
+            "id": "tt0364569", "titleText": {"text": "Олдбой"}, "titleType": {"id": "movie", "isSeries": false},
+            "primaryImage": {"url": "https://m.media-amazon.com/images/M/small._V1_.jpg", "width": 300, "height": 450}
+        });
+        let x = json!({"images": {"edges": [
+            {"node": {"url": "https://m.media-amazon.com/images/M/low._V1_.jpg", "width": 1100, "height": 620, "type": "still_frame"}},
+            {"node": {"url": "https://m.media-amazon.com/images/M/behind._V1_.jpg", "width": 3200, "height": 1800, "type": "behind_the_scenes"}},
+            {"node": {"url": "https://m.media-amazon.com/images/M/sharp._V1_.jpg", "width": 2400, "height": 1350, "type": "still_frame"}},
+            {"node": {"url": "https://m.media-amazon.com/images/M/big._V1_.jpg", "width": 1400, "height": 2100, "type": "poster"}}
+        ]}});
+        let d = parse_details(&t, &x);
+        assert!(
+            d.backdrop.as_deref().is_some_and(|b| b.contains("/sharp._V1_")),
+            "крупный кадр фильма, не съёмки: {:?}",
+            d.backdrop
+        );
+        assert!(d.poster.as_deref().is_some_and(|p| p.contains("/big._V1_") && p.contains("UX1400")), "{:?}", d.poster);
     }
 
     #[test]

@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { heroSet } from '$lib/ui/art';
+  import { fade, fly } from 'svelte/transition';
+  import { artW, heroSet } from '$lib/ui/art';
+  import { toneOfUrl } from '$lib/ui/tone';
+  import { fitTitle } from '$lib/ui/fitTitle';
   import { getDetail, peekDetail } from '$lib/discover/details';
   import { genreRu } from '$lib/genres';
   import { motionOn } from '$lib/motion';
@@ -71,6 +74,19 @@
 
   // «Кинозал+»: надпись над названием и цвет кадра - по фильму (у своих - цвет постера).
   const accent = '#ffffff';
+  // Цвет страницы - по кадру: фон героя и верх рядов ниже плавно переходят в него (см. @property --tone).
+  let tone = $state('#15161a');
+  $effect(() => {
+    const src = selected?.card?.backdropSmall ?? artW(backdrop, 640) ?? backdrop;
+    if (!src) return;
+    let live = true;
+    void toneOfUrl(src).then((c) => { if (live && c) tone = c; });
+    return () => { live = false; };
+  });
+  $effect(() => {
+    document.documentElement.style.setProperty('--tone', tone);
+    return () => document.documentElement.style.removeProperty('--tone');
+  });
   const ext = $derived(selected?.ext);
   const eyebrow = $derived(
     selected?.card?.resume ? 'Вы смотрели'
@@ -94,11 +110,11 @@
 {#if card}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <section class="showcase" aria-label="Рекомендуем" style:--acc={accent} bind:this={root} onpointerenter={() => hovering = true} onpointerleave={() => hovering = false} onpointerdown={hold} onpointerup={swipe} onpointercancel={() => touchStart = null} onkeydown={() => hold()}>
-    {#key backdrop}{#if backdrop}<img class="backdrop" src={backdrop} srcset={heroSet(backdrop, selected?.card?.backdropSmall)} sizes="100vw" alt="" fetchpriority="high" />{/if}{/key}
+    <div class="stage" aria-hidden="true">{#key backdrop}{#if backdrop}<img class="backdrop" in:fade|global={{ duration: 800 }} out:fade|global={{ duration: 800 }} src={backdrop} srcset={heroSet(backdrop, selected?.card?.backdropSmall)} sizes="80vw" alt="" fetchpriority="high" />{/if}{/key}</div>
     <div class="shade"></div>
-    {#key card.id}<div class="copy">
+    <div class="copies">{#key card.id}<div class="copy" in:fly|global={{ y: 16, duration: 520, delay: 220 }} out:fade|global={{ duration: 240 }}>
       <span class="eyebrow">{eyebrow}</span>
-      <h1>{card.title}</h1>
+      <h1 use:fitTitle={card.title}>{card.title}</h1>
       <p class="meta">
         {#if card.rating}<span class="rating"><Icon name="star" size={14} /> {card.rating.toFixed(1)}</span>{/if}
         {#if card.year}<span>{card.year}</span>{/if}
@@ -110,7 +126,7 @@
         <button class="btn glass" class:on={wanted} aria-pressed={wanted} onclick={want}><Icon name={wanted ? 'check' : 'plus'} size={18} /> {wanted ? 'В планах' : 'Хочу'}</button>
       </div>
       {#if !detail && selected.ext}<Loading compact label="Подробности загружаются в фоне" />{/if}
-    </div>{/key}
+    </div>{/key}</div>
     {#if items.length > 1}
       <div class="dots" role="tablist" aria-label="Кадры">
         {#each items as it, i (it.card?.id ?? it.ext?.id)}
@@ -124,17 +140,21 @@
 <style>
   /* «Кинозал+» (alpha 0.5): кадр почти на весь экран, слева - надпись цветом фильма, крупное название,
      оценка, описание и две капсулы; справа внизу - точки. Затемнение только слева и снизу. */
-  .showcase { position: relative; min-height: 100svh; isolation: isolate; display: flex; align-items: flex-end; padding: calc(var(--header) + 36px) var(--gutter) clamp(70px, 11vh, 130px); overflow: hidden; }
-  .backdrop, .shade { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
-  .backdrop { object-fit: cover; object-position: center 35%; animation: backdrop-in .7s ease both, drift 14s ease-out both; }
-  .shade { background: linear-gradient(90deg, #07080aee 0%, #07080a99 32%, transparent 62%), linear-gradient(0deg, var(--bg) 0%, #07080a66 22%, transparent 45%); }
-  .copy { max-width: min(46vw, 600px); animation: feature-in .45s cubic-bezier(.2,.8,.2,1) both; }
+  .showcase { position: relative; min-height: clamp(520px, 78svh, 860px); isolation: isolate; display: flex; align-items: flex-end; padding: calc(var(--header) + 36px) var(--gutter) clamp(48px, 9vh, 100px); overflow: hidden; }
+  /* Кадр - справа, на 78% ширины: слева он растворяется в цвет фильма (--tone, тот же, что у фона страницы). */
+  .stage { position: absolute; inset: 0 0 0 auto; width: 78%; z-index: -2; }
+  .backdrop { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; object-fit: cover; object-position: center 30%; }
+  .shade { position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+  .stage .backdrop { animation: drift 14s ease-out both; }
+  .shade { background: linear-gradient(90deg, var(--tone-dark) 0%, color-mix(in srgb, var(--tone-dark) 90%, transparent) 22%, color-mix(in srgb, var(--tone-dark) 45%, transparent) 44%, transparent 68%), linear-gradient(0deg, var(--tone-dark) 0%, color-mix(in srgb, var(--tone-dark) 50%, transparent) 22%, transparent 50%); }
+  .copies { display: grid; max-width: min(46vw, 620px); }
+  .copy { grid-area: 1 / 1; align-self: end; }
   @keyframes feature-in { from { opacity: 0; transform: translateY(14px); } }
   @keyframes backdrop-in { from { opacity: 0; } }
   @keyframes drift { from { transform: scale(1.06); } }
   .eyebrow { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--acc) 65%, #fff); }
   .eyebrow::before { content: ''; width: 22px; height: 2px; background: currentColor; }
-  h1 { font-size: clamp(38px, 4.6vw, 72px); line-height: 1.02; letter-spacing: -.035em; font-weight: 800; margin: 14px 0; overflow-wrap: break-word; text-shadow: 0 2px 30px #0006; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  h1 { font-size: clamp(38px, 4.6vw, 72px); line-height: 1.02; letter-spacing: -.035em; font-weight: 800; margin: 14px 0; white-space: nowrap; text-overflow: ellipsis; text-shadow: 0 2px 30px #0006; overflow: hidden; padding-bottom: .08em; }
   .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; font-size: 14px; font-weight: 500; color: #c9c4bb; margin: 0; }
   .rating { display: inline-flex; align-items: center; gap: 5px; color: #f5c518; font-weight: 800; }
   .description { max-width: 60ch; font-size: 16px; line-height: 1.6; color: #ddd8d0; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin: 16px 0 0; }
@@ -153,9 +173,9 @@
   /* Телефон: кадр сверху почти целиком, всё по центру под ним. */
   @media (max-width: 640px) {
     .showcase { min-height: 0; touch-action: pan-y; padding: calc(75vw - 40px) var(--gutter) 50px; justify-content: center; text-align: center; }
-    .backdrop { bottom: auto; height: auto; aspect-ratio: 4 / 3; object-position: center 35%; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
-    .shade { background: linear-gradient(0deg, var(--bg) 30%, #0000 70%), linear-gradient(180deg, #0006, #0000 30%); }
-    .copy { max-width: 100%; }
+    .stage { inset: 0 0 auto 0; width: 100%; aspect-ratio: 4 / 3; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+    .shade { background: linear-gradient(0deg, var(--tone-dark) 30%, #0000 70%), linear-gradient(180deg, #0006, #0000 30%); }
+    .copies { max-width: 100%; }
     .eyebrow { justify-content: center; font-size: 11px; }
     h1 { font-size: clamp(32px, 10vw, 44px); margin: 8px 0 10px; }
     .meta { justify-content: center; font-size: 13px; }

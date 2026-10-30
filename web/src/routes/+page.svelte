@@ -17,6 +17,7 @@
   import Shelf from '$lib/ui/Shelf.svelte';
   import Wide from '$lib/ui/Wide.svelte';
   import Showcase from '$lib/ui/Showcase.svelte';
+  import { like, recommend, type Taste } from '$lib/recommend';
   import { genreRu } from '$lib/genres';
 
   // Главная как у Apple TV: герой-карусель и ряды широких карточек. Фильмы и Сериалы - герой,
@@ -108,9 +109,20 @@
     window.addEventListener('nova-preferences', read);
     return () => window.removeEventListener('nova-preferences', read);
   });
-  const recommendationGenres = $derived([...new Set([...preferredGenres, ...imdb.flatMap(row => row.items).filter(f => session.me?.favorites?.includes(`x:${f.id}`)).flatMap(f => f.genres.map(genreRu))])]);
-  const recommended = $derived([...new Map(imdb.flatMap(row => row.items).filter(f => f.genres.some(g => recommendationGenres.includes(genreRu(g))) && f.mark !== 'watched' && !session.me?.favorites?.includes(`x:${f.id}`)).map(f => [f.id, f])).values()].slice(0,20));
-  const rewatch = $derived((marks?.watched ?? []).filter(inSection));
+  // Вкус: жанры из знакомства (+3), любимое (+3), начатое (+2), «Хочу» (+1,5), просмотренное (+1).
+  const taste = $derived.by(() => {
+    const t: Taste = new Map();
+    const mine = session.me?.favorites ?? [];
+    like(t, preferredGenres, 3);
+    const add = (list: { card?: { genres: string[] }; ext?: { genres: string[] } }[], w: number) => { for (const m of list) like(t, (m.card ?? m.ext)?.genres.map(genreRu) ?? [], w); };
+    add(marks?.favorites ?? [], 3);
+    add(marks?.watching ?? [], 2);
+    add(marks?.want ?? [], 1.5);
+    add(marks?.watched ?? [], 1);
+    for (const f of imdb.flatMap((row) => row.items)) if (mine.includes(`x:${f.id}`)) like(t, f.genres.map(genreRu), 3);
+    return t;
+  });
+  const recommended = $derived(recommend(imdb.flatMap((row) => row.items), taste, (f) => f.mark === 'watched' || f.mark === 'dropped' || !!session.me?.favorites?.includes(`x:${f.id}`), genreRu));  const rewatch = $derived((marks?.watched ?? []).filter(inSection));
 
   // Сетка всей коллекции рисуется частями: сотни карточек разом подтормаживали прокрутку
   // и открытие вкладки. Следующие 48 - когда до конца остаётся экран.

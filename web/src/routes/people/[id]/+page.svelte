@@ -136,6 +136,10 @@
     <section class="block" aria-labelledby="st">
       <h2 id="st">Статистика просмотра</h2>
       <ProfileStats stats={p.stats} accent={p.decor.accent} />
+      <p class="seen-links">
+        <a class="btn sm" href="/people/{p.person.id}/watched?kind=movie"><Icon name="film" size={14} /> Какие фильмы смотрел</a>
+        <a class="btn sm" href="/people/{p.person.id}/watched?kind=series"><Icon name="tv" size={14} /> Какие сериалы смотрел</a>
+      </p>
     </section>
     {#if p.watching.length}
       <div class="block now">
@@ -159,7 +163,7 @@
 
     {#if p.decor.directors.length}
       <section class="block" aria-labelledby="d">
-        <h2 id="d">Любимые режиссёры</h2>
+        <h2 id="d">Любимый режиссёр</h2>
         <ul class="dirs">
           {#each p.decor.directors as d, i (d)}
             {@const ph = p.decor.directorsInfo?.find((x) => x.name === d)?.photo}
@@ -176,6 +180,24 @@
       </section>
     {/if}
 
+
+    {#if p.decor.likedPeople?.length}
+      <section class="block" aria-labelledby="lp">
+        <h2 id="lp">Нравятся актёры и режиссёры</h2>
+        <ul class="dirs">
+          {#each p.decor.likedPeople as lp, i (lp.name + lp.role)}
+            <li class="rise" style:--i={i}>
+              <a class="dir" href="/person?name={encodeURIComponent(lp.name)}&role={lp.role}">
+                <span class="dph" style:background={lp.photo ? undefined : placeholder(lp.name)}>
+                  {#if lp.photo}<img use:fadeIn src={lp.photo} alt="" loading="lazy" decoding="async" width="96" height="96" />{:else}{lp.name.split(/\s+/).slice(0, 2).map((w) => w[0]).join('')}{/if}
+                </span>
+                <span class="dn">{lp.name}<small class="faint">{lp.role === 'actor' ? 'Актёр' : 'Режиссёр'}</small></span>
+              </a>
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
 
     {#if p.watched.length}
       <section class="block" aria-labelledby="w">
@@ -680,4 +702,10 @@
   .sheet { max-width: 1800px; width: calc(100% - var(--gutter) * 2); background: var(--panel); border: 1px solid var(--line); border-radius: 26px; }
   @media(max-width: 640px) { .sheet { width: 100%; border-radius: 20px 20px 0 0; } }
 
+  .seen-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 18px 0 0;
+  }
 </style>

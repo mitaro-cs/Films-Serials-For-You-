@@ -9,10 +9,10 @@ test.beforeEach(resetStatuses);
 test('главная: герой, ряды и сериалы рядом с фильмами', async ({ page }) => {
   await page.goto(url('/'));
   const hero = page.getByRole('region', { name: 'Рекомендуем' });
-  await expect(hero.getByRole('heading', { level: 1 })).toBeVisible();
-  const before = await hero.getByRole('heading', { level: 1 }).textContent();
+  await expect(hero.getByRole('heading', { level: 1 }).last()).toBeVisible();
+  const before = await hero.getByRole('heading', { level: 1 }).last().textContent();
   await hero.getByRole('tab', { selected: false }).first().click();
-  await expect(hero.getByRole('heading', { level: 1 })).not.toHaveText(before!);
+  await expect(hero.getByRole('heading', { level: 1 }).last()).not.toHaveText(before!);
 
   // Где остановился - в «Продолжить просмотр», у сериала - следующая серия.
   const go = page.getByRole('region', { name: 'Продолжить просмотр' });

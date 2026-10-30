@@ -386,6 +386,7 @@
           </div>
           <div class="rw-rate"><small>Оценка</small><StarInput value={mine?.stars ?? null} onchange={setStars} size={28} label="Ваша оценка" /></div>
         </div>
+        {#if next}<button class="rw-btn together" disabled={roomBusy} onclick={together}><Icon name="party" size={18} /> Смотреть вместе</button>{/if}
         <button class="rw-btn" onclick={() => (picking = true)}>В списки</button>
         <div class="rw-row">
           <button class="rw-btn" onclick={writeReview}>Отзыв</button>

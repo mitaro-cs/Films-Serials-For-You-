@@ -13,10 +13,11 @@ test('все части видны, выбор меняет кадр и ведё
   await page.goto(url(`/franchise/${ids[0]}`));
   await expect(page.getByRole('heading',{name:'История'})).toBeVisible();
   await expect(page.getByRole('link',{name:/Фильм 1/})).toBeVisible();
-  await expect(page.locator('.backdrop img')).toHaveAttribute('src',/frame=0/);
+  await expect(page.locator('.frame img').last()).toHaveAttribute('src',/frame=0/);
   await page.getByRole('link',{name:/Фильм 2/}).focus();
-  await expect(page.locator('.backdrop img')).toHaveAttribute('src',/frame=1/);
+  await expect(page.locator('.frame img').last()).toHaveAttribute('src',/frame=1/);
   await expect(page.getByRole('link',{name:/Фильм 2/})).toHaveAttribute('href',`/ext/${ids[1]}`);
-  await expect(page.getByText('Описание части 2')).toHaveCount(0);
+  // Слева - кадр, постер и описание выбранной части.
+  await expect(page.getByText('Описание части 2')).toHaveCount(1);
   await expectClean(page,'страница серии фильмов');
 });

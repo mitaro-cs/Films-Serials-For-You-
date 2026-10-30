@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api, del, errorText, patch } from '$lib/api';
   import Poster from '$lib/discover/Poster.svelte';
-  import { MAX_FAVORITES as MAX } from '$lib/social/favorites';
+  import { MAX_DIRECTORS as MAX_D, MAX_FAVORITES as MAX } from '$lib/social/favorites';
   import PosterWall from '$lib/social/PosterWall.svelte';
   import { session } from '$lib/session.svelte';
   import type { MarkItem, ProfileDecor } from '$lib/types';
@@ -68,7 +68,7 @@
   // Любимые режиссёры: из тех, чьи фильмы смотрел, или любое имя вручную.
   function setDirectors(list: string[]) {
     if (!decor) return;
-    if (list.length > MAX) return void toast(`Любимых режиссёров - не больше ${MAX}`);
+    if (list.length > MAX_D) return void toast('Любимый режиссёр - один: сначала уберите прежнего');
     decor.directors = list;
     save({ directors: list });
   }
@@ -150,7 +150,7 @@
     </form>
 
     <div class="field">
-      <span>Любимые режиссёры <small class="faint">{decor.directors.length}/{MAX}</small></span>
+      <span>Любимый режиссёр <small class="faint">{decor.directors.length}/{MAX_D}</small></span>
       {#if decor.directors.length}
         <div class="tags">
           {#each decor.directors as d (d)}
@@ -160,13 +160,13 @@
       {/if}
       <form class="line" onsubmit={addDirector}>
         <input class="input" bind:value={director} maxlength="80" placeholder="Имя режиссёра" aria-label="Режиссёр" />
-        <button class="btn" disabled={!director.trim() || decor.directors.length >= MAX}>Добавить</button>
+        <button class="btn" disabled={!director.trim() || decor.directors.length >= MAX_D}>Добавить</button>
       </form>
       {#if suggest.filter((n) => !decor!.directors.includes(n)).length}
         <div class="tags">
           <small class="muted">Из того, что смотрели:</small>
           {#each suggest.filter((n) => !decor!.directors.includes(n)).slice(0, 8) as n (n)}
-            <button class="chip" disabled={decor.directors.length >= MAX} onclick={() => setDirectors([...decor!.directors, n])}>+ {n}</button>
+            <button class="chip" disabled={decor.directors.length >= MAX_D} onclick={() => setDirectors([...decor!.directors, n])}>+ {n}</button>
           {/each}
         </div>
       {/if}

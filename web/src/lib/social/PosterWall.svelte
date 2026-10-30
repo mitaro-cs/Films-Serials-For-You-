@@ -5,7 +5,8 @@
   // Только transform: видеокарте легко.
   let { posters, accent = null, page = false }: { posters: string[]; accent?: string | null; page?: boolean } = $props();
 
-  const COLS = $derived(page ? 12 : 8);
+  // Колонок с запасом: стена на 1920+ px закрывает всю площадь шапки, а не только середину.
+  const COLS = $derived(page ? 16 : 15);
   const PER = 6;
   const pool = $derived(
     posters.length >= 8 ? posters : [...posters, ...Array<null>(Math.max(0, 8 - posters.length)).fill(null)],
@@ -43,7 +44,7 @@
   }
   .tilt {
     position: absolute;
-    inset: -40% -15%;
+    inset: -40% -40%;
     display: flex;
     justify-content: center;
     gap: 16px;

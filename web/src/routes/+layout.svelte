@@ -9,6 +9,7 @@
   import Intro from '$lib/ui/Intro.svelte';
   import Onboarding from '$lib/ui/Onboarding.svelte';
   import Tour from '$lib/ui/Tour.svelte';
+  import RoomByLink from '$lib/links/RoomByLink.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Logo from '$lib/ui/Logo.svelte';
   import Toasts from '$lib/ui/Toasts.svelte';
@@ -108,6 +109,7 @@
   <Intro />
   <Onboarding />
   <Tour />
+  <RoomByLink />
   <Header />
   <main class:leaving>{@render children()}</main>
   {#if !full}

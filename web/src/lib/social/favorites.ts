@@ -5,7 +5,9 @@ import { extChanged } from '$lib/discover/sheet.svelte';
 
 // Избранное: «t:12» - с сервера, «x:tt…» - из Обзора.
 // Сколько уже любимых этого вида - знает сервер (ответит понятной ошибкой).
-export const MAX_FAVORITES = 100;
+export const MAX_FAVORITES = 4;
+/** Любимый режиссёр в личном профиле - один; «нравится» можно ставить любым актёрам и режиссёрам. */
+export const MAX_DIRECTORS = 1;
 
 export const isFavorite = (key: string) => !!session.me?.favorites?.includes(key);
 
