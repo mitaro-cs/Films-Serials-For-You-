@@ -737,7 +737,28 @@ pub async fn badges(State(app): State<Arc<App>>, v: Viewer) -> ApiResult<Json<Va
     })?;
     // Хосту и администраторам - сколько фильмов просят добавить.
     let wishes = if v.manages() { super::discover::open_wishes(&app)? } else { 0 };
-    Ok(Json(json!({"requests": requests, "unread": unread, "wishes": wishes, "watchedAt": watched_at(&app, me)?})))
+    let invitation: Option<(i64, String, String)> = app.db.with(|c| {
+        c.query_row(
+            "SELECT m.id, m.body, p.name FROM messages m JOIN profiles p ON p.id = m.from_id
+             WHERE m.to_id = ?1 AND m.read_at IS NULL AND m.body LIKE 'Зову смотреть вместе%/room/%'
+             AND EXISTS (SELECT 1 FROM friends f WHERE f.status = 'accepted'
+               AND ((f.a = m.from_id AND f.b = ?1) OR (f.b = m.from_id AND f.a = ?1)))
+             ORDER BY m.id DESC LIMIT 1",
+            [me],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()
+    })?;
+    let invitation = invitation.and_then(|(id, body, from)| {
+        let room = body.split("/room/").nth(1)?.split_whitespace().next()?;
+        if room.is_empty() || !room.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return None;
+        }
+        Some(json!({"id": id, "from": from, "room": room}))
+    });
+    Ok(Json(
+        json!({"requests": requests, "unread": unread, "wishes": wishes, "invitation": invitation, "watchedAt": watched_at(&app, me)?}),
+    ))
 }
 
 /// Когда этот зритель последний раз сохранял место (файл или видео по ссылке): другие его

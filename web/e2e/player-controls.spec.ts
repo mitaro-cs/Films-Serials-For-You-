@@ -30,6 +30,10 @@ test('управление появляется без паузы, клавиш�
   await page.getByRole('group', { name: 'Управление просмотром' }).hover();
   await page.waitForTimeout(3200);
   await expect(player).not.toHaveClass(/idle/);
+  await expect(player).toHaveClass(/idle/, {timeout:2500});
+  expect(await player.locator('.bottom').evaluate(el => getComputedStyle(el).userSelect)).toBe('none');
+  await page.mouse.move(100, 120);
+  await expect(player).not.toHaveClass(/idle/);
   await expectClean(page, 'плеер');
   await page.screenshot({ path: `test-results/player-${info.project.name}.png` });
 });

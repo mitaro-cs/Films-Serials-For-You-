@@ -65,7 +65,9 @@
     overflow-x: auto;
     margin: -12px calc(var(--gutter) * -1);
     padding: 12px var(--gutter);
-    scroll-snap-type: x mandatory;
+    scroll-snap-type: x proximity;
+    touch-action: pan-x pan-y;
+    -webkit-overflow-scrolling: touch;
     scroll-padding: 0 var(--gutter);
     overscroll-behavior-x: contain;
   }

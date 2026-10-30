@@ -228,7 +228,7 @@ pub async fn find(app: &Arc<App>, q: &SearchQuery) -> anyhow::Result<Vec<Value>>
     let query = q.q.trim();
     let provider = q.provider.as_deref();
     anyhow::ensure!(
-        provider.is_none_or(|p| matches!(p, "rutube" | "vk" | "archive" | "peertube" | "commons")),
+        provider.is_none_or(|p| matches!(p, "rutube" | "vk" | "archive" | "peertube" | "commons" | "lordfilm")),
         "Неизвестный источник"
     );
     let enabled = |name: &str| provider.is_none_or(|p| p == name);
@@ -337,8 +337,27 @@ pub async fn find(app: &Arc<App>, q: &SearchQuery) -> anyhow::Result<Vec<Value>>
             .ok()
             .flatten()
     };
-    let (ru, vk, open, peer, wiki) = tokio::join!(ru, vk, open, peer, wiki);
-    if ru.is_none() && vk.is_none() && open.is_none() && peer.is_none() && wiki.is_none() {
+    let lord = async {
+        if !enabled("lordfilm") {
+            return None;
+        }
+        if q.mode.as_deref() == Some("trailer") || q.season.is_some() != q.episode.is_some() {
+            return Some(vec![]);
+        }
+        let (name, year) = expected.as_ref().map(|(name, _, year)| (name.as_str(), *year)).unwrap_or((query, None));
+        if let (Some(season), Some(episode)) = (q.season, q.episode) {
+            return tokio::time::timeout(
+                Duration::from_secs(15),
+                crate::lordfilm::search_episode(name, year, season, episode),
+            )
+            .await
+            .ok()
+            .flatten();
+        }
+        tokio::time::timeout(Duration::from_secs(10), crate::lordfilm::search(name, year)).await.ok().flatten()
+    };
+    let (ru, vk, open, peer, wiki, lord) = tokio::join!(ru, vk, open, peer, wiki, lord);
+    if ru.is_none() && vk.is_none() && open.is_none() && peer.is_none() && wiki.is_none() && lord.is_none() {
         let message = "Источники видео сейчас не отвечают";
         remember(key, Err(message.to_owned()));
         anyhow::bail!(message);
@@ -349,8 +368,10 @@ pub async fn find(app: &Arc<App>, q: &SearchQuery) -> anyhow::Result<Vec<Value>>
         .chain(open)
         .chain(peer)
         .chain(wiki)
+        .chain(lord)
         .flatten()
-        .filter(|i| q.min.is_none_or(|m| i["duration"].as_i64().unwrap_or(0) >= m))
+        // LordFilm movie cards do not publish a duration. Do not invent one or drop exact movie matches.
+        .filter(|i| i["site"] == "lordfilm" || q.min.is_none_or(|m| i["duration"].as_i64().unwrap_or(0) >= m))
         .filter(|i| {
             let label = i["label"].as_str().unwrap_or("");
             if let Some((title, original, year)) = &expected {

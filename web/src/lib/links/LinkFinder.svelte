@@ -20,8 +20,9 @@
     season = null,
     episode = null,
     saved = [],
+    otherSourcesOnly = false,
     onadded,
-  }: { open: boolean; query?: string; titleId?: number | null; extId?: string | null; season?: number | null; episode?: number | null; saved?: VideoLink[]; onadded?: () => void } = $props();
+  }: { open: boolean; query?: string; titleId?: number | null; extId?: string | null; season?: number | null; episode?: number | null; saved?: VideoLink[]; otherSourcesOnly?: boolean; onadded?: () => void } = $props();
 
   let text = $state('');
   let found = $state<FoundVideo[] | null>(null);
@@ -57,7 +58,7 @@
       if(extId) params.set('extId',extId);
       if(season!==null) {params.set('season',String(season));params.set('min','600');}
       if(episode!==null) params.set('episode',String(episode));
-      const result = await searchVideos(params, items => {if(ticket === request)found=items},controller.signal);
+      const result = await searchVideos(params, items => {if(ticket === request)found=items},controller.signal,otherSourcesOnly);
       if (ticket === request) found = result;
     } catch (x) {
       if (ticket === request) error = errorText(x);
@@ -66,13 +67,26 @@
     }
   }
 
+  // У страницы сериала LordFilm ссылка общая: добавляем точный сезон и серию локально.
+  function episodeUrl(raw: string): string {
+    if (season === null || episode === null) return raw;
+    try {
+      const u = new URL(raw);
+      if (u.protocol === 'https:' && u.hostname === 'sd.lordfilm5.pro' && u.pathname.startsWith('/serialy/') && u.pathname.endsWith('.html')) {
+        u.hash = `nova-season=${season}&episode=${episode}`;
+        return u.toString();
+      }
+    } catch { /* сервер проверит ссылку */ }
+    return raw;
+  }
+
   /** together - своя приватная комната: смотреть это видео вместе с друзьями (позвать - из комнаты). */
   async function save(url: string, extra: Partial<FoundVideo> = {}, play = false, together = false) {
     busy = true;
     error = '';
     try {
       const r = await post<{ id: number }>('/api/links', {
-        url,
+        url: episodeUrl(url),
         titleId,
         extId,
         season,
@@ -123,7 +137,7 @@
       <button type="button" class="btn" disabled={busy} onclick={() => save(text.trim(), {}, true, true)}><Icon name="party" size={16} /> Смотреть вместе</button>
     {/if}
   </form>
-  <p class="muted hint">Поиск по нескольким источникам. Для сериала проверяем название, сезон и серию; неподходящие фильмы и трейлеры исключаются.</p>
+  <p class="muted hint">Для выбранной серии можно вставить страницу сериала LordFilm: сезон и серия добавятся к ссылке автоматически. Другие сайты зависят от поддержки источника.</p>
   {#if error}<p class="error">{error}</p>{/if}
   {#if searching && found}<p class="muted small" role="status">Дополняем результаты из других источников…</p>{/if}
   {#if searching && !found}

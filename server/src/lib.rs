@@ -17,6 +17,7 @@ pub mod hls;
 pub mod host;
 pub mod images;
 pub mod library;
+mod lordfilm;
 pub mod media_meta;
 pub mod meta;
 pub mod monitor;

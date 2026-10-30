@@ -579,7 +579,7 @@ async fn fetch_detail(app: &Arc<App>, id: &str) -> anyhow::Result<()> {
         }
     }
     let mut extra = json!({"tagline":d.tagline,"age":d.age,"countries":d.countries,"languages":d.languages,"releaseDate":d.release_date,"aka":d.aka,
-      "poster":d.poster.as_deref().map(crate::media_meta::art),"people":d.people.iter().take(16).map(|p|json!({"name":p.name,"job":p.job,"role":p.role,"photo":p.photo.as_deref().map(crate::media_meta::art),"id":p.id})).collect::<Vec<_>>(),
+      "poster":d.poster.as_deref().map(crate::media_meta::art),"imdbBackdrop":d.backdrop.as_deref().map(crate::media_meta::art),"people":d.people.iter().take(16).map(|p|json!({"name":p.name,"job":p.job,"role":p.role,"photo":p.photo.as_deref().map(crate::media_meta::art),"id":p.id})).collect::<Vec<_>>(),
       "gallery":d.gallery.iter().take(6).map(|u|crate::media_meta::art(u)).collect::<Vec<_>>(),"similar":[],"seasons":d.seasons});
     if extra["seasons"].as_array().is_some_and(|s| s.is_empty()) {
         extra.as_object_mut().expect("extra object").remove("seasons");

@@ -13,16 +13,17 @@ use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 
 pub async fn next(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
-    type Target = (Option<i64>, Option<String>, Option<i64>, Option<i64>);
+    type Target = (Option<i64>, Option<String>, Option<i64>, Option<i64>, String);
     let target: Option<Target> = app.db.with(|c| {
-        c.query_row("SELECT title_id,ext_id,season,episode FROM links WHERE id=?", [id], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        c.query_row("SELECT title_id,ext_id,season,episode,url FROM links WHERE id=?", [id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
         })
         .optional()
     })?;
-    let (title, ext, Some(season), Some(episode)) = target.ok_or_else(ApiError::not_found)? else {
+    let (title, ext, Some(season), Some(episode), source_url) = target.ok_or_else(ApiError::not_found)? else {
         return Ok(Json(json!({"next":null})));
     };
+    let lordfilm = reqwest::Url::parse(&source_url).ok().as_ref().is_some_and(crate::lordfilm::series_url);
     if let Some(t) = title {
         super::cards_by_ids(&app, v.profile.kids, &[t])?.pop().ok_or_else(ApiError::not_found)?;
     }
@@ -30,7 +31,7 @@ pub async fn next(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -
         super::discover::ext_card(&app, &v, e)?;
     }
     let existing = |s: i64, e: i64| -> ApiResult<Option<(i64, String)>> {
-        Ok(app.db.with(|c|c.query_row("SELECT id,label FROM links WHERE title_id IS ? AND ext_id IS ? AND season=? AND episode=? AND kind!='youtube' ORDER BY added_at DESC LIMIT 1",params![title,ext,s,e],|r|Ok((r.get(0)?,r.get(1)?))).optional())?)
+        Ok(app.db.with(|c|c.query_row("SELECT id,label FROM links WHERE title_id IS ? AND ext_id IS ? AND season=? AND episode=? AND kind!='youtube' AND (?=0 OR url LIKE 'https://sd.lordfilm5.pro/%') ORDER BY added_at DESC LIMIT 1",params![title,ext,s,e,lordfilm],|r|Ok((r.get(0)?,r.get(1)?))).optional())?)
     };
     if let Some((id, label)) = existing(season, episode + 1)? {
         return Ok(Json(json!({"next":{"id":id,"title":label}})));
@@ -67,7 +68,7 @@ pub async fn next(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -
         return Ok(Json(json!({"next":{"id":id,"title":label}})));
     }
     let query = super::links::SearchQuery {
-        provider: None,
+        provider: lordfilm.then(|| "lordfilm".to_owned()),
         q: format!("{name} {s} сезон {e} серия"),
         min: Some(600),
         title_id: None,

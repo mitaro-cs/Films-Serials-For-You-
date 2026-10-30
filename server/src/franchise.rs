@@ -127,10 +127,29 @@ async fn fill(app: &Arc<App>, ids: &[String]) {
     let _ = tokio::time::timeout(Duration::from_secs(10), posters_of(app, ids)).await;
 }
 
+// Резервные подборки для популярных серий.
+fn known(imdb: &str) -> Option<Group> {
+    let series: &[(&str, &[&str])] = &[
+        ("Дюна", &["tt1160419", "tt15239678"]),
+        (
+            "Гарри Поттер",
+            &["tt0241527", "tt0295297", "tt0304141", "tt0330373", "tt0373889", "tt0417741", "tt0926084", "tt1201607"],
+        ),
+    ];
+    series
+        .iter()
+        .find(|(_, ids)| ids.contains(&imdb))
+        .map(|(name, ids)| Group { name: (*name).into(), ids: ids.iter().map(|id| (*id).into()).collect() })
+}
+
 /// Серии фильма (из кэша, раз в 30 дней - заново). Ошибка Викиданных - пусто, спросим в следующий раз.
 pub async fn of(app: &Arc<App>, imdb: &str) -> Vec<Group> {
     if !valid_id(imdb) {
         return vec![];
+    }
+    if let Some(group) = known(imdb) {
+        fill(app, &group.ids).await;
+        return vec![group];
     }
     let cached: Option<(String, i64)> = app
         .db

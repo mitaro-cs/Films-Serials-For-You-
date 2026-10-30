@@ -272,22 +272,19 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
     }
     let retry_key = format!("detail.retry.{id}");
     let retry = app.db.setting_or(&retry_key, "0").parse::<i64>().unwrap_or(0);
-    let missing_series_art: bool = app.db.with(|c| {
+    let missing_imdb_art: bool = app.db.with(|c| {
         c.query_row(
-            "SELECT kind='series' AND (backdrop IS NULL OR backdrop='') FROM ext_titles WHERE id=?",
+            "SELECT json_extract(COALESCE(extra,'{}'),'$.imdbBackdrop') IS NULL FROM ext_titles WHERE id=?",
             [&id],
             |r| r.get(0),
         )
     })?;
-    let refreshing = (known != Some(discover::DETAILED) || missing_series_art) && now_ms() - retry > 5 * 60_000;
+    let refreshing = (known != Some(discover::DETAILED) || missing_imdb_art) && now_ms() - retry > 5 * 60_000;
     if refreshing && app.detail_jobs.lock().insert(id.clone()) {
         let a = app.clone();
         let title_id = id.clone();
         tokio::spawn(async move {
             let _ = a.db.set_setting(&retry_key, &now_ms().to_string());
-            if missing_series_art {
-                let _ = tokio::time::timeout(Duration::from_secs(6), crate::media_meta::series(&a, &title_id)).await;
-            }
             let result = tokio::time::timeout(Duration::from_secs(12), discover::detail(&a, &title_id)).await;
             if !matches!(result, Ok(Ok(_))) {
                 let _ = tokio::time::timeout(
@@ -297,15 +294,6 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
                 .await;
             }
             a.detail_jobs.lock().remove(&title_id);
-        });
-    }
-    // Ссылку на HD-трейлер ищем заранее, пока страница грузится: баннер спросит её через полсекунды.
-    if app.detail_jobs.lock().insert(format!("hd:{id}")) {
-        let a = app.clone();
-        let tid = id.clone();
-        tokio::spawn(async move {
-            let _ = tokio::time::timeout(Duration::from_secs(8), super::previews::hd_url(&a, &tid)).await;
-            a.detail_jobs.lock().remove(&format!("hd:{tid}"));
         });
     }
     // Фильм из ленты без кадра: кадр, описание и актёры приходят с IMDb за ~1 с. Подождать их до 2 с
@@ -359,7 +347,7 @@ pub async fn title(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<String
     Ok(Json(json!({
         "card": card, "overview": overview, "runtime": runtime, "votes": votes,
         "refreshing": refreshing,
-        "backdrop": crate::api::img(backdrop.filter(|b| !b.is_empty())),
+        "backdrop": img(&x["imdbBackdrop"]).or_else(|| crate::api::img(backdrop.filter(|b| crate::media_meta::is_imdb_art(b) || app.images.path(b).is_some_and(|p| p.is_file())))),
         "posterLarge": img(&x["poster"]),
         "tagline": x["tagline"], "age": x["age"], "releaseDate": x["releaseDate"],
         "countries": list("countries"), "languages": list("languages"), "aka": list("aka"),

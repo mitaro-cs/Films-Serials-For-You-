@@ -17,6 +17,7 @@
     left: string | null;
     href?: string;
     current: boolean;
+    upcomingYear?: number | null;
   }
 </script>
 
@@ -76,7 +77,6 @@
 
   let list = $state<HTMLElement>();
   let shown = $state<number | null>(null);
-  let wanted = $state<number | null>(null);
 
   const groups = $derived.by(() => {
     const out: { season: number; items: Ep[] }[] = [];
@@ -90,86 +90,25 @@
   // Сезоны по порядку: первый - сверху.
   const rail = $derived(seasons.length ? [...seasons].sort((a, b) => a - b) : []);
 
-  /** На компьютере лента прокручивается сама по себе, на телефоне - вместе со страницей. */
-  const inner = () => !!list && getComputedStyle(list).overflowY !== 'visible';
-
-  function scrollTo(el: HTMLElement, smooth: boolean) {
-    if (!list) return;
-    if (inner()) {
-      const top = el.offsetTop - list.offsetTop - (el.classList.contains('sea') ? 6 : list.clientHeight / 2 - el.clientHeight / 2);
-      list.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'instant' });
-    } else if (smooth) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }
-
-  // Текущая серия - посередине ленты (один раз, когда серии пришли).
-  let centeredKey = '';
-  $effect(() => {
-    const key=episodes.find(e=>e.current)?.key;
-    if(!list||!key||key===centeredKey)return;
-    const cur=list.querySelector<HTMLElement>('.cur');
-    if(cur){scrollTo(cur,!!centeredKey);centeredKey=key;}
-  });
-
-  // Нажали сезон, которого ещё не было: пришёл - прокрутить к нему.
-  $effect(() => {
-    void groups.length;
-    if (wanted === null || !list) return;
-    const h = list.querySelector<HTMLElement>(`[data-season="${wanted}"]`);
-    if (h) {
-      if (!tabs()) scrollTo(h, true);
-      shown = wanted;
-      wanted = null;
-    }
-  });
-
-  // Какой сезон сейчас в ленте - светится на переключателе.
-  $effect(() => {
-    if (!list) return;
-    void groups.length;
-    const root = inner() ? list : null;
-    const io = new IntersectionObserver(
-      (es) => {
-        for (const e of es) if (e.isIntersecting) shown = Number((e.target as HTMLElement).dataset.season);
-      },
-      { root, rootMargin: '0px 0px -70% 0px' },
-    );
-    list.querySelectorAll('[data-season]').forEach((h) => io.observe(h));
-    return () => io.disconnect();
-  });
-
-  // Телефон (slim): сезоны - вкладками, серии другого сезона скрыты - просто переключаем, без прокрутки.
-  const tabs = () => slim && matchMedia('(max-width: 640px)').matches;
+  // Сезон переключается без прокрутки страницы.
   function go(s: number) {
-    const h = list?.querySelector<HTMLElement>(`[data-season="${s}"]`);
-    if (h && tabs()) {
-      shown = s;
-      return;
-    }
-    if (h) {
-      scrollTo(h, true);
-      shown = s;
-    } else {
-      wanted = s;
-      if (tabs()) shown = s;
-      onseason?.(s);
-    }
+    shown = s;
+    if (!groups.some(g => g.season === s)) onseason?.(s);
   }
 
-  const activeEpisode = $derived(episodes.find((e) => e.current) ?? episodes.find((e) => !e.done) ?? episodes[0]);
+  const activeEpisode = $derived(episodes.find((e) => e.current && !e.upcomingYear) ?? episodes.find((e) => !e.done && !e.upcomingYear) ?? episodes.find(e => !e.upcomingYear));
   const cur = $derived(shown ?? episodes.find((e) => e.current)?.season ?? seasons[0] ?? null);
 </script>
 
 {#snippet card(e: Ep)}
-  <span class="still" style:background={e.still ? undefined : placeholder(title + e.key)}>
-    {#if e.still}<img use:fadeIn src={artW(e.still, 640)} alt="" loading="lazy" decoding="async" width="320" height="180" />{:else}<span class="still-label"><Icon name="film" size={22} />S{e.season} · E{e.episode ?? 1}</span>{/if}
-    {#if e.href || onpick}<span class="play"><Icon name="play" size={16} /></span>{/if}
+  <span class="still" style:background={e.upcomingYear ? 'linear-gradient(135deg,#26282c,#111216)' : e.still ? undefined : placeholder(title + e.key)}>
+    {#if e.upcomingYear}<span class="still-label"><Icon name="film" size={22} /> Скоро</span>{:else if e.still}<img use:fadeIn src={artW(e.still, 640)} alt="" loading="lazy" decoding="async" width="320" height="180" />{:else}<span class="still-label"><Icon name="film" size={22} />S{e.season} · E{e.episode ?? 1}</span>{/if}
+    {#if !e.upcomingYear && (e.href || onpick)}<span class="play"><Icon name="play" size={16} /></span>{/if}
     {#if e.done}<span class="tick" title="Просмотрено"><Icon name="check" size={13} stroke={3} /></span>{/if}
   </span>
   <span class="body">
     <span class="row1">
-      <b class="name">{e.episode !== null ? `${e.episode}. ` : ''}{localized(e.name, 'Серия')}</b>
+      <b class="name">{e.upcomingYear ? `Выйдет в ${e.upcomingYear} году` : `${e.episode !== null ? `${e.episode}. ` : ''}${localized(e.name, 'Серия')}`}</b>
       <small class="len">{e.left ?? (e.minutes ? `${e.minutes} мин` : '')}</small>
     </span>
     {#if e.done}<span class="watch-state"><Icon name="check" size={12} stroke={3}/> Просмотрено</span>{/if}
@@ -196,7 +135,7 @@
     </p>
     <h1 use:fitTitle={title} title={title}>{title}</h1>
     {#if rating}<p class="rating"><Icon name="star" size={16} /> {rating.toFixed(1)} <small>IMDb</small></p>{/if}
-    {#if episodes.length}
+    {#if activeEpisode}
       <div class="viewing-progress" aria-label="Прогресс просмотра">
         <div class="progress-head"><b>{activeEpisode ? `${activeEpisode.season} сезон · ${activeEpisode.episode ?? 1} серия` : 'Ваш прогресс'}</b><span>{activeEpisode?.left ?? (activeEpisode?.pct ? `${Math.round(activeEpisode.pct)}%` : 'С начала')}</span></div>
         <div class="progress-seasons">
@@ -222,12 +161,14 @@
         {/each}
       </div>
     {/if}
-    {#each groups as g (g.season)}
+    {#each groups.filter(g => g.season === cur) as g (g.season)}
       {#if seasons.length > 1 || groups.length > 1}<h2 class="sea" class:other={g.season !== cur} data-season={g.season}>{g.season} сезон</h2>{:else}<span class="sea0" data-season={g.season}></span>{/if}
       <ol class:other={g.season !== cur}>
         {#each g.items as e, i (e.key)}
           <li class="ep" class:done={e.done} class:cur={e.current} style:--i={i}>
-            {#if e.href}
+            {#if e.upcomingYear}
+              <div class="card" aria-label="Выйдет в {e.upcomingYear} году">{@render card(e)}</div>
+            {:else if e.href}
               <a class="card" href={e.href} aria-current={e.current ? 'true' : undefined}>{@render card(e)}</a>
               {#if onsource && e.episode !== null}<button class="source" aria-label="Другие источники: {e.season} сезон, {e.episode} серия" title="Другие источники" onclick={() => onsource?.(e)}><Icon name="link" size={14} /></button>{/if}
             {:else}
@@ -245,8 +186,8 @@
     {/each}
     {#if loading}
       {#each Array(4) as _, k (k)}<div class="ep-sk skeleton"></div>{/each}
-    {:else if !episodes.length}
-      <p class="none muted">Серий пока нет.</p>
+    {:else if !groups.some(g => g.season === cur)}
+      <p class="none muted">Серий в этом сезоне пока нет.</p>
     {/if}
   </div>
 
@@ -900,5 +841,14 @@
       right: 8px;
       margin: 0;
     }
+  }
+  @media (max-width:640px) {
+    .sh.slim .chips { display:flex; overflow-x:auto; gap:8px; padding:6px 0 10px; scrollbar-width:thin; }
+    .sh.slim .chip { flex:0 0 auto; min-height:44px; }
+    .sh.slim .eps ol { grid-auto-flow:row; grid-auto-columns:auto; grid-template-columns:minmax(0,1fr); overflow-x:visible; margin:12px 0 0; padding:0; gap:10px; scroll-snap-type:none; }
+    .sh.slim .card { grid-template-columns:120px minmax(0,1fr); grid-template-rows:auto; align-items:center; background:#202022; }
+    .sh.slim .still { aspect-ratio:16 / 9; }
+    .sh.slim .body { padding:10px; }
+    .sh.slim .body .row2 { display:block; }
   }
 </style>

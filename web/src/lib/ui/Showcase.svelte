@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { artSet, heroSet } from '$lib/ui/art';
+  import { heroSet } from '$lib/ui/art';
   import { getDetail, peekDetail } from '$lib/discover/details';
   import { genreRu } from '$lib/genres';
   import { motionOn } from '$lib/motion';
@@ -20,8 +20,7 @@
   let detail = $state<ExtDetail | null>(null);
   const card = $derived(selected?.card ?? detail?.card ?? selected?.ext);
   const href = $derived(selected?.card ? `/title/${selected.card.id}` : `/ext/${selected?.ext?.id}`);
-  const backdrop = $derived(selected?.card?.backdrop ?? detail?.backdrop);
-  const poster = $derived(selected?.card?.posterLarge ?? detail?.posterLarge ?? card?.poster);
+  const backdrop = $derived(selected?.card?.backdrop ?? detail?.backdrop ?? detail?.gallery?.[0] ?? null);
   const overview = $derived(localized(selected?.card?.overview ?? detail?.overview));
   $effect(() => {
     const id = selected?.ext?.id;
@@ -56,11 +55,22 @@
     const timer = setTimeout(() => { void getDetail(id).catch(() => {}); }, 1600);
     return () => clearTimeout(timer);
   });
-  function hold() { manual = true; save(); }
+  let touchStart: { x: number; y: number } | null = null;
+  function hold(e?: PointerEvent) {
+    manual = true;
+    if (e?.pointerType === 'touch') touchStart = { x: e.clientX, y: e.clientY };
+    save();
+  }
+  function swipe(e: PointerEvent) {
+    if (e.pointerType !== 'touch' || !touchStart || items.length < 2) return;
+    const dx = e.clientX - touchStart.x, dy = e.clientY - touchStart.y;
+    touchStart = null;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) { at = (at + (dx < 0 ? 1 : -1) + items.length) % items.length; save(); }
+  }
   function save() { try { sessionStorage.setItem('nova-showcase', JSON.stringify({ id: String(selected?.card?.id ?? selected?.ext?.id), manual })); } catch { /* приватный режим */ } }
 
   // «Кинозал+»: надпись над названием и цвет кадра - по фильму (у своих - цвет постера).
-  const accent = $derived(selected?.card?.accent ?? '#c8894a');
+  const accent = '#ffffff';
   const ext = $derived(selected?.ext);
   const eyebrow = $derived(
     selected?.card?.resume ? 'Вы смотрели'
@@ -83,8 +93,8 @@
 
 {#if card}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <section class="showcase" aria-label="Рекомендуем" style:--acc={accent} bind:this={root} onpointerenter={() => hovering = true} onpointerleave={() => hovering = false} onpointerdown={hold} onkeydown={hold}>
-    {#key backdrop ?? poster}{#if backdrop || poster}<img class="backdrop" class:poster-backdrop={!backdrop} src={backdrop ?? poster ?? ''} srcset={backdrop ? heroSet(backdrop, selected?.card?.backdropSmall) : artSet(poster)} sizes="100vw" alt="" fetchpriority="high" />{/if}{/key}
+  <section class="showcase" aria-label="Рекомендуем" style:--acc={accent} bind:this={root} onpointerenter={() => hovering = true} onpointerleave={() => hovering = false} onpointerdown={hold} onpointerup={swipe} onpointercancel={() => touchStart = null} onkeydown={() => hold()}>
+    {#key backdrop}{#if backdrop}<img class="backdrop" src={backdrop} srcset={heroSet(backdrop, selected?.card?.backdropSmall)} sizes="100vw" alt="" fetchpriority="high" />{/if}{/key}
     <div class="shade"></div>
     {#key card.id}<div class="copy">
       <span class="eyebrow">{eyebrow}</span>
@@ -114,11 +124,10 @@
 <style>
   /* «Кинозал+» (alpha 0.5): кадр почти на весь экран, слева - надпись цветом фильма, крупное название,
      оценка, описание и две капсулы; справа внизу - точки. Затемнение только слева и снизу. */
-  .showcase { position: relative; height: clamp(560px, 92svh, 1040px); isolation: isolate; display: flex; align-items: flex-end; padding: calc(var(--header) + 36px) var(--gutter) clamp(70px, 11vh, 130px); overflow: hidden; }
+  .showcase { position: relative; min-height: 100svh; isolation: isolate; display: flex; align-items: flex-end; padding: calc(var(--header) + 36px) var(--gutter) clamp(70px, 11vh, 130px); overflow: hidden; }
   .backdrop, .shade { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
   .backdrop { object-fit: cover; object-position: center 35%; animation: backdrop-in .7s ease both, drift 14s ease-out both; }
   .shade { background: linear-gradient(90deg, #07080aee 0%, #07080a99 32%, transparent 62%), linear-gradient(0deg, var(--bg) 0%, #07080a66 22%, transparent 45%); }
-  .poster-backdrop { opacity: .22; object-fit: contain; object-position: 85% center; }
   .copy { max-width: min(46vw, 600px); animation: feature-in .45s cubic-bezier(.2,.8,.2,1) both; }
   @keyframes feature-in { from { opacity: 0; transform: translateY(14px); } }
   @keyframes backdrop-in { from { opacity: 0; } }
@@ -143,7 +152,7 @@
   :global(.no-motion) .backdrop, :global(.no-motion) .copy { animation: none; }
   /* Телефон: кадр сверху почти целиком, всё по центру под ним. */
   @media (max-width: 640px) {
-    .showcase { height: auto; min-height: 0; padding: calc(75vw - 40px) var(--gutter) 50px; justify-content: center; text-align: center; }
+    .showcase { min-height: 0; touch-action: pan-y; padding: calc(75vw - 40px) var(--gutter) 50px; justify-content: center; text-align: center; }
     .backdrop { bottom: auto; height: auto; aspect-ratio: 4 / 3; object-position: center 35%; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
     .shade { background: linear-gradient(0deg, var(--bg) 30%, #0000 70%), linear-gradient(180deg, #0006, #0000 30%); }
     .copy { max-width: 100%; }

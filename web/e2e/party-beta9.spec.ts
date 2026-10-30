@@ -108,9 +108,19 @@ test('два плеера: поздний вход, пауза без перез
   await page.locator('.controls .cbtn[aria-label="Смотреть"], .touch-toggle[aria-label="Смотреть"]').filter({visible:true}).first().evaluate((b:HTMLButtonElement)=>b.click());
   await page.mouse.move(80,120);
   await expect(page.getByRole('group',{name:'Реакции',exact:true})).toBeHidden({timeout:6000});
+  await expect(page.getByRole('complementary',{name:'Смотрим вместе'})).toBeVisible();
+  const input=page.getByRole('textbox',{name:'Сообщение в комнату'});
+  await input.fill('тест с пробелом');
+  await input.press('Space');
+  expect(await page.locator('video').evaluate((v:HTMLVideoElement)=>v.paused)).toBe(false);
+  await input.blur();
+  await page.keyboard.press('Space');
+  for(const p of [page,other]) await expect.poll(()=>p.locator('video').evaluate((v:HTMLVideoElement)=>v.paused)).toBe(true);
+  await page.keyboard.press('Space');
+  for(const p of [page,other]) await expect.poll(()=>p.locator('video').evaluate((v:HTMLVideoElement)=>v.paused)).toBe(false);
+  await expect.poll(async()=>{const r=await page.request.get(url(`/api/links/${link}/resume`));return r.ok() ? (await r.json()).position : 0;},{timeout:10000}).toBeGreaterThan(5);
   await page.mouse.move(220,180);
   await expect(page.getByRole('group',{name:'Реакции',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Показать чат',exact:true}).click();
   await expect(page.getByRole('complementary',{name:'Смотрим вместе'})).toBeVisible();
   await page.screenshot({path:`test-results/party-beta9-${info.project.name}.png`});
  } finally {await otherContext.close();}

@@ -1,10 +1,11 @@
 <script lang="ts">
   import { countriesRu, languagesRu } from '$lib/countries';
   import MobileHero from '$lib/title/MobileHero.svelte';
+  import RatingRing from '$lib/title/RatingRing.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { untrack } from 'svelte';
   import { progressSync } from '$lib/progressSync.svelte';
-  import { searchVideos, sourceName } from '$lib/links/search';
+  import { searchLordfilm, isLordfilm, sourceName } from '$lib/links/search';
   import { localized } from '$lib/localized.svelte';
   import { fadeIn } from '$lib/ui/fade';
   import { goto } from '$app/navigation';
@@ -23,13 +24,13 @@
   import Franchise from '$lib/title/Franchise.svelte';
   import RatingsGrid from '$lib/title/RatingsGrid.svelte';
   import SeriesHero, { type Ep } from '$lib/title/SeriesHero.svelte';
+  import { upcomingYear } from '$lib/title/upcoming';
   import type { ExtCard, ExtDetail, ExtEpisode, FoundVideo, Review, Reviews as ReviewsData } from '$lib/types';
   import { left, percent } from '$lib/library';
   import { personHref } from '$lib/people';
   import { artSet, artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
-  import TrailerBanner from '$lib/title/TrailerBanner.svelte';
   import { toast } from '$lib/ui/toast.svelte';
   import { getDetail } from '$lib/discover/details';
   import Loading from '$lib/ui/Loading.svelte';
@@ -90,7 +91,6 @@
         if (want !== id) return;
         d = r;
         if (r.refreshing) pollDetail(want);
-        if (r.card.kind !== 'series' && !r.card.local && !r.links.length && online === null) lookOnline(r);
         if (r.card.kind === 'series' && !episodes.length) {
           const resume = r.links.find((l) => l.progress && l.season != null && l.episode != null);
           if (resume) chosen = `${resume.season}-${resume.episode! + (resume.progress && resume.progress.position >= resume.progress.duration * .95 ? 1 : 0)}`;
@@ -152,10 +152,11 @@
       minutes: e.runtime,
       rating: e.rating,
       date: e.airDate,
+      upcomingYear: upcomingYear(e.airDate),
       pct: e.seen ? 100 : percent(progressFor(e)?.position ?? 0, progressFor(e)?.duration ?? 0),
       done: e.seen,
       left: !e.seen && progressFor(e) ? left(progressFor(e)!.position, progressFor(e)!.duration) : null,
-      current: chosen ? chosen === `${e.season}-${e.episode}` : lastSeen >= 0 ? i === Math.min(lastSeen + 1, episodes.length - 1) : i === 0,
+      current: !upcomingYear(e.airDate) && (chosen ? chosen === `${e.season}-${e.episode}` : lastSeen >= 0 ? i === Math.min(lastSeen + 1, episodes.length - 1) : i === 0),
     })),
   );
   const seriesProgress = $derived.by(() => {
@@ -171,11 +172,37 @@
   /** Нажали серию - она выбрана. */
   function pick(e: Ep) {
     chosen = e.key;
-    finding = true;
   }
 
-  const selected = $derived(eps.find((e) => e.current) ?? null);
+  const selected = $derived(eps.find((e) => e.current && !e.upcomingYear) ?? eps.find(e => !e.upcomingYear) ?? null);
   const episodeLinks = $derived(d?.links.filter((l) => !isSeries || (l.season === selected?.season && l.episode === selected?.episode && !l.label.toLowerCase().includes('(фильм'))) ?? []);
+  const episodeKey = $derived(d?.card.kind === 'series' ? `${id}/${selected?.season}/${selected?.episode}` : id);
+  let onlineFor = $state('');
+  let episodeFinding = $state(false);
+  let sourceError = $state(false);
+  $effect(() => {
+    const saved = episodeLinks.some(l => isLordfilm(l.url));
+    if (!d || c?.local || (isSeries && (!selected || selected.episode === null)) || saved) {
+      episodeFinding = false;
+      return;
+    }
+    const key = episodeKey;
+    const controller = new AbortController();
+    const params = new URLSearchParams({q: d.card.title, extId: id});
+    if (isSeries && selected) {
+      params.set('season', String(selected.season));
+      params.set('episode', String(selected.episode));
+    }
+    onlineFor = key;
+    online = null;
+    episodeFinding = true;
+    sourceError = false;
+    void searchLordfilm(params, controller.signal)
+      .then(items => { if (!controller.signal.aborted) online = items; })
+      .catch(() => { if (!controller.signal.aborted) { online = []; sourceError = true; } })
+      .finally(() => { if (!controller.signal.aborted) episodeFinding = false; });
+    return () => controller.abort();
+  });
 
   /** Галочка: не отмечена - «досюда посмотрел» (и все раньше, с прошлыми сезонами); отмечена - снять. */
   async function seen(e: Ep) {
@@ -237,40 +264,6 @@
     ...people.filter((p) => p.job === 'actor'),
   ]);
 
-  const norm = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/ё/g, 'е')
-      .replace(/[^\p{L}\p{N}]+/gu, ' ')
-      .trim();
-
-  /** Полный фильм (от 40 мин) или серия (от 15 мин), в названии которых есть название фильма. */
-  // Видео фильма ищем сами: русское название с годом, не нашлось - оригинальное, потом без года.
-  // Найденное - по совпадению с длительностью фильма и качеству в подписи: первое и запускает
-  // «Смотреть», выбирать вручную не нужно.
-  async function lookOnline(r: ExtDetail) {
-    const min = r.card.kind === 'series' ? 15 * 60 : 40 * 60;
-    const year = r.card.year ? ` ${r.card.year}` : '';
-    const queries = [...new Set([`${r.card.title}${year}`, r.card.original ? `${r.card.original}${year}` : '', r.card.title].filter(Boolean))];
-    const names = [r.card.title, r.card.original].filter((n): n is string => !!n).map(norm);
-    const runtime = (r.runtime ?? 0) * 60;
-    const quality = (label: string) => (/2160|4k/i.test(label) ? 4 : /1080|full ?hd/i.test(label) ? 3 : /720|hd/i.test(label) ? 2 : 0);
-    const score = (f: FoundVideo) =>
-      (runtime && f.duration ? Math.min(1, Math.abs(f.duration - runtime) / runtime) * 10 : 3) - quality(f.label);
-    let best: FoundVideo[] = [];
-    for (const q of queries) {
-      const params = new URLSearchParams({ min: String(min), extId: r.card.id, q });
-      const found = await searchVideos(params, (items) => {
-        if (r.card.id === id && !best.length) online = items.slice(0, 8);
-      }).catch(() => [] as FoundVideo[]);
-      if (r.card.id !== id) return;
-      const fits = (f: FoundVideo) => !runtime || !f.duration || Math.abs(f.duration - runtime) / runtime <= 0.12;
-      best = found.filter((f) => names.some((n) => norm(f.label).includes(n)) && fits(f)).sort((x, y) => score(x) - score(y));
-      if (best.length) break;
-    }
-    online = best.slice(0, 8);
-  }
-
   async function playFound(f: FoundVideo) {
     if (!d) return;
     try {
@@ -280,6 +273,8 @@
         label: f.label,
         thumb: f.thumbUrl,
         duration: f.duration,
+        season: isSeries ? selected?.season : undefined,
+        episode: isSeries ? selected?.episode : undefined,
       });
       goto(`/watch/link/${r.id}`);
     } catch (x) {
@@ -290,7 +285,7 @@
   // «Хочу на Nova» - только когда фильма нет ни у нас, ни по ссылкам, ни на Rutube/VK.
   const canWish = $derived(!!d && !d.card.local && !d.links.length && online !== null && !online.length);
   // Главная кнопка под постером: у нас - «Смотреть на Nova», иначе - первое видео онлайн.
-  const first = $derived(episodeLinks[0] ?? null);
+  const first = $derived(episodeLinks.find(l => isLordfilm(l.url)) ?? null);
   // Начали смотреть по ссылке - «Продолжить просмотр» и сколько осталось.
   const resumeAt = $derived(first?.progress && first.progress.position > 5 && first.progress.position < first.progress.duration * 0.95 ? first.progress : null);
 
@@ -303,7 +298,8 @@
       let linkId = first?.id ?? null;
       if (!linkId && firstFound) {
         const f = firstFound;
-        linkId = (await post<{ id: number }>('/api/links', { url: f.url, extId: d.card.id, label: f.label, thumb: f.thumbUrl, duration: f.duration })).id;
+        linkId = (await post<{ id: number }>('/api/links', { url: f.url, extId: d.card.id, label: f.label, thumb: f.thumbUrl, duration: f.duration,
+          season: isSeries ? selected?.season : undefined, episode: isSeries ? selected?.episode : undefined })).id;
       }
       if (!linkId) {
         toast('Сначала найдите видео - «Найти видео»');
@@ -317,7 +313,9 @@
       roomBusy = false;
     }
   }
-  const firstFound = $derived(online?.[0] ?? null);
+  const firstFound = $derived(onlineFor === episodeKey ? online?.[0] ?? null : null);
+  const sourcePending = $derived(!c?.local && !first && (!d || (isSeries && !selected) || onlineFor !== episodeKey || online === null || episodeFinding));
+  const sourceMissing = $derived(!!d && !c?.local && !first && !firstFound && !sourcePending);
 
   async function mark(status: 'want' | 'watching' | 'watched' | 'dropped') {
     if (!d) return;
@@ -384,7 +382,8 @@
     if (first) return { label: resumeAt ? 'Продолжить' : 'Смотреть', href: `/watch/link/${first.id}`, note: resumeAt ? left(resumeAt.position, resumeAt.duration) : undefined };
     const found = firstFound;
     if (found) return { label: 'Смотреть', onclick: () => playFound(found) };
-    return { label: 'Найти видео', onclick: () => (finding = true) };
+    if (sourcePending) return { label: 'Подготавливаем просмотр…', disabled: true };
+    return { label: 'Найти на другом источнике', onclick: () => (finding = true) };
   });
 </script>
 
@@ -398,8 +397,10 @@
     </a>
   {:else if firstFound}
     <button class="btn white {cls}" onclick={() => playFound(firstFound)}><Icon name="play" size={16} /> Смотреть</button>
+  {:else if sourcePending}
+    <button class="btn white {cls}" disabled><Icon name="search" size={16} /> Подготавливаем просмотр…</button>
   {:else}
-    <button class="btn white {cls}" disabled={!d} onclick={() => (finding = true)}><Icon name="search" size={16} /> Найти видео</button>
+    <button class="btn white {cls}" disabled={!d} onclick={() => (finding = true)}><Icon name="search" size={16} /> Найти на другом источнике</button>
   {/if}
 {/snippet}
 
@@ -418,6 +419,7 @@
     wanted={c.mark === 'want'}
     wantDisabled={!d}
     onwant={() => mark('want')}
+    onmore={() => (moreOpen = true)}
     onclose={() => (history.length > 1 ? history.back() : goto('/discover'))}
   />
   <SeriesHero
@@ -450,7 +452,6 @@
           <button class="ib" class:on={c?.wished} aria-pressed={c?.wished} aria-label={c?.wished ? 'Попросили добавить на Nova' : 'Хочу на Nova'} title={c?.wished ? 'Попросили добавить на Nova' : 'Хочу на Nova'} disabled={!d} onclick={wish}><Icon name="mail" size={16} /><span>{c?.wished ? 'Попросили' : 'Хочу на Nova'}</span></button>
         {/if}
         <button class="ib" aria-label="В список" title="В список" aria-expanded={lists} disabled={!d} onclick={() => (lists = !lists)}><Icon name="list" size={16} /><span>В список</span></button>
-        <button class="ib" aria-label="Добавить видео" title="Добавить видео" disabled={!d} onclick={() => (finding = true)}><Icon name="link" size={16} /><span>Видео</span></button>
         <button class="ib" aria-label="Смотреть вместе" title="Смотреть вместе" disabled={!d || roomBusy || (!first && !firstFound)} onclick={together}><Icon name="party" size={16} /><span>Вместе</span></button>
         <a class="ib" href="https://www.imdb.com/title/{c?.id}/" target="_blank" rel="noopener noreferrer" aria-label="Открыть на IMDb" title="IMDb"><b class="imdb-s">IMDb</b></a>
       </div>
@@ -469,6 +470,20 @@
       <FriendsStrip friends={d?.friends ?? []} />
     {/snippet}
   </SeriesHero>
+  <Modal bind:open={moreOpen} title={c.title} sheet>
+    <div class="series-quick">
+      <div class="series-quick-actions">
+        <button onclick={() => mark('watched')}><Icon name="eye" size={22} /> Просмотрел</button>
+        <button onclick={() => toggleFavorite(`x:${c.id}`)}><Icon name="heart" size={22} /> Любимый</button>
+        <button onclick={() => mark('want')}><Icon name="bookmark" size={22} /> Буду смотреть</button>
+      </div>
+      <small>Ваша оценка</small>
+      <StarInput value={mine?.stars ?? null} onchange={setStars} size={24} label="Ваша оценка" />
+      <button class="btn block" onclick={() => { moreOpen = false; lists = true; }}>В список</button>
+      <button class="btn block" onclick={() => { moreOpen = false; writeReview(); }}>Написать отзыв</button>
+      <button class="btn block" onclick={() => (moreOpen = false)}>Готово</button>
+    </div>
+  </Modal>
 {/if}
 {#if error}
   <div class="page empty"><Icon name="info" size={40} /> {error}</div>
@@ -492,15 +507,13 @@
               </button>
             {/if}
           </div>
-          {#if c.rating}
             <div class="rate">
-              <small>IMDb</small>
-              <b><Icon name="star" size={16} /> {c.rating.toFixed(1)}</b>
-              {#if d?.votes}<small>{votes(d.votes)} оценок</small>{/if}
+              <small>Ваша оценка</small>
+              <StarInput value={mine?.stars ?? null} onchange={setStars} size={24} label="Ваша оценка" />
             </div>
-          {/if}
         </div>
         <button class="btn block" aria-expanded={lists} disabled={!d} onclick={() => (lists = !lists)}><Icon name="plus" size={15} /> В список</button>
+        <button class="btn block" onclick={() => { moreOpen = false; writeReview(); }}><Icon name="edit" size={15} /> Написать отзыв</button>
         {#if lists && d}
           <div class="lists" role="group" aria-label="Мои списки">
             {#each d.lists as l (l.id)}
@@ -512,7 +525,6 @@
           </div>
         {/if}
         {#if !c.local}<button class="btn block" disabled={!d || roomBusy || (!first && !firstFound)} onclick={together}><Icon name="party" size={15} /> Смотреть вместе</button>{/if}
-        <button class="btn block" disabled={!d} onclick={() => (finding = true)}><Icon name="link" size={15} /> Добавить видео</button>
         <a class="btn block" href="https://www.imdb.com/title/{c.id}/" target="_blank" rel="noopener noreferrer"><b class="imdb">IMDb</b> Открыть</a>
   {/snippet}
   <MobileHero
@@ -532,15 +544,26 @@
     onmore={() => (moreOpen = true)}
     onclose={() => (history.length > 1 ? history.back() : goto('/discover'))}
   />
-  <Modal bind:open={moreOpen} title={c.title}><div class="panel in-sheet">{@render panelBody()}</div></Modal>
+  <Modal bind:open={moreOpen} title={c.title} sheet><div class="panel in-sheet">{@render panelBody()}</div></Modal>
   <section class="hero">
     <div class="bg" aria-hidden="true">
       {#key d?.backdrop}
         {#if d?.backdrop || d?.posterLarge || c.poster}<img use:fadeIn src={d?.backdrop ?? d?.posterLarge ?? c.poster} srcset={artSet(d?.backdrop ?? d?.posterLarge ?? c.poster)} sizes="100vw" alt="" decoding="async" />{:else}<div class="ph" style:background={placeholder(c.title)}></div>{/if}
       {/key}
     </div>
-    <div class="cinema-stage"><TrailerBanner imdbId={id} poster={d?.backdrop ?? d?.posterLarge ?? c.poster} /></div>
+    <div class="cinema-stage">{#if d?.backdrop ?? d?.posterLarge ?? c.poster}<img src={d?.backdrop ?? d?.posterLarge ?? c.poster} alt="" />{/if}</div>
     <div class="wrap">
+      <div class="hero-heading">
+        <span class="eyebrow">{kindLabel(c.kind)}{c.year ? ` · ${c.year}` : ''}</span>
+        <h1>{c.title}</h1>
+        <p class="meta">
+          {#if c.rating}<span class="kz-rating"><Icon name="star" size={13} /> {c.rating.toFixed(1)} IMDb</span>{/if}
+          {#if c.year}<span class="year">{c.year}</span>{/if}
+          <span class="kind">{kindLabel(c.kind)}</span>
+          {#if d?.runtime}<span>{runtime(d.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
+          {#if d?.age}<span class="age">{d.age}</span>{/if}
+        </p>
+      </div>
       <div class="poster-col">
         <div class="poster" style:background={c.poster || d?.posterLarge ? undefined : placeholder(c.title)}>
           {#if d?.posterLarge || c.poster}
@@ -558,15 +581,6 @@
 
 
       <div class="info">
-        <span class="eyebrow">{kindLabel(c.kind)}{c.year ? ` · ${c.year}` : ''}</span>
-        <h1>{c.title}</h1>
-        <p class="meta">
-          {#if c.rating}<span class="kz-rating"><Icon name="star" size={13} /> {c.rating.toFixed(1)} IMDb</span>{/if}
-          {#if c.year}<span class="year">{c.year}</span>{/if}
-          <span class="kind">{kindLabel(c.kind)}</span>
-          {#if d?.runtime}<span>{runtime(d.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
-          {#if d?.age}<span class="age">{d.age}</span>{/if}
-        </p>
         {#if c.original}<p class="orig">{c.original}</p>{/if}
         {#if d?.overview}<p class="overview selectable">{localized(d.overview, 'Описание на русском пока недоступно')}</p>{:else if !d}<p class="overview ph-text skeleton"></p>{/if}
         {#if c.genres.length}
@@ -578,52 +592,24 @@
         {#if d}<dl class="cinema-details">{#if d.countries.length}<dt>Страна</dt><dd>{countriesRu(d.countries).join(', ')}</dd>{/if}{#if d.languages.length}<dt>Язык оригинала</dt><dd>{languagesRu(d.languages).join(', ')}</dd>{/if}{#each people.filter((p) => ['director','writer','creator'].includes(p.job)).slice(0,5) as person}<dt>{person.job === 'writer' ? 'Сценарий' : person.job === 'creator' ? 'Создатель' : 'Режиссёр'}</dt><dd><a href={personHref(person)}>{person.name}</a></dd>{/each}</dl>{/if}
       </div>
 
-      <aside class="panel" aria-label="Действия">{@render panelBody()}</aside>
+      <aside class="panel" aria-label="Действия">{#if c.rating}<div class="hero-rating"><RatingRing value={c.rating} /></div>{/if}{@render panelBody()}</aside>
     </div>
   </section>
   {/if}
 
   <main class="sheet">
-    {#if !isSeries}
-    <section class="block" aria-labelledby="s-online">
-      <div class="lhead">
-        <h2 id="s-online">Смотреть онлайн {#if d?.links.length}<span class="faint">{d.links.length}</span>{/if}</h2>
-        <button class="btn sm ghost" disabled={!d} onclick={() => (finding = true)}><Icon name="search" size={14} /> Найти видео</button>
-      </div>
-      {#if d?.links.length}
-        <div class="vlinks">
-          {#each d.links as l (l.id)}
-            <LinkCard link={l} onremove={session.me?.manage || l.addedBy === me ? () => removeLink(l.id) : undefined} />
-          {/each}
-        </div>
-      {/if}
-      {#if online?.length}
-        {#if d?.links.length}<h3 class="sub">Другие источники</h3>{/if}
-        <ul class="vlinks found">
-          {#each online as f (f.url)}
-            <li>
-              <button onclick={() => playFound(f)} aria-label="Смотреть: {f.label}">
-                <span class="art">
-                  {#if f.thumb}<img use:fadeIn src={artW(f.thumb, 640)} alt="" loading="lazy" decoding="async" />{/if}
-                  <span class="p"><Icon name="play" size={18} /></span>
-                  <span class="site">{sourceName(f.site)}</span>
-                  {#if f.duration}<span class="dur">{clock(f.duration)}</span>{/if}
-                </span>
-                <span class="name">{f.label}</span>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {:else if !d || (!c.local && !d.links.length && online === null)}
-        <p class="muted none">Проверяем источники видео…</p>
-      {:else if !d.links.length}
-        <p class="muted none">
-          {c.local ? 'Фильм есть на Nova - смотрите там.' : 'Не нашли сами.'} Найдите видео в других источниках или вставьте ссылку - оно откроется прямо в плеере Nova.
-        </p>
-      {/if}
-    </section>
+    {#if d?.gallery.length}
+      <section class="block gallery-feature" aria-label="Галерея кадров"><h2>Галерея</h2>
+        <div class="gallery">{#each d.gallery as g, k (k)}<button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={artW(g, 1280)} alt="" loading="lazy" decoding="async" /></button>{/each}</div>
+      </section>
     {/if}
 
+    {#if sourceMissing}
+      <section class="block" aria-label="Другие источники">
+        <p class="muted">{sourceError ? 'LordFilm сейчас не отвечает.' : isSeries ? 'Эта серия не найдена на LordFilm.' : 'Фильм не найден на LordFilm.'}</p>
+        <button class="btn" onclick={() => (finding = true)}><Icon name="search" size={16} /> Найти на другом источнике</button>
+      </section>
+    {/if}
     {#if isSeries && d?.seasons.length}
       <section class="block" aria-labelledby="s-grid">
         <h2 id="s-grid">Оценки серий</h2>
@@ -719,13 +705,7 @@
           {#if d.aka.length}<dt>Также</dt><dd>{d.aka.slice(0, 4).join(', ')}</dd>{/if}
           {#if d.votes}<dt>Оценок IMDb</dt><dd>{d.votes.toLocaleString('ru-RU')}</dd>{/if}
         </dl>
-        {#if d.gallery.length}
-          <div class="gallery">
-            {#each d.gallery as g, k (k)}
-              <button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={artW(g, 640)} alt="" loading="lazy" decoding="async" /></button>
-            {/each}
-          </div>
-        {/if}
+
       </section>
     {/if}
   </main>
@@ -737,11 +717,12 @@
 
 <NewList bind:open={creating} oncreated={created} />
 {#if d}
-  <LinkFinder bind:open={finding} query={videoQuery} extId={d.card.id} season={isSeries ? selected?.season ?? null : null} episode={isSeries ? selected?.episode ?? null : null} saved={episodeLinks} onadded={() => d && load(d.card.id)} />
+  <LinkFinder bind:open={finding} query={videoQuery} extId={d.card.id} season={isSeries ? selected?.season ?? null : null} episode={isSeries ? selected?.episode ?? null : null} saved={episodeLinks} otherSourcesOnly onadded={() => d && load(d.card.id)} />
 {/if}
 
 <style>
   .cinema-stage { height: clamp(260px,60svh,680px); position: relative; margin: 0 calc(-1 * var(--gutter)) 32px; }
+  .cinema-stage img { position:absolute; inset:0; width:100%; max-width:none; height:100%; object-fit:cover; object-position:center 30%; }
   .cinema-details { display: grid; grid-template-columns: minmax(90px,auto) minmax(0,1fr); gap: 10px 18px; font-size: 13px; padding-top: 18px; border-top: 1px solid var(--line); margin: 20px 0 0; }
   .cinema-details dt { color: var(--muted); }.cinema-details dd { margin: 0; }.cinema-details a:hover { text-decoration: underline; }
   /* Та же раскладка, что у страницы фильма с сервиса (title/[id]). */
@@ -1069,76 +1050,6 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
     gap: 18px 16px;
-  }
-  .found {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .found button {
-    display: grid;
-    gap: 6px;
-    width: 100%;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
-  }
-  .found .art {
-    position: relative;
-    display: block;
-    aspect-ratio: 16 / 9;
-    border-radius: 10px;
-    overflow: hidden;
-    background: var(--surface);
-    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-  .found button:hover .art {
-    transform: translateY(-3px);
-  }
-  .found img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .found .p {
-    position: absolute;
-    inset: 0;
-    margin: auto;
-    width: 44px;
-    height: 44px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.92);
-    color: #000;
-  }
-  .found .site,
-  .found .dur {
-    position: absolute;
-    bottom: 6px;
-    padding: 1px 6px;
-    border-radius: 5px;
-    background: rgba(0, 0, 0, 0.72);
-    font-size: 11px;
-    font-weight: 700;
-  }
-  .found .site {
-    left: 6px;
-  }
-  .found .dur {
-    right: 6px;
-  }
-  .found .name {
-    font-size: 13.5px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .none {
     margin: 0;
@@ -1605,4 +1516,69 @@
   @media (max-width: 980px) {
     .eyebrow, .meta .kz-rating { display: none; }
   }
+  /* Композиция страницы по образцу: кадр, постер и компактная панель действий. */
+  @media (min-width: 981px) {
+    .hero { max-width: 1440px; margin: 0 auto; min-height: 100svh; padding-top: max(220px, calc(var(--header) + 24px)); }
+    .cinema-stage { position:absolute; inset:0; height:auto; margin:0; z-index:-2; }
+    .cinema-stage::after { content:''; position:absolute; inset:0; background:linear-gradient(0deg,#000 0%,#000d 25%,#0004 60%,#0002 100%); }
+    .wrap { max-width:1200px; grid-template-columns:220px minmax(0,1fr) 260px; grid-template-areas:'poster info panel'; gap:36px; align-items:end; }
+    .poster-col { grid-area:poster; width:100%; min-width:0; grid-template-columns:minmax(0, 1fr); }
+    .poster { display:block; }
+    .info { grid-area:info; min-width:0; }
+    .panel { grid-area:panel; }
+    .poster { border-radius:10px; box-shadow:none; }
+    .poster-col .watch { width:100%; min-width:0; height:auto; min-height:44px; padding:10px 12px; white-space:normal; text-align:center; line-height:1.25; border-radius:999px; }
+    .info { gap:10px; }
+    .hero-heading h1 { font-size:clamp(34px,4vw,52px); letter-spacing:-.035em; }
+    .overview { line-height:1.5; font-size:15px; color:#c3c3c3; }
+    .genres .pill { border:0; border-radius:999px; background:#292929; box-shadow:none; }
+    .panel .box,.panel .btn { background:#252525; border:0; }
+    .panel .box { border-radius:16px; padding:16px 14px 10px; gap:10px; }
+    .panel .acts button { padding:10px 3px; font-size:12px; }
+    .panel .rate { padding:12px 0 10px; gap:6px; }
+    .panel .rate small { font-size:12px; }
+    .panel .btn { min-height:42px; font-size:14px; }
+    .panel .btn { border-radius:999px; }
+  }
+  .sheet { max-width:1440px; width:100%; border:0; border-radius:0; background:#1b1b1d; }
+  .block { border-color:#39393b; }
+  .cast .ava { border-radius:50%; }
+  .similar a { border-radius:10px; }
+  @media (max-width:640px) {
+    .sheet { width:100%; border:0; border-radius:0; background:#1b1b1d; }
+  }
+  @media (min-width:981px) {
+    .hero { max-width:none; width:100%; margin:0; }
+    .wrap { width:100%; max-width:none; padding-left:clamp(32px,7vw,120px); padding-right:clamp(32px,7vw,120px); }
+    .sheet { max-width:none; width:100%; }
+    .eyebrow { color:#fff; }
+  }
+  .series-quick { display:grid; gap:12px; text-align:center; }
+  .series-quick-actions { display:grid; grid-template-columns:repeat(3,1fr); background:#292929; border-radius:12px; }
+  .series-quick-actions button { display:grid; justify-items:center; gap:5px; padding:14px 4px; background:none; border:0; color:#fff; font:inherit; font-size:12px; }
+  .series-quick .btn { width:100%; border-radius:999px; }
+  @media (min-width:981px) {
+    .hero-rating { display:flex; justify-content:center; margin:0 0 16px; }
+    .hero::after { background:linear-gradient(90deg,#10111699,#10111640 60%,#10111688),linear-gradient(0deg,#181c22 0%,transparent 75%); }
+    .wrap { align-items:end; }
+    .poster { transition:transform .35s ease; }
+    .hero-heading h1 { line-height:1.08; }
+    .overview { line-height:1.6; }
+  }
+  @media (max-width:980px) { .hero-rating { display:none; } }
+  .gallery-feature h2 { text-align:center; text-transform:uppercase; letter-spacing:.16em; font-size:14px; margin-bottom:24px; }
+  .gallery { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+  .gallery button { min-width:0; overflow:hidden; }
+  .gallery img { width:100%; aspect-ratio:16/9; object-fit:cover; transition:transform .35s ease; }
+  @media (max-width:640px) { .gallery { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (prefers-reduced-motion:reduce) { .gallery img,.poster { transition:none; } }
+  @media (min-width:981px) {
+    .wrap { grid-template-areas:'heading heading heading' 'poster info panel'; gap:24px 36px; }
+    .hero-heading { grid-area:heading; min-width:0; padding-bottom:18px; border-bottom:1px solid #ffffff40; }
+    .hero-heading h1 { max-width:100%; margin:10px 0; font-size:clamp(38px,4.5vw,68px); line-height:1.08; }
+    .hero-heading .meta { gap:8px 12px; }
+    .hero-rating { margin-bottom:14px; }
+    .gallery-feature { padding-top:34px; }
+  }
+  @media (max-width:980px) { .hero-heading { display:contents; } }
 </style>

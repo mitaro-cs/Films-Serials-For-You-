@@ -194,10 +194,13 @@
   }
   .pill a {
     position: relative;
-    display: grid;
-    place-items: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex: 0 0 auto;
     height: 36px;
-    padding: 0 18px;
+    padding: 0 14px;
     border-radius: 999px;
     color: rgba(255, 255, 255, 0.82);
     font-size: 15px;
@@ -579,6 +582,10 @@
     color: #0a0a0a;
     box-shadow: none;
   }
+  .pill .find:not(.on) { background:transparent; color:#fff; }
+  .pill .find:not(.on):hover { background:#ffffff20; }
+  .pill { max-width:100%; min-width:0; }
+  .pill a { min-width:0; }
   .right .round {
     background: rgba(255, 255, 255, 0.1);
     -webkit-backdrop-filter: blur(22px) saturate(180%);

@@ -29,7 +29,7 @@
       {#each shown as item (item.key)}
         {@const card = item.card ?? item.ext!}
         {@const art = item.art ?? card.poster}
-        <article style:--acc={item.card?.accent ?? '#c8894a'}>
+        <article style:--acc={'#ffffff'}>
           <a href={item.href} aria-label="{card.title} - {item.label} - {left(item.position, item.duration)}">
             <span class="art" style:background={art ? undefined : placeholder(card.title)}>
               {#if art}<img src={artW(art, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />{:else}<span class="ph">{card.title}</span>{/if}
@@ -62,7 +62,10 @@
     grid-auto-columns: minmax(0, calc((100% - 3 * 14px) / 4.2));
     gap: 12px;
     overflow-x: auto;
-    scroll-snap-type: x mandatory;
+    scroll-snap-type: x proximity;
+    touch-action: pan-x pan-y;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
     padding-bottom: 6px;
   }
   article {
@@ -93,7 +96,9 @@
     background: linear-gradient(0deg, #000a, transparent 45%);
     pointer-events: none;
   }
-  img {
+  .art img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;

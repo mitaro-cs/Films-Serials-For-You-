@@ -161,7 +161,8 @@
     transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.5);
   }
   .c:hover {
-    transform: scale(1.12);
+    filter: brightness(1.12);
+    box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.8);
   }
   @keyframes pop {
     from {

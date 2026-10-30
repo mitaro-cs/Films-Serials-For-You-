@@ -24,7 +24,9 @@ fn pack(name: &str, data: &[u8], br: bool) -> bytes::Bytes {
     }
     let mut out = Vec::with_capacity(data.len() / 3);
     if br {
-        let params = brotli::enc::BrotliEncoderParams { quality: 11, lgwin: 22, ..Default::default() };
+        // Large lazy-loaded player bundles must not hold the first playback request
+        // for seconds while Brotli performs its most expensive compression pass.
+        let params = brotli::enc::BrotliEncoderParams { quality: 5, lgwin: 22, ..Default::default() };
         let _ = brotli::BrotliCompress(&mut &data[..], &mut out, &params);
     } else {
         let mut z = flate2::write::GzEncoder::new(&mut out, flate2::Compression::best());

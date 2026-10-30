@@ -69,6 +69,90 @@ fn ext(id: &str, title: &str, series: bool) -> fsfy::discover::Ext {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires live LordFilm search"]
+async fn lordfilm_automatic_search_and_save_without_host_configuration() {
+    let dir = tempfile::tempdir().unwrap();
+    let (running, mut host) = common::start(dir.path()).await;
+    let mut film = ext("tt1160419", "Дюна", false);
+    film.year = Some(2021);
+    fsfy::discover::upsert(&running.app, &[film]).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&running.app.db.setting_or("video.sites", "[]")).unwrap(), json!([]));
+    let found = host.json("/api/links/search?provider=lordfilm&extId=tt1160419&q=Dune&min=2400").await;
+    let movie = found.as_array().unwrap().first().expect("automatic movie result");
+    assert_eq!(movie["site"], "lordfilm");
+    let response = host
+        .send(
+            "POST",
+            "/api/links",
+            json!({
+                "url": movie["url"], "label": movie["label"], "extId":"tt1160419"
+            }),
+        )
+        .await;
+    assert!(response.status().is_success());
+    let id = response.json::<Value>().await.unwrap()["id"].as_i64().unwrap();
+    let kind: String =
+        running.app.db.with(|c| c.query_row("SELECT kind FROM links WHERE id=?", [id], |r| r.get(0))).unwrap();
+    assert_eq!(kind, "site");
+    let trailer = host.json("/api/links/search?provider=lordfilm&q=Dune&mode=trailer").await;
+    assert_eq!(trailer, json!([]));
+    running.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires live LordFilm series and CDN"]
+async fn lordfilm_series_search_save_and_stream_exact_episode() {
+    let dir = tempfile::tempdir().unwrap();
+    let (running, mut host) = common::start(dir.path()).await;
+    let mut series = ext("tt1234567", "Дюна: Пророчество", true);
+    series.year = Some(2024);
+    fsfy::discover::upsert(&running.app, &[series]).unwrap();
+    let found =
+        host.json("/api/links/search?provider=lordfilm&extId=tt1234567&q=Dune&min=600&season=1&episode=2").await;
+    let episode = found.as_array().unwrap().first().expect("second episode");
+    assert!(episode["url"].as_str().unwrap().ends_with("#nova-season=1&episode=2"));
+    assert!(episode["label"].as_str().unwrap().ends_with("S01E02"));
+    let wrong =
+        host.send("POST", "/api/links", json!({"url":episode["url"],"extId":"tt1234567","season":1,"episode":1})).await;
+    assert_eq!(wrong.status().as_u16(), 400);
+    let response = host
+        .send(
+            "POST",
+            "/api/links",
+            json!({"url":episode["url"],"extId":"tt1234567","season":1,"episode":2,"label":episode["label"]}),
+        )
+        .await;
+    assert!(response.status().is_success());
+    let id = response.json::<Value>().await.unwrap()["id"].as_i64().unwrap();
+    let source = host.json(&format!("/api/links/{id}/stream/source")).await;
+    assert_eq!(source["hls"], true);
+    let response = host.get(source["url"].as_str().unwrap()).await;
+    assert!(response.status().is_success());
+    let playlist = response.text().await.unwrap();
+    assert!(playlist.starts_with("#EXTM3U"));
+    let variant = playlist.lines().find(|l| !l.is_empty() && !l.starts_with('#')).unwrap();
+    assert!(variant.starts_with("p?u="));
+    let response = host.get(&format!("/api/links/{id}/stream/{variant}")).await;
+    assert!(response.status().is_success());
+    let playlist = response.text().await.unwrap();
+    assert!(playlist.starts_with("#EXTM3U"));
+    let segment = playlist.lines().find(|l| !l.is_empty() && !l.starts_with('#')).unwrap();
+    let mut response = host
+        .http
+        .get(format!("{}/api/links/{id}/stream/{segment}", host.base))
+        .header("cookie", &host.cookie)
+        .header("range", "bytes=0-1023")
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    assert!(!response.chunk().await.unwrap().unwrap().is_empty());
+    let absent = host.json("/api/links/search?provider=lordfilm&extId=tt1234567&q=Dune&season=99&episode=999").await;
+    assert_eq!(absent, json!([]));
+    running.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn localized_search_cache_and_fast_details() {
     let dir = tempfile::tempdir().unwrap();
     let (running, mut host) = common::start(dir.path()).await;

@@ -120,8 +120,9 @@ pub fn json_str(page: &str, key: &str) -> Option<String> {
 /// Адрес видео на странице своего сайта: сначала поток HLS (.m3u8), потом файл (.mp4, .webm).
 pub fn find_media(page: &str) -> Option<String> {
     let text = page.replace("\\/", "/").replace("\\u0026", "&").replace("&amp;", "&");
-    let re = regex::Regex::new(r#"https?://[^\s"'<>\\]+?\.(m3u8|mp4|webm)(\?[^\s"'<>\\]*)?"#).ok()?;
-    let found: Vec<(String, bool)> = re.captures_iter(&text).map(|c| (c[0].to_string(), &c[1] == "m3u8")).collect();
+    let re =
+        regex::Regex::new(r#"(https?://[^\s"'<>\\]+\.(m3u8|mp4|webm)(?:\?[^\s"'<>\\]*)?)(?:[\s"'<>\\]|$)"#).ok()?;
+    let found: Vec<(String, bool)> = re.captures_iter(&text).map(|c| (c[1].to_string(), &c[2] == "m3u8")).collect();
     found.iter().max_by_key(|f| (f.1, super::links::quality_hint(&f.0))).map(|f| f.0.clone())
 }
 
@@ -206,6 +207,11 @@ async fn master(kind: &str, id: &str, url: &str, embed: Option<&str>) -> anyhow:
                 .find_map(|v| v["url"].as_str())
                 .ok_or_else(|| anyhow::anyhow!("Dailymotion не предоставляет доступный HLS-поток"))?;
             (stream.to_string(), vec!["dailymotion.com".into(), "dmcdn.net".into()])
+        }
+        "site" if crate::lordfilm::series_url(&Url::parse(url)?) => {
+            let (media, _) = crate::lordfilm::episode_stream(&Url::parse(url)?).await?;
+            let extra = base_domain(&Url::parse(&media)?).into_iter().collect();
+            (media, extra)
         }
         "site" => {
             let base = Url::parse(url)?;
@@ -543,6 +549,11 @@ mod tests {
 
     #[test]
     fn media_on_site_pages() {
+        assert_eq!(
+            find_media(r#"hls: "https://cdn.example/movie.mp4/master.m3u8?token=abc""#).as_deref(),
+            Some("https://cdn.example/movie.mp4/master.m3u8?token=abc")
+        );
+        assert_eq!(find_media(r#"src="https://cdn.example/movie.mp4/thumbnail.jpg""#), None);
         let p = r#"<video src="https://cdn.kino.example/a/film.mp4?t=1"></video><script>var f={"hls":"https:\/\/s2.kino.example\/v\/master.m3u8?k=1&x=2"}</script>"#;
         assert_eq!(find_media(p).as_deref(), Some("https://s2.kino.example/v/master.m3u8?k=1&x=2"));
         assert_eq!(find_media("<p>нет видео</p>"), None);
@@ -557,5 +568,33 @@ mod tests {
         assert!(!allowed_for("vk", &Url::parse("https://s2.kino.example/x.ts").unwrap(), &extra));
         assert!(allowed_for("direct", &Url::parse("https://s2.kino.example/x.ts").unwrap(), &extra));
         assert!(!allowed_for("direct", &Url::parse("https://evil.example/x.ts").unwrap(), &extra));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the live external source and CDN"]
+    async fn lordfilm_live_movie_playlist_and_segment() {
+        tokio::time::timeout(Duration::from_secs(55), async {
+            let found = crate::lordfilm::search("Дюна", Some(2021)).await.expect("source search");
+            let url = found.first().expect("matching movie")["url"].as_str().unwrap();
+            assert_eq!(super::super::links::parse(url).unwrap().kind, "site");
+            let (stream, extra) = master("site", "", url, None).await.expect("native stream");
+            let (base, response) = fetch_media("site", Url::parse(&stream).unwrap(), &extra, None).await.unwrap();
+            assert!(response.status().is_success());
+            let text = response.text().await.unwrap();
+            assert!(text.starts_with("#EXTM3U"));
+            let variant = text.lines().find(|s| !s.trim().is_empty() && !s.starts_with('#')).unwrap();
+            let (base, response) = fetch_media("site", base.join(variant).unwrap(), &extra, None).await.unwrap();
+            assert!(response.status().is_success());
+            let text = response.text().await.unwrap();
+            assert!(text.starts_with("#EXTM3U"));
+            let segment = text.lines().find(|s| !s.trim().is_empty() && !s.starts_with('#')).unwrap();
+            let range = axum::http::HeaderValue::from_static("bytes=0-1023");
+            let (_, mut response) =
+                fetch_media("site", base.join(segment).unwrap(), &extra, Some(&range)).await.unwrap();
+            assert!(response.status().is_success());
+            assert!(!response.chunk().await.unwrap().unwrap().is_empty());
+        })
+        .await
+        .expect("live source timeout");
     }
 }

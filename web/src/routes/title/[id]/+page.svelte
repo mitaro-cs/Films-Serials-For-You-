@@ -1,6 +1,7 @@
 <script lang="ts">
   import { countriesRu, languagesRu } from '$lib/countries';
   import MobileHero from '$lib/title/MobileHero.svelte';
+  import RatingRing from '$lib/title/RatingRing.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { untrack } from 'svelte';
   import { progressSync } from '$lib/progressSync.svelte';
@@ -32,7 +33,6 @@
   import { artSet, artW, placeholder } from '$lib/ui/art';
   import Icon from '$lib/ui/Icon.svelte';
   import Lightbox from '$lib/ui/Lightbox.svelte';
-  import TrailerBanner from '$lib/title/TrailerBanner.svelte';
 
   // Страница фильма по референсу: большой кадр, постер и «Смотреть», панель действий
   // (хочу / просмотрено / нравится, оценка, обсудить, отзыв), ниже - лист: оценки и отзывы,
@@ -331,7 +331,7 @@
     onmore={() => (moreOpen = true)}
     onclose={() => (history.length > 1 ? history.back() : goto('/'))}
   />
-  <Modal bind:open={moreOpen} title={c.title}><div class="panel in-sheet">{@render panelBody()}</div></Modal>
+  <Modal bind:open={moreOpen} title={c.title} sheet><div class="panel in-sheet">{@render panelBody()}</div></Modal>
   <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
     <div class="bg" aria-hidden="true">
       {#key c.backdrop}
@@ -350,8 +350,19 @@
         </label>
       </div>
     {/if}
-    <div class="cinema-stage"><TrailerBanner imdbId={t.imdbId} poster={c.backdrop ?? c.posterLarge ?? c.poster} /></div>
+    <div class="cinema-stage">{#if c.backdrop ?? c.posterLarge ?? c.poster}<img src={c.backdrop ?? c.posterLarge ?? c.poster} alt="" />{/if}</div>
     <div class="wrap">
+      <div class="hero-heading">
+        <span class="eyebrow">{isSeries ? 'Сериал' : 'Фильм'}{c.year ? ` · ${c.year}` : ''}</span>
+        <h1>{c.title}</h1>
+        <p class="meta">
+          {#if c.rating}<span class="kz-rating"><Icon name="star" size={13} /> {c.rating.toFixed(1)} IMDb</span>{/if}
+          {#if c.year}<span class="year">{c.year}</span>{/if}
+          {#if c.runtime}<span>{runtime(c.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
+          {#if isSeries}<span>{count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')}</span>{/if}
+          {#if c.age}<span class="age">{c.age}</span>{/if}
+        </p>
+      </div>
       <div class="poster-col">
         <div class="poster" style:background={c.posterLarge ? undefined : placeholder(c.title)}>
           {#if c.posterLarge}<img use:fadeIn src={c.posterLarge} alt={c.title} width="460" height="690" decoding="async" />{:else}<span>{c.title}</span>{/if}
@@ -364,15 +375,6 @@
       </div>
 
       <div class="info">
-        <span class="eyebrow">{isSeries ? 'Сериал' : 'Фильм'}{c.year ? ` · ${c.year}` : ''}</span>
-        <h1>{c.title}</h1>
-        <p class="meta">
-          {#if c.rating}<span class="kz-rating"><Icon name="star" size={13} /> {c.rating.toFixed(1)} IMDb</span>{/if}
-          {#if c.year}<span class="year">{c.year}</span>{/if}
-          {#if c.runtime}<span>{runtime(c.runtime)}{isSeries ? ' серия' : ''}</span>{/if}
-          {#if isSeries}<span>{count(c.seasons || 1, 'сезон', 'сезона', 'сезонов')}</span>{/if}
-          {#if c.age}<span class="age">{c.age}</span>{/if}
-        </p>
         {#if c.overview}<p class="overview selectable">{localized(c.overview, 'Описание на русском пока недоступно')}</p>{/if}
         {#if t.next && (started || (isSeries && t.next.label && c.status === 'watching'))}
           <!-- Где остановились: место в фильме или следующая серия сериала. -->
@@ -392,12 +394,18 @@
         <FriendsStrip friends={t.friends ?? []} />
       </div>
 
-      <aside class="panel" aria-label="Действия">{@render panelBody()}</aside>
+      <aside class="panel" aria-label="Действия">{#if c.rating}<div class="hero-rating"><RatingRing value={c.rating} /></div>{/if}{@render panelBody()}</aside>
     </div>
   </section>
   {/if}
 
   <main class="sheet">
+    {#if t.gallery.length}
+      <section class="block gallery-feature" aria-label="Галерея кадров"><h2>Галерея</h2>
+        <div class="gallery">{#each t.gallery.slice(0, 9) as g, k (k)}<button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={g} alt="" loading="lazy" decoding="async" /></button>{/each}</div>
+      </section>
+    {/if}
+
     <section class="block summary" aria-labelledby="s-rating">
       <h2 id="s-rating">Оценки и отзывы</h2>
       <div class="score">
@@ -476,7 +484,7 @@
           {/each}
         </div>
       {:else}
-        <p class="muted none">Трейлер, другая озвучка или серия с Rutube и VK Видео - вставьте ссылку, видео откроется в плеере Nova.</p>
+        <p class="muted none">Другая озвучка или серия с Rutube и VK Видео - вставьте ссылку, видео откроется в плеере Nova.</p>
       {/if}
     </section>
 
@@ -534,13 +542,7 @@
           {/each}
         </ul>
       {/if}
-      {#if t.gallery.length}
-        <div class="gallery">
-          {#each t.gallery.slice(0, 8) as g, k (k)}
-            <button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={g} alt="" loading="lazy" decoding="async" /></button>
-          {/each}
-        </div>
-      {/if}
+
     </section>
   </main>
 
@@ -559,6 +561,7 @@
 
 <style>
   .cinema-stage { height: clamp(260px,60svh,680px); position: relative; margin: 0 calc(-1 * var(--gutter)) 32px; }
+  .cinema-stage img { position:absolute; inset:0; width:100%; max-width:none; height:100%; object-fit:cover; object-position:center 30%; }
   /* Та же раскладка, что у страницы фильма с сервиса (title/[id]). */
 
   /* ---------- большой кадр ---------- */
@@ -1353,4 +1356,65 @@
   @media (max-width: 980px) {
     .eyebrow, .meta .kz-rating { display: none; }
   }
+  /* Композиция страницы по образцу: кадр, постер и компактная панель действий. */
+  @media (min-width: 981px) {
+    .hero { max-width: 1440px; margin: 0 auto; min-height: 100svh; padding-top: max(220px, calc(var(--header) + 24px)); }
+    .cinema-stage { position:absolute; inset:0; height:auto; margin:0; z-index:-2; }
+    .cinema-stage::after { content:''; position:absolute; inset:0; background:linear-gradient(0deg,#000 0%,#000d 25%,#0004 60%,#0002 100%); }
+    .wrap { max-width:1200px; grid-template-columns:220px minmax(0,1fr) 260px; grid-template-areas:'poster info panel'; gap:36px; align-items:end; }
+    .poster-col { grid-area:poster; width:100%; min-width:0; grid-template-columns:minmax(0, 1fr); }
+    .poster { display:block; }
+    .info { grid-area:info; min-width:0; }
+    .panel { grid-area:panel; }
+    .poster { border-radius:10px; box-shadow:none; }
+    .poster-col .watch { width:100%; min-width:0; height:auto; min-height:44px; padding:10px 12px; white-space:normal; text-align:center; line-height:1.25; border-radius:999px; }
+    .info { gap:10px; }
+    .hero-heading h1 { font-size:clamp(34px,4vw,52px); letter-spacing:-.035em; }
+    .overview { line-height:1.5; font-size:15px; color:#c3c3c3; }
+    .genres .pill { border:0; border-radius:999px; background:#292929; box-shadow:none; }
+    .panel .box,.panel .btn { background:#252525; border:0; }
+    .panel .box { border-radius:16px; padding:16px 14px 10px; gap:10px; }
+    .panel .acts button { padding:10px 3px; font-size:12px; }
+    .panel .rate { padding:12px 0 10px; gap:6px; }
+    .panel .rate small { font-size:12px; }
+    .panel .btn { min-height:42px; font-size:14px; }
+    .panel .btn { border-radius:999px; }
+  }
+  .sheet { max-width:1440px; width:100%; border:0; border-radius:0; background:#1b1b1d; }
+  .block { border-color:#39393b; }
+  .cast .ava { border-radius:50%; }
+  .similar a { border-radius:10px; }
+  @media (max-width:640px) {
+    .sheet { width:100%; border:0; border-radius:0; background:#1b1b1d; }
+  }
+  @media (min-width:981px) {
+    .hero { max-width:none; width:100%; margin:0; }
+    .wrap { width:100%; max-width:none; padding-left:clamp(32px,7vw,120px); padding-right:clamp(32px,7vw,120px); }
+    .sheet { max-width:none; width:100%; }
+    .eyebrow { color:#fff; }
+  }
+  @media (min-width:981px) {
+    .hero-rating { display:flex; justify-content:center; margin:0 0 16px; }
+    .hero::after { background:linear-gradient(90deg,#10111699,#10111640 60%,#10111688),linear-gradient(0deg,#181c22 0%,transparent 75%); }
+    .wrap { align-items:end; }
+    .poster { transition:transform .35s ease; }
+    .hero-heading h1 { line-height:1.08; }
+    .overview { line-height:1.6; }
+  }
+  @media (max-width:980px) { .hero-rating { display:none; } }
+  .gallery-feature h2 { text-align:center; text-transform:uppercase; letter-spacing:.16em; font-size:14px; margin-bottom:24px; }
+  .gallery { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+  .gallery button { min-width:0; overflow:hidden; }
+  .gallery img { width:100%; aspect-ratio:16/9; object-fit:cover; transition:transform .35s ease; }
+  @media (max-width:640px) { .gallery { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media (prefers-reduced-motion:reduce) { .gallery img,.poster { transition:none; } }
+  @media (min-width:981px) {
+    .wrap { grid-template-areas:'heading heading heading' 'poster info panel'; gap:24px 36px; }
+    .hero-heading { grid-area:heading; min-width:0; padding-bottom:18px; border-bottom:1px solid #ffffff40; }
+    .hero-heading h1 { max-width:100%; margin:10px 0; font-size:clamp(38px,4.5vw,68px); line-height:1.08; }
+    .hero-heading .meta { gap:8px 12px; }
+    .hero-rating { margin-bottom:14px; }
+    .gallery-feature { padding-top:34px; }
+  }
+  @media (max-width:980px) { .hero-heading { display:contents; } }
 </style>

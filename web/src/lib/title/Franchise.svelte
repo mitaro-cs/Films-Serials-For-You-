@@ -39,7 +39,7 @@
 {#if failed}<p class="muted">Порядок просмотра сейчас недоступен.</p>{/if}
 {#each groups as g, n (g.name)}
   <section class="block" aria-label="Хронология: {g.name}">
-    <div class="heading"><h2>Порядок просмотра <span class="muted">· {g.name}</span></h2><div class="arrows"><button class="btn sm" aria-label="Предыдущие фильмы" onclick={() => strips[n]?.scrollBy({ left: -strips[n].clientWidth * .8, behavior: 'smooth' })}><Icon name="back" size={16} /></button><button class="btn sm" aria-label="Следующие фильмы" onclick={() => strips[n]?.scrollBy({ left: strips[n].clientWidth * .8, behavior: 'smooth' })}><span class="forward"><Icon name="back" size={16} /></span></button></div></div>
+    <div class="heading"><h2>Порядок просмотра <span class="muted">· {g.name}</span></h2><div class="arrows"><a class="btn sm" href="/franchise/{encodeURIComponent(imdb)}?group={n}">Открыть подборку</a><button class="btn sm" aria-label="Предыдущие фильмы" onclick={() => strips[n]?.scrollBy({ left: -strips[n].clientWidth * .8, behavior: 'smooth' })}><Icon name="back" size={16} /></button><button class="btn sm" aria-label="Следующие фильмы" onclick={() => strips[n]?.scrollBy({ left: strips[n].clientWidth * .8, behavior: 'smooth' })}><span class="forward"><Icon name="back" size={16} /></span></button></div></div>
     <p class="muted small">{g.items.length} частей · порядок серии и даты выхода по Викиданным</p>
     <ol class="strip" bind:this={strips[n]}>
       {#each g.items as card, i (card.id)}
@@ -60,7 +60,7 @@
   .forward { transform: rotate(180deg); display: flex; }
   .chronology-loading { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; padding: 24px 0; }
   .chronology-loading span { aspect-ratio: 2 / 3; border-radius: 14px; }
-  @media(max-width: 600px) { .heading { align-items: start; } .heading h2 { font-size: 19px; } .arrows { display: none; } }
+  @media(max-width: 600px) { .heading { align-items: start; flex-wrap: wrap; gap: 10px; } .heading h2 { font-size: 19px; min-width: 0; overflow-wrap: anywhere; } .arrows button { display: none; } }
   h2 .muted {
     font-weight: 600;
   }

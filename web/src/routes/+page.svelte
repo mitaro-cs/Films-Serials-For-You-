@@ -17,6 +17,7 @@
   import Shelf from '$lib/ui/Shelf.svelte';
   import Wide from '$lib/ui/Wide.svelte';
   import Showcase from '$lib/ui/Showcase.svelte';
+  import { genreRu } from '$lib/genres';
 
   // Главная как у Apple TV: герой-карусель и ряды широких карточек. Фильмы и Сериалы - герой,
   // «Продолжить», «Эксклюзив на Nova» (что хост добавил сам), «Буду смотреть» (с сервиса и из
@@ -99,6 +100,17 @@
   const going = $derived(marks ? marks.watching.filter((m) => inSection(m) && !resumes.some((r) => r.key === (m.card ? `t:${m.card.id}` : `x:${m.ext?.id}`))) : []);
   const favorites = $derived((marks?.favorites ?? []).filter(inSection));
   const ready = $derived(feed !== null && marks !== null);
+  let preferredGenres = $state<string[]>([]);
+  $effect(() => {
+    const id = session.me?.user.profile?.id;
+    const read = () => { try { preferredGenres = JSON.parse(localStorage.getItem(`nova-genres:${id}`) ?? '[]'); } catch { preferredGenres = []; } };
+    if (id) read();
+    window.addEventListener('nova-preferences', read);
+    return () => window.removeEventListener('nova-preferences', read);
+  });
+  const recommendationGenres = $derived([...new Set([...preferredGenres, ...imdb.flatMap(row => row.items).filter(f => session.me?.favorites?.includes(`x:${f.id}`)).flatMap(f => f.genres.map(genreRu))])]);
+  const recommended = $derived([...new Map(imdb.flatMap(row => row.items).filter(f => f.genres.some(g => recommendationGenres.includes(genreRu(g))) && f.mark !== 'watched' && !session.me?.favorites?.includes(`x:${f.id}`)).map(f => [f.id, f])).values()].slice(0,20));
+  const rewatch = $derived((marks?.watched ?? []).filter(inSection));
 
   // Сетка всей коллекции рисуется частями: сотни карточек разом подтормаживали прокрутку
   // и открытие вкладки. Следующие 48 - когда до конца остаётся экран.
@@ -161,6 +173,8 @@
       {#if tab === 'home'}
         {#if sectionResumes.length}<ContinueRow items={sectionResumes} />{:else if resumeFailed}{#each rows.filter((r) => r.key === 'continue') as row (row.key)}<Shelf title={row.title} items={row.items} eager droppable />{/each}{/if}
         {#if theme?.items.length}<PosterRow title={theme.title} note={theme.subtitle || 'тема недели'} items={theme.items} />{/if}
+        {#if recommended.length}<PosterRow title="Вам может понравиться" note="По любимым жанрам и фильмам" items={recommended} />{/if}
+        {#if rewatch.length}<PosterRow title="Хотите пересмотреть?" items={rewatch} />{/if}
         {#if going.length}<PosterRow title="Смотрю сейчас" items={going} />{/if}
         {#if favorites.length}<PosterRow title="Избранное" items={favorites} />{/if}
         {#if want.length}<PosterRow title="В планах на вечер" items={want} />{/if}

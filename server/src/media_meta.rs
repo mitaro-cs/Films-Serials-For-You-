@@ -16,6 +16,20 @@ pub fn art(url: &str) -> String {
     u.query_pairs_mut().append_pair("url", url);
     format!("/api/discover/art?{}", u.query().unwrap_or_default())
 }
+
+/// Only IMDb artwork may be used for a title banner; fallback providers still supply metadata.
+pub fn is_imdb_art(raw: &str) -> bool {
+    let Ok(url) = Url::parse("http://localhost").and_then(|base| base.join(raw)) else { return false };
+    let source = if url.path() == "/api/discover/art" {
+        url.query_pairs().find(|(key, _)| key == "url").and_then(|(_, value)| Url::parse(&value).ok())
+    } else {
+        Some(url)
+    };
+    source.is_some_and(|u| {
+        u.scheme() == "https"
+            && u.host_str().is_some_and(|h| h == "media-amazon.com" || h.ends_with(".media-amazon.com"))
+    })
+}
 pub fn art_allowed(raw: &str) -> bool {
     let Ok(u) = Url::parse(raw) else { return false };
     u.scheme() == "https"
@@ -195,6 +209,9 @@ mod tests {
     use super::*;
     #[test]
     fn image_proxy_is_limited_to_known_art_hosts() {
+        assert!(is_imdb_art(&art("https://m.media-amazon.com/images/banner.jpg")));
+        assert!(!is_imdb_art(&art("https://static.tvmaze.com/banner.jpg")));
+        assert!(!is_imdb_art("https://media-amazon.com.evil.example/banner.jpg"));
         assert!(art_allowed("https://m.media-amazon.com/images/a.jpg"));
         assert!(art_allowed("https://static.tvmaze.com/uploads/a.jpg"));
         for raw in [

@@ -399,7 +399,7 @@ export interface VideoLink {
 
 /** Найденное на Rutube/VK - ещё не сохранено. */
 export interface FoundVideo {
-  site: 'rutube' | 'vk' | 'dailymotion' | 'archive' | 'peertube' | 'commons';
+    site: 'rutube' | 'vk' | 'dailymotion' | 'archive' | 'peertube' | 'commons' | 'lordfilm';
   url: string;
   label: string;
   thumb: string | null;

@@ -40,6 +40,7 @@
     src = null,
     onfail,
     sync = null,
+    sidebar = false,
     alts = [],
     onalt,
     onwrong,
@@ -52,6 +53,7 @@
     src?: { url: string; hls: boolean; title: string; linkId?: number; start?: number } | null;
     onfail?: () => void;
     sync?: PlayerSync | null;
+    sidebar?: boolean;
     /** Видео по ссылке: другие видео этого фильма (другая озвучка) - меню «Озвучка». */
     alts?: { id: number; label: string }[];
     onalt?: (id: number) => void;
@@ -86,6 +88,7 @@
   let stallCount = 0;
   // Уже подвисало у этого зрителя - следующие серии сразу в автокачестве.
   let slow = false;
+  let manualQuality = false;
   const speed = typeof window === 'undefined' ? Promise.resolve(null) : measureSpeed();
   let pendingSeek = 0;
 
@@ -202,7 +205,7 @@
   function pickLevel(i: number) {
     panel = '';
     srcLevel = i;
-    if (hls) { if(video?.paused) hls.loadLevel = i; else hls.currentLevel = i; }
+    if (hls) { hls.currentLevel = i; hls.loadLevel = i; }
     else if (nativeHls && src?.hls && video) {
       const url = new URL(i === -1 ? src.url : `/api/links/${src.linkId}/stream/index.m3u8`, location.href);
       const height = srcLevels.find(l => l.i === i)?.height;
@@ -306,7 +309,9 @@
       video.src = url;
       return;
     }
-    const { default: Hls } = await import('hls.js/light');
+    // External HLS manifests often keep audio in separate playlists. The light build
+    // omits the alternate-audio controller, so use the full build for those streams.
+    const { default: Hls } = src ? await import('hls.js') : await import('hls.js/light');
     if(generation!==loadGeneration)return;
     if (!Hls.isSupported()) {
       error = 'Этот браузер не умеет адаптивное видео - скачайте файл или откройте в другом браузере';
@@ -561,13 +566,13 @@
     waiting = true;
     if (!video || video.seeking || current < 2) return;
     stallCount++;
-    if (!info?.hls || src || adaptive()) return;
+    if (!info?.hls || src || adaptive() || manualQuality) return;
     const now = Date.now();
     stalls = [...stalls.filter((t) => now - t < 30_000), now];
     if (stalls.length >= 2) return slowDown();
     clearTimeout(stallTimer);
     stallTimer = setTimeout(() => {
-      if (waiting && desiredPlaying && !video?.seeking && !adaptive()) slowDown();
+      if (waiting && desiredPlaying && !video?.seeking && !adaptive() && !manualQuality) slowDown();
     }, 3_000);
   }
 
@@ -629,6 +634,7 @@
 
   function setQuality(q: 'orig' | 'auto' | number) {
     panel = '';
+    manualQuality = q !== 'auto';
     if (q === quality) return;
     quality = q;
     load(time);
@@ -776,14 +782,12 @@
 
   // ---------- интерфейс ----------
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
-  let controlsHover = false;
-  function poke(event?: Event) {
-    if (event instanceof PointerEvent && event.type === 'pointermove') controlsHover = !!(event.target instanceof Element && event.target.closest('.bottom'));
+  function poke(_event?: Event) {
     shown = true;
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      if (!paused && !panel && !controlsHover && !dragging && !box?.querySelector('.bottom :focus-visible')) shown = false;
-    }, 2800);
+      if (!panel && !dragging) shown = false;
+    }, 4000);
   }
 
   function fullscreen() {
@@ -862,7 +866,7 @@
     const nativeFullscreen = (enabled:boolean) => { if(native)void api('/api/host/fullscreen',{method:'POST',json:{enabled}}).catch(()=>{}); };
     const fs = () => {
       full = !!document.fullscreenElement;
-      if(full){controlsHover=false;(box?.querySelector(':focus') as HTMLElement|null)?.blur();poke();}
+      if(full){(box?.querySelector(':focus') as HTMLElement|null)?.blur();poke();}
       nativeFullscreen(full);
     };
     document.addEventListener('fullscreenchange', fs);
@@ -939,7 +943,7 @@
 
 <svelte:window onkeydown={key} onpointermove={poke} />
 
-<div class="player" class:idle={!shown} bind:this={box} style:--top-h="{topH}px" style:--bottom-h="{bottomH}px" onpointermove={poke} role="application" aria-label="Видеоплеер">
+<div class="player" class:idle={!shown} class:with-sidebar={sidebar} bind:this={box} style:--top-h="{topH}px" style:--bottom-h="{bottomH}px" onpointermove={poke} role="application" aria-label="Видеоплеер">
   <!-- svelte-ignore a11y_media_has_caption -->
   <video
     bind:this={video}
@@ -959,7 +963,7 @@
       if(!switching)desiredPlaying = false;
       hls?.pauseBuffering();
       waiting = false;
-      shown = true;
+      poke();
       save(true);
     }}
     onwaiting={onWaiting}
@@ -1073,7 +1077,7 @@
     </div>
   {/if}
 
-  <div class="bottom" bind:clientHeight={bottomH} role="group" aria-label="Управление просмотром" onpointerenter={() => { controlsHover = true; poke(); }} onpointerleave={() => { controlsHover = false; poke(); }} onfocusin={poke}>
+  <div class="bottom" bind:clientHeight={bottomH} role="group" aria-label="Управление просмотром" onfocusin={poke}>
     <div
       class="bar"
       role="slider"
@@ -1281,6 +1285,10 @@
     overflow: hidden;
     user-select: none;
   }
+  @media (min-width: 801px) {
+    .player.with-sidebar video { width:calc(100% - 360px); }
+    .player.with-sidebar .top, .player.with-sidebar .bottom { right:360px; }
+  }
   .player.idle {
     cursor: none;
   }
@@ -1394,6 +1402,7 @@
     font-size: 12px;
     font-variant-numeric: tabular-nums;
   }
+  .player, .player :global(*) { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .controls {
     display: flex;
     align-items: center;
@@ -1961,7 +1970,7 @@
   .bottom { background: linear-gradient(0deg, #000000e6 0%, #00000099 55%, transparent); border-top: 0; padding-top: 44px; }
   .rail { height: 5px; border-radius: 5px; background: rgba(255, 255, 255, 0.2); }
   .bar:hover .rail { height: 7px; }
-  .played { background: #d39a5b; }
+  .played { background: #fff; }
   .played::after { width: 16px; height: 16px; right: -8px; transform: translateY(-50%) scale(1); box-shadow: 0 0 0 5px #ffffff2e; }
   .controls { gap: 8px; margin-top: 12px; }
   .cbtn { height: 42px; min-width: 42px; border-radius: 999px; background: #ffffff14; }

@@ -41,6 +41,9 @@ fn vk_pair(s: &str) -> Option<(String, String)> {
 
 pub fn parse(raw: &str) -> Option<Parsed> {
     let u = Url::parse(raw.trim()).ok()?;
+    if crate::lordfilm::movie_url(&u) || crate::lordfilm::episode_target(&u).is_some() {
+        return Some(Parsed { kind: "site", url: u.to_string(), embed: None, id: None });
+    }
     if u.scheme() != "https" && u.scheme() != "http" {
         return None;
     }
@@ -377,6 +380,11 @@ pub async fn add(State(app): State<Arc<App>>, v: Viewer, Json(b): Json<NewLink>)
         return Err(ApiError::bad("bad_episode", "Укажите сезон и номер серии"));
     }
     let p = parse_with(&b.url, &extra_sites(&app)).ok_or_else(|| ApiError::bad("bad_link", BAD_LINK))?;
+    if let Some((season, episode)) = Url::parse(&p.url).ok().as_ref().and_then(crate::lordfilm::episode_target) {
+        if b.season != Some(season) || b.episode != Some(episode) {
+            return Err(ApiError::bad("bad_episode", "Серия в ссылке не совпадает с выбранной серией"));
+        }
+    }
     if b.title_id.is_some() && b.ext_id.is_some() {
         return Err(ApiError::bad("bad_link", "Ссылка - либо к фильму с сервиса, либо к фильму из ленты"));
     }

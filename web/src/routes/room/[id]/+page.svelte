@@ -21,7 +21,7 @@
   let members = $state<Who[]>([]);
   let chat = $state<RoomChat[]>([]);
   let error = $state('');
-  let side = $state(false);
+  let side = $state(true);
   let connection = $state('connecting');
   let text = $state('');
   let inviting = $state(false);
@@ -178,6 +178,7 @@
   }
 
   let copied = $state(false);
+  let showRoomLink = $state(false);
   // Выйти из комнаты и смотреть одному - с того же места (место сохраняем, чтобы плеер начал отсюда).
   let leaving = $state(false);
   async function alone() {
@@ -197,7 +198,7 @@
       copied = true;
       setTimeout(() => (copied = false), 2000);
     } catch {
-      /* без буфера обмена - ссылка в адресной строке */
+      showRoomLink = true;
     }
   }
   const me = $derived(session.me?.user.profile?.id);
@@ -214,9 +215,9 @@
     {#if room.linkId && !linkSrc}
       <div class="boot" aria-busy="true"><Icon name="party" size={36} /> Готовим видео с сайта…</div>
     {:else}
-    <Player fileId={room.fileId} src={linkSrc} {sync}>
+    <Player fileId={room.fileId} src={linkSrc} {sync} sidebar={side}>
       <div class="room" class:closed={!side}>
-        <div class="room-status" role="status"><Icon name="party" size={14}/><span>Смотрим вместе</span><i class:online={connection === 'online'}></i><small>{connection === 'online' ? `${members.length} участн.` : 'Восстанавливаем связь…'}</small></div>
+        <div class="room-status" role="status"><Icon name="party" size={14}/><span>Смотрим вместе</span><i class:online={connection === 'online'}></i><small>{error || (connection === 'online' ? `${members.length} участн.` : 'Восстанавливаем связь…')}</small></div>
         <button class="toggle" aria-label={side ? 'Спрятать чат' : 'Показать чат'} aria-expanded={side} onclick={() => (side = !side)}>
           <Icon name={side ? 'right' : 'mail'} size={18} />
           {#if !side && members.length > 1}<i>{members.length}</i>{/if}
@@ -245,6 +246,7 @@
               <button class="btn sm ghost" disabled={leaving} onclick={alone}><Icon name="user" size={14} /> Смотреть одному</button>
               <button class="btn sm ghost" onclick={copy}><Icon name={copied ? 'check' : 'link'} size={14} /> {copied ? 'Скопировано' : 'Ссылка'}</button>
             </div>
+            {#if showRoomLink}<label class="room-link">Ссылка для приглашения <input class="input" readonly value={location.href} onclick={(e) => e.currentTarget.select()} /></label>{/if}
             {#if inviting}
               <ul class="invite">
                 {#if friends === null}
@@ -575,16 +577,12 @@
     }
   }
   /* В плеере управление прячется - комната тоже уходит из-под пальца, кроме реакций. */
-  :global(.player.idle) .room .side,
   :global(.player.idle) .room .toggle,
   :global(.player.idle) .reacts {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
     transition: opacity 0.4s;
-  }
-  :global(.player.idle) .room .side:hover {
-    opacity: 1;
   }
   @media (max-width: 640px) {
     .side {
@@ -669,5 +667,10 @@
       bottom: calc(var(--bottom-h, 120px) + 60px);
       height: auto;
     }
+  }
+  @media (min-width: 801px) {
+    .room:not(.closed) .side { top:0; bottom:0; right:0; width:360px; border-radius:0; height:100%; padding-top:24px; grid-template-rows:auto auto auto minmax(0,1fr) auto auto; }
+    .room:not(.closed) .toggle { right:372px; }
+    .room:not(.closed) .reacts { left:calc((100% - 360px) / 2); }
   }
 </style>

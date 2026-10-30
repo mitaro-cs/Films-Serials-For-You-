@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
-  let { open = $bindable(false), title, wide = false, children }: { open: boolean; title: string; wide?: boolean; children: Snippet } =
+  let { open = $bindable(false), title, wide = false, sheet = false, children }: { open: boolean; title: string; wide?: boolean; sheet?: boolean; children: Snippet } =
     $props();
   let dialog: HTMLDialogElement | undefined = $state();
   // Закрывается плавно: сначала анимация, потом close(); содержимое живёт до конца анимации.
@@ -29,7 +29,7 @@
   }
 </script>
 
-<dialog bind:this={dialog} class:wide class:closing onclose={() => (open = false)} oncancel={cancel} aria-label={title}>
+<dialog bind:this={dialog} class:wide class:sheet class:closing onclose={() => (open = false)} oncancel={cancel} aria-label={title}>
   {#if open || closing}
     <header>
       <h2>{title}</h2>
@@ -40,6 +40,11 @@
 </dialog>
 
 <style>
+  @media (max-width:640px) {
+    dialog.sheet { position:fixed; inset:auto 0 0; margin:0; width:100%; max-width:none; max-height:85dvh; border:0; border-radius:18px 18px 0 0; padding-bottom:env(safe-area-inset-bottom); }
+    dialog.sheet header { justify-content:center; }
+    dialog.sheet header h2 { text-align:center; }
+  }
   dialog {
     width: min(520px, calc(100vw - 24px));
     max-height: calc(100dvh - 48px);

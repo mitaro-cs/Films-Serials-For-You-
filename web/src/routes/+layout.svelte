@@ -7,6 +7,7 @@
   import Ask from '$lib/ui/Ask.svelte';
   import Header from '$lib/ui/Header.svelte';
   import Intro from '$lib/ui/Intro.svelte';
+  import Onboarding from '$lib/ui/Onboarding.svelte';
   import Icon from '$lib/ui/Icon.svelte';
   import Logo from '$lib/ui/Logo.svelte';
   import Toasts from '$lib/ui/Toasts.svelte';
@@ -104,6 +105,7 @@
   {@render children()}
 {:else if session.me}
   <Intro />
+  <Onboarding />
   <Header />
   <main class:leaving>{@render children()}</main>
   {#if !full}

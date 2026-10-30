@@ -267,7 +267,7 @@ pub fn parse_details(t: &Value, x: &Value) -> Details {
     wide.dedup_by(|a, b| a.0 == b.0);
     wide.sort_by_key(|(_, width, score)| (std::cmp::Reverse(*score), std::cmp::Reverse(*width)));
     let backdrop = wide.first().map(|(u, width, _)| sized(u, (*width as u32).min(3840)));
-    let gallery = wide.iter().skip(1).take(8).map(|(u, ..)| sized(u, 640)).collect();
+    let gallery = wide.iter().skip(1).take(8).map(|(u, ..)| sized(u, 1920)).collect();
 
     Details {
         title,
