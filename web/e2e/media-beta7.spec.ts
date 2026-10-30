@@ -3,7 +3,8 @@ import { env, url } from './util';
 import { execFileSync } from 'node:child_process';
 import { canDecodeWebm } from './media-capability';
 
-test('русский трейлер с сайта - только по кнопке и со звуком, ручная пауза сохраняется', async ({ page }, info) => {
+// Трейлер на страницах фильма убран (0.6): баннер - неподвижный кадр. Тест оставлен на случай возврата.
+test.skip('русский трейлер с сайта - только по кнопке и со звуком, ручная пауза сохраняется', async ({ page }, info) => {
   test.skip((page.viewportSize()?.width ?? 0) <= 640, 'на телефоне верх страницы фильма - постер как у Disney+, без трейлера');
   const clip = execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=12:duration=10', '-c:v', 'libvpx', '-deadline', 'realtime', '-f', 'webm', 'pipe:1'], { maxBuffer: 8 * 1024 * 1024 });
   test.skip(!await canDecodeWebm(page,clip),'VP8 WebM не декодируется этой тестовой средой');

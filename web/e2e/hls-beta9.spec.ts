@@ -37,6 +37,8 @@ test('HLS: ручное качество и кадр сохраняются на
   expect(await page.locator('video').evaluate((v:HTMLVideoElement)=>v.readyState)).toBeGreaterThanOrEqual(2);
   expect(await page.locator('video').evaluate((v:HTMLVideoElement)=>v.paused)).toBe(true);
   expect(Math.abs(await page.locator('video').evaluate((v:HTMLVideoElement)=>v.currentTime)-pausedAt)).toBeLessThan(.25);
+  // Панель прячется через 4 с и на паузе - двигаем мышью, как зритель.
+  await page.mouse.move(120,160);
   await settings.click();await page.getByRole('menuitem',{name:/Качество/}).click();
   await expect(page.getByRole('menuitemradio',{name:'360p',exact:true})).toHaveAttribute('aria-checked','true');
   await page.keyboard.press('Escape');

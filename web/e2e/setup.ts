@@ -164,8 +164,10 @@ export default async function setup(_: FullConfig) {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const similar = ['tt0000001', 'tt0000002', 'tt0000003'];
-  similar.forEach((s, i) => put.run(s, 'series', `Похожий сериал ${i + 1}`, null, 2010 + i, 7.5, 1000, '["Драма"]', null, null, art, null, JSON.stringify({ at: Date.now() }), 5, Date.now()));
+  similar.forEach((s, i) => put.run(s, 'series', `Похожий сериал ${i + 1}`, null, 2010 + i, 7.5, 1000, '["Драма"]', null, null, art, null, JSON.stringify({ at: Date.now(), imdbBackdrop: art }), 5, Date.now()));
   const extra = {
+    // Кадр IMDb уже есть - страница не идёт за ним в сеть и не затирает описание и актёров из базы.
+    imdbBackdrop: still,
     tagline: 'Он читает между строк',
     age: '16+',
     countries: ['США'],

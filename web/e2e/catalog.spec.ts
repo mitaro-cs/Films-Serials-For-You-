@@ -81,7 +81,9 @@ test('смотреть вместе: комната, чат, назад к фи�
   await act(page, 'Смотреть вместе');
   await expect(page).toHaveURL(/\/room\/[a-z0-9]+/);
   const side = page.getByRole('complementary', { name: 'Смотрим вместе' });
-  await page.getByRole('button',{name:'Показать чат',exact:true}).click();
+  // Чат в комнате открыт сразу; если закрыт - открываем.
+  const showChat = page.getByRole('button', { name: 'Показать чат', exact: true });
+  if (await showChat.count()) await showChat.click();
   await expect(side).toBeVisible();
   const text = `Поехали ${Date.now() % 10000}`;
   await side.getByRole('textbox', { name: 'Сообщение в комнату' }).fill(text);
@@ -206,7 +208,8 @@ test('смотреть вместе: пауза и запуск - с любой 
   const ctx = await browser.newContext({ storageState: 'e2e/.state.json' });
   const other = await ctx.newPage();
   await other.goto(page.url());
-  await other.getByRole('button',{name:'Показать чат',exact:true}).click();
+  const showOther = other.getByRole('button', { name: 'Показать чат', exact: true });
+  if (await showOther.count()) await showOther.click();
   await expect(other.getByRole('complementary', { name: 'Смотрим вместе' })).toBeVisible();
   await page.locator('video').waitFor();
   await page.keyboard.press('k');
