@@ -9,7 +9,7 @@
     margin: 0;
     border: 0;
     border-radius: 0;
-    background: #1b1b1b;
+    background: #212121;
     padding: calc(20 * var(--rw)) max(var(--gutter), calc((100% - 1200 * var(--rw)) / 2)) calc(90 * var(--rw));
   }
   main.sheet.rw-sheet .block {
@@ -21,7 +21,7 @@
   }
   main.sheet.rw-sheet .block h2 {
     margin-bottom: calc(26 * var(--rw));
-    font-size: max(18px, calc(24 * var(--rw)));
+    font-size: max(17px, calc(20 * var(--rw)));
     font-weight: 600;
     letter-spacing: -0.01em;
   }
@@ -105,5 +105,65 @@
     font-size: max(13px, calc(16 * var(--rw)));
     line-height: 1.6;
     color: #a9a9af;
+  }
+}
+
+/* Телефон - как на макете: серая плита под кадром, те же разделы, похожие - лентой. */
+@media (max-width: 640px) {
+  main.sheet.rw-sheet {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: #212121;
+    padding: 6px 16px 40px;
+  }
+  main.sheet.rw-sheet .block {
+    padding: 22px 0;
+    border-bottom: 1px solid #ffffff1f;
+  }
+  main.sheet.rw-sheet .block h2 {
+    margin-bottom: 14px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  main.sheet.rw-sheet .summary .big {
+    font-size: 26px;
+    font-weight: 700;
+  }
+  main.sheet.rw-sheet .chip-o {
+    height: 32px;
+    padding: 0 12px;
+    border-color: #ffffff4d;
+    font-size: 12px;
+  }
+  main.sheet.rw-sheet .cast {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px 8px;
+  }
+  main.sheet.rw-sheet .cast .ava {
+    width: 64px;
+    height: 64px;
+  }
+  main.sheet.rw-sheet .review {
+    padding: 16px;
+    border-radius: 18px;
+    background: #2a2a2a;
+  }
+  main.sheet.rw-sheet .similar {
+    display: flex;
+    overflow-x: auto;
+    gap: 10px;
+    padding-bottom: 4px;
+    scroll-snap-type: x proximity;
+  }
+  main.sheet.rw-sheet .similar li {
+    flex: 0 0 30%;
+    scroll-snap-align: start;
+  }
+  main.sheet.rw-sheet .story {
+    padding: 20px;
+    border-radius: 20px;
+    background: #2a2a2a;
   }
 }

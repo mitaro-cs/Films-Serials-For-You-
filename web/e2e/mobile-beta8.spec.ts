@@ -36,8 +36,8 @@ test('богатая карточка фильма без пересечения
  await page.goto(url(`/ext/${id}`));
  await expect(page.getByRole('heading',{name:'Тёмный рыцарь',exact:true})).toBeVisible();
  await expectClean(page,'полная карточка фильма');
- // Телефон - как у Disney+: постер, под ним карточка с описанием; они не пересекаются.
- if((page.viewportSize()?.width??0)<=640){const poster=await page.locator('.mh .art').boundingBox(), body=await page.locator('.mh .body').boundingBox();expect(poster!.y+poster!.height).toBeLessThanOrEqual(body!.y+3);}
+ // Телефон - как на макете: постер слева, текст справа; они не пересекаются.
+ if((page.viewportSize()?.width??0)<=640){const poster=await page.locator('.rwh .poster').boundingBox(), body=await page.locator('.rwh .text').boundingBox();expect(poster!.x+poster!.width).toBeLessThanOrEqual(body!.x+3);}
  await page.screenshot({path:`test-results/movie-beta8-${info.project.name}.png`,fullPage:true});
 });
 

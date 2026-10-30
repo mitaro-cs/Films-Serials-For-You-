@@ -21,6 +21,8 @@
     genres = [],
     play = null,
     action,
+    onback,
+    onmore,
     tools,
     under,
     panel,
@@ -38,6 +40,9 @@
     play?: { label: string; href: string } | null;
     /** Своя главная кнопка (у фильма из ленты - найти видео, смотреть на сайте): класс `rw-watch`. */
     action?: Snippet;
+    /** Телефон: круглые «назад» и «…» над кадром (действия - в окне «…»). */
+    onback?: () => void;
+    onmore?: () => void;
     /** Кнопки хоста над кадром («Обложка», «Фон»). */
     tools?: Snippet;
     /** Под описанием: где остановились, друзья. */
@@ -58,6 +63,11 @@
   </div>
   <div class="veil" aria-hidden="true"></div>
   {#if tools}<div class="tools">{@render tools()}</div>{/if}
+  <div class="mbar">
+    {#if onback}<button class="mround" aria-label="Назад" onclick={onback}><Icon name="back" size={20} /></button>{/if}
+    <span class="grow"></span>
+    {#if onmore}<button class="mround" aria-label="Ещё действия" onclick={onmore}><Icon name="dots" size={20} /></button>{/if}
+  </div>
 
   <div class="stage">
     <div class="poster" style:background={poster ? undefined : placeholder(title)}>
@@ -123,7 +133,7 @@
     z-index: -1;
     pointer-events: none;
     background:
-      linear-gradient(0deg, #1b1b1b 0%, #0e0e0ee6 16%, #0e0e0e59 42%, transparent 66%),
+      linear-gradient(0deg, #0c0c0c 0%, #0c0c0ce0 14%, #0c0c0c59 40%, transparent 66%),
       linear-gradient(90deg, #0000008c 0%, #00000040 46%, transparent 72%),
       linear-gradient(180deg, #0000008c 0%, transparent 22%);
   }
@@ -408,6 +418,106 @@
   .plate :global(.rw-btn.round) {
     width: max(40px, calc(58 * var(--s)));
     padding: 0;
+  }
+
+  .mbar {
+    display: none;
+  }
+
+  /* Телефон - как на макете: кадр сверху с кнопками «назад» и «…», под ним постер и текст, под постером
+     «Смотреть»; плашка действий - в окне «…». */
+  @media (max-width: 640px) {
+    .rwh {
+      --s: 0.5;
+      height: auto;
+      min-height: 0;
+      overflow: visible;
+      padding-top: 62vw;
+      background: #0c0c0c;
+    }
+    .shot,
+    .veil {
+      bottom: auto;
+      height: 76vw;
+    }
+    .tools {
+      display: none;
+    }
+    .mbar {
+      position: absolute;
+      z-index: 3;
+      top: calc(var(--header) + env(safe-area-inset-top) - 6px);
+      left: 14px;
+      right: 14px;
+      display: flex;
+    }
+    .grow {
+      flex: 1;
+    }
+    .mround {
+      display: inline-grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: #0000006b;
+      box-shadow: inset 0 0 0 1px #ffffff29;
+      color: #fff;
+      cursor: pointer;
+    }
+    .stage {
+      position: relative;
+      inset: auto;
+      margin: 0;
+      padding: 0 16px 26px;
+      grid-template-columns: 31% minmax(0, 1fr);
+      grid-template-areas:
+        'poster text'
+        'go text';
+      column-gap: 14px;
+      row-gap: 12px;
+      align-items: start;
+      justify-content: stretch;
+    }
+    .poster {
+      border-radius: 8px;
+    }
+    .text {
+      align-self: start;
+      padding-bottom: 0;
+    }
+    h1 {
+      font-size: 26px;
+    }
+    .meta {
+      gap: 0 8px;
+      margin-top: 6px;
+      font-size: 13px;
+    }
+    .tag,
+    .ov {
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    .ov {
+      -webkit-line-clamp: 5;
+      line-clamp: 5;
+    }
+    .go {
+      margin-top: 0;
+    }
+    .watch,
+    .go :global(.rw-watch) {
+      min-height: 36px;
+      padding: 4px 8px;
+      font-size: 13px;
+    }
+    .pills,
+    .plate {
+      display: none;
+    }
   }
 
   :global(.no-motion) :is(.shot img, .shot .ph, .poster, .text, .go, .pills, .plate) {

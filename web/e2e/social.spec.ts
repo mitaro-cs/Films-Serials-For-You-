@@ -1,11 +1,13 @@
 import { expect, test } from './util-test';
-import { env, stranger, url, expectHome } from './util';
+import { act, env, stranger, url, expectHome } from './util';
 
 // Люди: отзывы с оценкой, дружба, переписка с фильмом, регистрация без приглашения.
 
 test('отзыв со звёздами появляется сразу и считается в средней', async ({ page }) => {
   // Лишние отзывы с прошлых прогонов не мешают: считаем по своему.
   await page.goto(url(`/title/${env().ids['Паразиты']}`));
+  // Форма спрятана до «Отзыв» (по макету): открываем её действием «Написать отзыв».
+  await act(page, 'Написать отзыв');
   const reviews = page.locator('#reviews');
   await reviews.scrollIntoViewIfNeeded();
   await reviews.getByRole('slider', { name: 'Оценка' }).focus();
@@ -26,6 +28,9 @@ test('страница фильма: оценки, актёры, отзывы д
   await page.goto(url(`/title/${env().ids['Ла-Ла Ленд']}`));
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Ла-Ла Ленд');
   await expect(page.locator('.score .big')).toContainText('4,3');
+  // По макету - два свежих отзыва, остальные - по «Все отзывы».
+  await expect(page.locator('#reviews .review')).toHaveCount(2);
+  await page.getByRole('button', { name: /Все отзывы/ }).click();
   await expect(page.locator('#reviews .review')).toHaveCount(3);
   await expect(page.locator('#reviews')).toContainText('Анна Смирнова');
   await expect(page.getByRole('region', { name: 'Актёры и съёмочная группа' })).toContainText('Дэмьен Шазелл');

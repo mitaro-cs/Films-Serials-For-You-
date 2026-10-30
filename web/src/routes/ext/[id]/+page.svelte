@@ -49,6 +49,7 @@
   let lists = $state(false);
   // Компьютер: верх по макету Rewind (RewindHero); уже - прежний верх с постером и панелью.
   const wide = new MediaQuery('min-width: 981px');
+  const phone = new MediaQuery('max-width: 640px');
   let castAll = $state(false);
   let shot = $state<number | null>(null);
   // Сам фильм на Rutube/VK Видео: нашёлся - смотрим там, просить хоста незачем.
@@ -537,6 +538,7 @@
         {#if !c.local}<button class="btn block" disabled={!d || roomBusy || (!first && !firstFound)} onclick={together}><Icon name="party" size={15} /> Смотреть вместе</button>{/if}
         <a class="btn block" href="https://www.imdb.com/title/{c.id}/" target="_blank" rel="noopener noreferrer"><b class="imdb">IMDb</b> Открыть</a>
   {/snippet}
+  {#if !phone.current}
   <MobileHero
     title={c.title}
     art={d?.backdrop ?? d?.posterLarge ?? c.poster}
@@ -554,9 +556,12 @@
     onmore={() => (moreOpen = true)}
     onclose={() => (history.length > 1 ? history.back() : goto('/discover'))}
   />
+  {/if}
   <Modal bind:open={moreOpen} title={c.title} sheet><div class="panel in-sheet">{@render panelBody()}</div></Modal>
-  {#if wide.current}
+  {#if wide.current || phone.current}
     <RewindHero
+      onback={() => (history.length > 1 ? history.back() : goto('/discover'))}
+      onmore={() => (moreOpen = true)}
       title={c.title}
       art={d?.backdrop ?? d?.posterLarge ?? c.poster}
       poster={d?.posterLarge ?? c.poster}
@@ -662,13 +667,6 @@
         <button class="btn" onclick={() => (finding = true)}><Icon name="search" size={16} /> Найти на другом источнике</button>
       </section>
     {/if}
-    {#if isSeries && d?.seasons.length}
-      <section class="block" aria-labelledby="s-grid">
-        <h2 id="s-grid">Оценки серий</h2>
-        <RatingsGrid imdbId={c.id} />
-      </section>
-    {/if}
-
     <section class="block summary" aria-labelledby="s-rating">
       <h2 id="s-rating">Оценки и отзывы</h2>
       <div class="score">
@@ -687,9 +685,9 @@
     </section>
 
     <section class="block" id="reviews" aria-labelledby="s-reviews">
-      <h2 id="s-reviews">Отзывы {#if rv?.total}<span class="faint">{rv.total}</span>{/if}</h2>
+      <h2 id="s-reviews">Недавние отзывы <Icon name="right" size={16} /></h2>
       {#if rv}
-        <Reviews bind:this={reviewsBox} base="/api/discover/title/{c.id}" bind:data={rv} manage={!!session.me?.manage} />
+        <Reviews compact bind:this={reviewsBox} base="/api/discover/title/{c.id}" bind:data={rv} manage={!!session.me?.manage} />
       {:else}
         <div class="sk-reviews skeleton"></div>
       {/if}
@@ -717,11 +715,9 @@
       </section>
     {/if}
 
-    <Franchise imdb={id} />
-
     {#if d?.similar.length}
       <section class="block" aria-labelledby="s-similar">
-        <h2 id="s-similar">Похожие</h2>
+        <h2 id="s-similar">Похожие фильмы <Icon name="right" size={16} /></h2>
         <ul class="similar">
           {#each d.similar as s (s.id)}
             <li>
@@ -745,6 +741,15 @@
         </div>
       </section>
     {/if}
+
+    {#if isSeries && d?.seasons.length}
+      <section class="block" aria-labelledby="s-grid">
+        <h2 id="s-grid">Оценки серий</h2>
+        <RatingsGrid imdbId={c.id} />
+      </section>
+    {/if}
+
+    <Franchise imdb={id} />
 
     {#if d?.gallery.length}
       <section class="block gallery-feature" aria-label="Галерея кадров"><h2>Галерея</h2>

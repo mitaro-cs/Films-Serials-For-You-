@@ -39,7 +39,7 @@ test('Фильмы: фильтр по статусу, отметки со стр
 
   // «Хочу» на странице фильма - и он в фильтре.
   await page.goto(url(`/title/${env().ids['Амели']}`));
-  await page.getByRole('button', { name: /Хочу/ }).first().click();
+  await act(page, /Хочу/);
   await page.goto(url('/?tab=movies&status=want'));
   await expect(page.getByRole('region', { name: 'Вся коллекция' }).getByRole('link', { name: /Амели/ })).toBeVisible();
 

@@ -42,6 +42,7 @@
   // серии, актёры, отзывы, похожие, сюжет, детали.
   // Компьютер: верх по макету Rewind (RewindHero); уже - прежний верх с постером и панелью.
   const wide = new MediaQuery('min-width: 981px');
+  const phone = new MediaQuery('max-width: 640px');
   let t = $state<TitleDetail | null>(null);
   let rv = $state<ReviewsData | null>(null);
   let error = $state('');
@@ -316,9 +317,10 @@
         <button class="btn block" onclick={() => (picking = true)}><Icon name="users" size={15} /> В общий список</button>
         <button class="btn block" onclick={() => (sharing = true)}><Icon name="share" size={15} /> Обсудить с другом</button>
         {#if t?.next}<button class="btn block" disabled={roomBusy} onclick={together}><Icon name="party" size={15} /> Смотреть вместе</button>{/if}
-        <button class="btn block" onclick={writeReview}><Icon name="edit" size={15} /> Написать отзыв</button>
+        <button class="btn block" onclick={() => { moreOpen = false; writeReview(); }}><Icon name="edit" size={15} /> Написать отзыв</button>
         {#if c.status === 'watched' && c.watchedAt}<p class="stub">Просмотрено {day(c.watchedAt)}</p>{/if}
   {/snippet}
+  {#if !phone.current}
   <MobileHero
     title={c.title}
     art={c.backdrop ?? c.posterLarge ?? c.poster}
@@ -336,9 +338,12 @@
     onmore={() => (moreOpen = true)}
     onclose={() => (history.length > 1 ? history.back() : goto('/'))}
   />
+  {/if}
   <Modal bind:open={moreOpen} title={c.title} sheet><div class="panel in-sheet">{@render panelBody()}</div></Modal>
-  {#if wide.current}
+  {#if wide.current || phone.current}
     <RewindHero
+      onback={() => (history.length > 1 ? history.back() : goto('/'))}
+      onmore={() => (moreOpen = true)}
       title={c.title}
       art={c.backdrop ?? c.posterLarge ?? c.poster}
       poster={c.posterLarge}
@@ -485,20 +490,6 @@
       {/if}
     </section>
 
-    {#if isSeries && t.imdbId}
-      <section class="block" aria-labelledby="s-grid">
-        <h2 id="s-grid">Оценки серий</h2>
-        <RatingsGrid imdbId={t.imdbId} />
-      </section>
-    {/if}
-
-    {#if t.canDownload && t.files.length}
-      <section class="block" aria-labelledby="s-dl">
-        <h2 id="s-dl">Скачать</h2>
-        <Downloads titleId={c.id} title={c.title} kind={c.kind} files={t.files} />
-      </section>
-    {/if}
-
     {#if team.length}
       <section class="block" aria-labelledby="s-cast">
         <h2 id="s-cast">Актёры и съёмочная группа</h2>
@@ -522,36 +513,17 @@
     {/if}
 
     <section class="block" id="reviews" aria-labelledby="s-reviews">
-      <h2 id="s-reviews">Отзывы {#if rv?.total}<span class="faint">{rv.total}</span>{/if}</h2>
+      <h2 id="s-reviews">Недавние отзывы <Icon name="right" size={16} /></h2>
       {#if rv}
-        <Reviews bind:this={reviewsBox} base="/api/titles/{c.id}" bind:data={rv} manage={!!session.me?.manage} />
+        <Reviews compact bind:this={reviewsBox} base="/api/titles/{c.id}" bind:data={rv} manage={!!session.me?.manage} />
       {:else}
         <div class="sk-reviews skeleton"></div>
       {/if}
     </section>
 
-    {#if !isSeries}<section class="block" aria-labelledby="s-links">
-      <div class="lhead">
-        <h2 id="s-links">Видео по ссылке {#if links.length}<span class="faint">{links.length}</span>{/if}</h2>
-        <button class="btn sm ghost" onclick={() => (finding = true)}><Icon name="link" size={14} /> Добавить</button>
-      </div>
-      {#if links.length}
-        <div class="vlinks">
-          {#each links as l (l.id)}
-            <LinkCard link={l} onremove={session.me?.manage || l.addedBy === session.me?.user.profile?.id ? () => removeLink(l) : undefined} />
-          {/each}
-        </div>
-      {:else}
-        <p class="muted none">Другая озвучка или серия с Rutube и VK Видео - вставьте ссылку, видео откроется в плеере Nova.</p>
-      {/if}
-    </section>
-
-    {/if}
-    {#if t.imdbId}<Franchise imdb={t.imdbId} />{/if}
-
     {#if t.similar.length}
       <section class="block" aria-labelledby="s-similar">
-        <h2 id="s-similar">Похожие</h2>
+        <h2 id="s-similar">Похожие фильмы <Icon name="right" size={16} /></h2>
         <ul class="similar">
           {#each t.similar.slice(0, 12) as s (s.id)}
             <li>
@@ -574,6 +546,39 @@
         </div>
       </section>
     {/if}
+
+    {#if isSeries && t.imdbId}
+      <section class="block" aria-labelledby="s-grid">
+        <h2 id="s-grid">Оценки серий</h2>
+        <RatingsGrid imdbId={t.imdbId} />
+      </section>
+    {/if}
+
+    {#if t.canDownload && t.files.length}
+      <section class="block" aria-labelledby="s-dl">
+        <h2 id="s-dl">Скачать</h2>
+        <Downloads titleId={c.id} title={c.title} kind={c.kind} files={t.files} />
+      </section>
+    {/if}
+
+    {#if !isSeries}<section class="block" aria-labelledby="s-links">
+      <div class="lhead">
+        <h2 id="s-links">Видео по ссылке {#if links.length}<span class="faint">{links.length}</span>{/if}</h2>
+        <button class="btn sm ghost" onclick={() => (finding = true)}><Icon name="link" size={14} /> Добавить</button>
+      </div>
+      {#if links.length}
+        <div class="vlinks">
+          {#each links as l (l.id)}
+            <LinkCard link={l} onremove={session.me?.manage || l.addedBy === session.me?.user.profile?.id ? () => removeLink(l) : undefined} />
+          {/each}
+        </div>
+      {:else}
+        <p class="muted none">Другая озвучка или серия с Rutube и VK Видео - вставьте ссылку, видео откроется в плеере Nova.</p>
+      {/if}
+    </section>
+
+    {/if}
+    {#if t.imdbId}<Franchise imdb={t.imdbId} />{/if}
 
     {#if t.gallery.length}
       <section class="block gallery-feature" aria-label="Галерея кадров"><h2>Галерея</h2>

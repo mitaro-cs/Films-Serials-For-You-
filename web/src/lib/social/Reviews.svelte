@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { del, errorText, patch, post, put } from '$lib/api';
   import { ago } from '$lib/fmt';
   import type { Review, Reviews } from '$lib/types';
@@ -11,7 +12,8 @@
   // Отзывы и комментарии к фильму: свой - сверху формы, карточки - в две колонки (как на
   // референсе). Изменения - сразу на экране, сервер - следом. `base` - фильм с сервиса
   // (`/api/titles/12`) или из ленты (`/api/discover/title/tt…`): отзывы у них общие.
-  let { base, data = $bindable(), manage = false }: { base: string; data: Reviews; manage?: boolean } = $props();
+  // compact (страница фильма по макету): два свежих отзыва, форма спрятана до «Отзыв» в плашке действий.
+  let { base, data = $bindable(), manage = false, compact = false }: { base: string; data: Reviews; manage?: boolean; compact?: boolean } = $props();
 
   let body = $state('');
   let stars = $state<number | null>(null);
@@ -22,10 +24,13 @@
   let editStars = $state<number | null>(null);
   let showAll = $state(false);
   let textarea = $state<HTMLTextAreaElement>();
+  let composing = $state(false);
 
-  const items = $derived(showAll ? data.items : data.items.slice(0, 6));
+  const items = $derived(showAll ? data.items : data.items.slice(0, compact ? 2 : 6));
 
-  export function focus() {
+  export async function focus() {
+    composing = true;
+    await tick();
     textarea?.focus();
   }
 
@@ -97,7 +102,7 @@
   }
 </script>
 
-{#if data.canWrite}
+{#if data.canWrite && (!compact || composing)}
   <form class="compose" onsubmit={send}>
     <div class="top">
       <span class="muted">Ваша оценка</span>
@@ -146,7 +151,7 @@
       </li>
     {/each}
   </ul>
-  {#if data.items.length > 6 && !showAll}
+  {#if data.items.length > (compact ? 2 : 6) && !showAll}
     <button class="btn ghost sm more" onclick={() => (showAll = true)}>Все отзывы ({data.items.length})</button>
   {/if}
 {:else}
