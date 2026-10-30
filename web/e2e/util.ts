@@ -191,11 +191,14 @@ export async function stranger(name: string) {
 
 /** Телефон: на странице фильма - постер как у Disney+, действия - в окне «…», на главной - выбор раздела. */
 export const narrow = (page: Page) => (page.viewportSize()?.width ?? 0) <= 640;
+/** Компьютер: верх страницы фильма по макету Rewind (`RewindHero`), от 981 px. */
+export const wide = (page: Page) => (page.viewportSize()?.width ?? 0) >= 981;
 
 /** Нажать действие фильма: в панели (планшет, компьютер) или в окне «…» (телефон). */
 export async function act(page: Page, name: string | RegExp) {
   const exact = typeof name === 'string';
-  if (!narrow(page)) return page.getByRole('button', { name, exact }).first().click();
+  // Планшет - действия в панели рядом с постером; компьютер (по макету Rewind) и телефон - в окне «…».
+  if (!narrow(page) && !wide(page)) return page.getByRole('button', { name, exact }).first().click();
   const sheet = page.getByRole('dialog', { name: /.+/ }).filter({ has: page.getByRole('button', { name, exact }) });
   if (!(await sheet.isVisible().catch(() => false))) await page.getByRole('button', { name: 'Ещё действия' }).click();
   await sheet.getByRole('button', { name, exact }).first().click();

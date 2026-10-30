@@ -46,6 +46,8 @@
   --radius: 20px;
   --radius-sm: 10px;
   --gutter: clamp(16px, 4vw, 56px);
+  /* Масштаб макета Rewind (1440 × 900): кадр, плашка и лист ниже растут вместе с окном. */
+  --rw: min(calc(100vw / 1440), calc(100svh / 900));
   --header: 64px;
   /* Высота нижней панели разделов (телефон, планшет), чтобы ничего под ней не пряталось. */
   --tabbar: 0px;
@@ -388,12 +390,12 @@ select.input option {
 /* Страница появляется мягко - при каждом переходе. */
 .page,
 .home {
-  animation: page-in 0.18s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: page-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 @keyframes page-in {
   from {
-    opacity: 0.85;
-    transform: translateY(4px);
+    opacity: 0;
+    transform: translateY(14px);
   }
 }
 /* Карточки-панели (профиль, управление, списки) всплывают по очереди. */
@@ -441,8 +443,24 @@ select.input option {
     transform: translateY(6px);
   }
 }
-/* Разделы листа (страница фильма, сериала, человека) проявляются при прокрутке - там, где браузер
-   умеет анимацию по прокрутке (Chromium, окно на Windows); иначе просто стоят на месте. */
+/* Разделы листа (страница фильма, сериала, человека), ряды и панели проявляются при прокрутке - там,
+   где браузер умеет анимацию по прокрутке (Chromium, окно на Windows); иначе просто стоят на месте. */
+@supports (animation-timeline: view()) {
+  .block,
+  .shelf,
+  .account-grid > *,
+  .legal-links {
+    animation: reveal linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 38%;
+  }
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      transform: translateY(26px);
+    }
+  }
+}
 /* Значок пустого экрана чуть покачивается. */
 .empty > svg:first-child {
   animation: bob 3.2s ease-in-out infinite;
@@ -487,5 +505,5 @@ button:focus-visible, a.btn:focus-visible { outline: 2px solid #fff; outline-off
 /* Input feedback is immediate; entrance motion never delays the next action. */
 a, button, [role="button"] { touch-action: manipulation; }
 .btn:active:not(:disabled), .chip:active:not(:disabled) { transition-duration: 0ms; }
-.pane { animation-duration: 140ms; animation-delay: 0ms !important; }
-.rise { animation-duration: 160ms; animation-delay: 0ms; }
+.pane { animation-duration: 380ms; }
+.rise { animation-duration: 460ms; animation-delay: calc(min(var(--i, 0), 8) * 40ms); }

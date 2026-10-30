@@ -1,0 +1,109 @@
+/* Лист под кадром на странице фильма (компьютер) - по макету Rewind: серая плита во всю ширину,
+   колонка 1200 (в долях --rw от макета 1440 × 900), разделы с тонкими линиями: оценка, актёры
+   кружками, два отзыва в ряд, похожие постерами, сюжет карточкой. Общий для страниц фильма
+   с сервиса и из ленты; ниже 981 px - прежний вид. */
+@media (min-width: 981px) {
+  main.sheet.rw-sheet {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: #1b1b1b;
+    padding: calc(20 * var(--rw)) max(var(--gutter), calc((100% - 1200 * var(--rw)) / 2)) calc(90 * var(--rw));
+  }
+  main.sheet.rw-sheet .block {
+    padding: calc(40 * var(--rw)) 0;
+    border-bottom: 1px solid #ffffff1f;
+  }
+  main.sheet.rw-sheet .block:last-child {
+    border-bottom: 0;
+  }
+  main.sheet.rw-sheet .block h2 {
+    margin-bottom: calc(26 * var(--rw));
+    font-size: max(18px, calc(24 * var(--rw)));
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* Оценка */
+  main.sheet.rw-sheet .summary .score {
+    gap: calc(14 * var(--rw)) calc(14 * var(--rw));
+  }
+  main.sheet.rw-sheet .summary .big {
+    font-size: max(30px, calc(46 * var(--rw)));
+    font-weight: 700;
+  }
+  main.sheet.rw-sheet .chip-o {
+    height: max(34px, calc(46 * var(--rw)));
+    padding: 0 calc(20 * var(--rw));
+    border-color: #ffffff4d;
+    font-size: max(13px, calc(17 * var(--rw)));
+  }
+
+  /* Актёры и съёмочная группа */
+  main.sheet.rw-sheet .cast {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: calc(30 * var(--rw)) calc(10 * var(--rw));
+  }
+  main.sheet.rw-sheet .cast .ava {
+    width: max(64px, calc(137 * var(--rw)));
+    height: max(64px, calc(137 * var(--rw)));
+    margin-bottom: calc(14 * var(--rw));
+    font-size: calc(34 * var(--rw));
+  }
+  main.sheet.rw-sheet .cast b {
+    font-size: max(12px, calc(15 * var(--rw)));
+    font-weight: 500;
+  }
+  main.sheet.rw-sheet .cast small {
+    font-size: max(11px, calc(13 * var(--rw)));
+    color: #8f8f95;
+  }
+
+  /* Отзывы: карточки по два в ряд */
+  main.sheet.rw-sheet .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: calc(16 * var(--rw));
+  }
+  main.sheet.rw-sheet .review {
+    padding: calc(24 * var(--rw)) calc(26 * var(--rw)) calc(16 * var(--rw));
+    border-radius: calc(26 * var(--rw));
+    background: #2a2a2a;
+  }
+  main.sheet.rw-sheet .review .text {
+    font-size: max(13px, calc(15 * var(--rw)));
+    line-height: 1.5;
+    color: #bdbdc2;
+  }
+
+  /* Похожие: ряд постеров */
+  main.sheet.rw-sheet .similar {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: calc(16 * var(--rw));
+  }
+  main.sheet.rw-sheet .similar li:nth-child(n + 7) {
+    display: none;
+  }
+  main.sheet.rw-sheet .similar a {
+    border-radius: calc(16 * var(--rw));
+  }
+
+  /* Сюжет */
+  main.sheet.rw-sheet .story {
+    gap: calc(6 * var(--rw));
+    padding: calc(38 * var(--rw)) calc(40 * var(--rw));
+    border-radius: calc(30 * var(--rw));
+    background: #2a2a2a;
+  }
+  main.sheet.rw-sheet .story b {
+    font-size: max(16px, calc(22 * var(--rw)));
+    font-weight: 600;
+  }
+  main.sheet.rw-sheet .story p {
+    margin-top: calc(18 * var(--rw));
+    font-size: max(13px, calc(16 * var(--rw)));
+    line-height: 1.6;
+    color: #a9a9af;
+  }
+}

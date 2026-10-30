@@ -1,6 +1,9 @@
 <script lang="ts">
   import { countriesRu, languagesRu } from '$lib/countries';
+  import { MediaQuery } from 'svelte/reactivity';
   import MobileHero from '$lib/title/MobileHero.svelte';
+  import RewindHero from '$lib/title/RewindHero.svelte';
+  import '$lib/title/rewind-sheet.css';
   import RatingRing from '$lib/title/RatingRing.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { untrack } from 'svelte';
@@ -44,6 +47,8 @@
   let finding = $state(false);
   let creating = $state(false);
   let lists = $state(false);
+  // Компьютер: верх по макету Rewind (RewindHero); уже - прежний верх с постером и панелью.
+  const wide = new MediaQuery('min-width: 981px');
   let castAll = $state(false);
   let shot = $state<number | null>(null);
   // Сам фильм на Rutube/VK Видео: нашёлся - смотрим там, просить хоста незачем.
@@ -545,6 +550,51 @@
     onclose={() => (history.length > 1 ? history.back() : goto('/discover'))}
   />
   <Modal bind:open={moreOpen} title={c.title} sheet><div class="panel in-sheet">{@render panelBody()}</div></Modal>
+  {#if wide.current}
+    <RewindHero
+      title={c.title}
+      art={d?.backdrop ?? d?.posterLarge ?? c.poster}
+      poster={d?.posterLarge ?? c.poster}
+      tall={!d?.backdrop}
+      meta={[c.year ? String(c.year) : '', d?.runtime ? runtime(d.runtime) : ''].filter(Boolean)}
+      age={d?.age ?? null}
+      tagline={d?.tagline ?? null}
+      overview={d?.overview ? localized(d.overview, '') : ''}
+      genres={c.genres}
+    >
+      {#snippet action()}{@render watch('rw-watch')}{/snippet}
+      {#snippet under()}
+        {#if resumeAt}
+          <div class="resume">
+            <span class="rbar"><i style:width="{percent(resumeAt.position, resumeAt.duration)}%"></i></span>
+            <small>{left(resumeAt.position, resumeAt.duration)}</small>
+          </div>
+        {/if}
+        <FriendsStrip friends={d?.friends ?? []} />
+      {/snippet}
+      {#snippet panel()}
+        <div class="rw-box">
+          <div class="rw-tri">
+            <button class:on={c.mark === 'watched'} aria-pressed={c.mark === 'watched'} disabled={!d} onclick={() => mark('watched')}>
+              <Icon name="eye" size={30} /><span>Смотрел</span>
+            </button>
+            <button class:on={isFavorite(`x:${c.id}`)} aria-pressed={isFavorite(`x:${c.id}`)} disabled={!d} onclick={() => toggleFavorite(`x:${c.id}`)}>
+              <Icon name="heart" size={30} /><span>Любимый</span>
+            </button>
+            <button class:on={c.mark === 'want'} aria-pressed={c.mark === 'want'} disabled={!d} onclick={() => mark('want')}>
+              <Icon name="plus" size={30} /><span>Хочу</span>
+            </button>
+          </div>
+          <div class="rw-rate"><small>Оценка</small><StarInput value={mine?.stars ?? null} onchange={setStars} size={28} label="Ваша оценка" /></div>
+        </div>
+        <button class="rw-btn" disabled={!d} onclick={() => { lists = true; moreOpen = true; }}>В списки</button>
+        <div class="rw-row">
+          <button class="rw-btn" onclick={writeReview}>Отзыв</button>
+          <button class="rw-btn round" aria-label="Ещё действия" onclick={() => (moreOpen = true)}><Icon name="dots" size={22} /></button>
+        </div>
+      {/snippet}
+    </RewindHero>
+  {:else}
   <section class="hero">
     <div class="bg" aria-hidden="true">
       {#key d?.backdrop}
@@ -596,13 +646,9 @@
     </div>
   </section>
   {/if}
+  {/if}
 
-  <main class="sheet">
-    {#if d?.gallery.length}
-      <section class="block gallery-feature" aria-label="Галерея кадров"><h2>Галерея</h2>
-        <div class="gallery">{#each d.gallery as g, k (k)}<button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={artW(g, 1280)} alt="" loading="lazy" decoding="async" /></button>{/each}</div>
-      </section>
-    {/if}
+  <main class="sheet rw-sheet">
 
     {#if sourceMissing}
       <section class="block" aria-label="Другие источники">
@@ -647,7 +693,7 @@
       <section class="block" aria-labelledby="s-cast">
         <h2 id="s-cast">Актёры и съёмочная группа</h2>
         <ul class="cast">
-          {#each castAll ? team : team.slice(0, 12) as p, i (i)}
+          {#each castAll ? team : team.slice(0, 7) as p, i (i)}
             <li>
               <a class="pl" href={personHref(p)} title="{p.name} - фильмография">
                 <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
@@ -659,7 +705,7 @@
             </li>
           {/each}
         </ul>
-        {#if team.length > 12}
+        {#if team.length > 7}
           <button class="btn ghost sm" onclick={() => (castAll = !castAll)}>{castAll ? 'Свернуть' : `Все (${team.length})`}</button>
         {/if}
       </section>
@@ -691,6 +737,12 @@
           <small>{[kindLabel(c.kind), ...c.genres.slice(0, 3)].join(' · ')}</small>
           <p>{localized(d.overview, 'Описание на русском пока недоступно')}</p>
         </div>
+      </section>
+    {/if}
+
+    {#if d?.gallery.length}
+      <section class="block gallery-feature" aria-label="Галерея кадров"><h2>Галерея</h2>
+        <div class="gallery">{#each d.gallery as g, k (k)}<button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={artW(g, 1280)} alt="" loading="lazy" decoding="async" /></button>{/each}</div>
       </section>
     {/if}
 

@@ -1,5 +1,5 @@
 import { expect, test } from './util-test';
-import { act, env, narrow, resetStatuses, url } from './util';
+import { act, env, narrow, resetStatuses, url, wide } from './util';
 
 // Главная как у Apple TV: герой-карусель, ряды широких карточек, вкладки Фильмы и Сериалы
 // с фильтром по статусу. Демо-данные общие: перед каждым тестом статусы - как после setup.
@@ -181,9 +181,10 @@ test('обзор и профиль: поиск IMDb открывается, оф
 
 test('оценку можно убрать, любимый фильм - на своей странице', async ({ page }) => {
   await page.goto(url(`/title/${env().ids['Амели']}`));
-  // Телефон: оценка и «Любимый» - в окне «…».
-  if (narrow(page)) await page.getByRole('button', { name: 'Ещё действия' }).click();
-  const stars = page.getByRole('slider', { name: 'Ваша оценка' }).first();
+  // Телефон и компьютер: «Убрать оценку» и «Любимый» - в окне «…».
+  const inSheet = narrow(page) || wide(page);
+  if (inSheet) await page.getByRole('button', { name: 'Ещё действия' }).click();
+  const stars = (inSheet ? page.getByRole('dialog') : page).getByRole('slider', { name: 'Ваша оценка' }).first();
   await stars.focus();
   await page.keyboard.press('ArrowRight');
   await expect(stars).toHaveAttribute('aria-valuenow', '0.5');

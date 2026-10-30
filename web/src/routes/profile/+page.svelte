@@ -144,6 +144,11 @@
         <span>Плавные переходы, всплывающие ряды, плывущие постеры. Выключите, если компьютер слабый.</span>
       </label>
     </section>
+    <section class="card pane">
+      <h2>Экскурсия по Nova</h2>
+      <p class="muted">Короткий показ, где что лежит: разделы, Обзор, списки, совместный просмотр, плеер и телевизор.</p>
+      <button class="btn" onclick={() => window.dispatchEvent(new Event('nova-tour'))}><Icon name="play" size={15} /> Пройти экскурсию</button>
+    </section>
 
     {/if}
     {#if tab === 'account'}

@@ -43,10 +43,10 @@ test('фильм: другие источники запрашиваются т�
   });
   await page.goto(url(`/ext/${id}`));
   if ((page.viewportSize()?.width ?? 0) >= 981) {
-    const info = page.locator('.hero .info');
+    const info = page.locator('.rwh .text');
     await expect(info).toBeVisible();
     expect((await info.boundingBox())?.width).toBeGreaterThan(350);
-    await expect(page.locator('.hero .poster')).toBeVisible();
+    await expect(page.locator('.rwh .poster')).toBeVisible();
   }
   await expect.poll(()=>providers).toEqual(['lordfilm']);
   await expect(page.getByRole('button',{name:'Найти на другом источнике',exact:true})).toHaveCount(0);
@@ -209,14 +209,17 @@ test('постер, кнопка продолжения и описание не
  await page.route('**/api/franchise?*',route=>route.fulfill({json:[]}));
  await page.route('**/api/links/search?*',route=>route.fulfill({json:[]}));
  await page.goto(url(`/ext/${id}`));
- const hero=page.locator('.hero'); await expect(hero).toBeVisible();
+ const hero=page.locator('.rwh'); await expect(hero).toBeVisible();
  await expect(hero.getByText('Продолжить просмотр')).toBeVisible();
- const poster=await hero.locator('.poster').boundingBox(), button=await hero.locator('.poster-col .watch').boundingBox(), info=await hero.locator('.info').boundingBox();
+ const poster=await hero.locator('.poster').boundingBox(), button=await hero.locator('.go .rw-watch').boundingBox(), info=await hero.locator('.text').boundingBox();
  expect(poster!.x+poster!.width).toBeLessThanOrEqual(info!.x-10);
  expect(button!.x+button!.width).toBeLessThanOrEqual(info!.x-10);
- const panel=await hero.locator('.panel').boundingBox();
- expect(panel!.width).toBeGreaterThan(poster!.width);
+ // Плашка справа - во всю высоту кадра по макету: узкая, но не уже трети постера, и не наезжает на текст.
+ const panel=await hero.locator('.plate').boundingBox();
+ expect(panel!.width).toBeGreaterThan(poster!.width/3);
  expect(info!.x+info!.width).toBeLessThanOrEqual(panel!.x-10);
+ // Кадр - на весь первый экран.
+ expect((await hero.boundingBox())!.height).toBeGreaterThanOrEqual(page.viewportSize()!.height-2);
 });
 
 test('ячейка рейтинга при наведении не перекрывает соседние', async ({page}) => {

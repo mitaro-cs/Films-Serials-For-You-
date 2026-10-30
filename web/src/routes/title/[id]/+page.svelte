@@ -1,6 +1,9 @@
 <script lang="ts">
   import { countriesRu, languagesRu } from '$lib/countries';
+  import { MediaQuery } from 'svelte/reactivity';
   import MobileHero from '$lib/title/MobileHero.svelte';
+  import RewindHero from '$lib/title/RewindHero.svelte';
+  import '$lib/title/rewind-sheet.css';
   import RatingRing from '$lib/title/RatingRing.svelte';
   import Modal from '$lib/ui/Modal.svelte';
   import { untrack } from 'svelte';
@@ -37,6 +40,8 @@
   // Страница фильма по референсу: большой кадр, постер и «Смотреть», панель действий
   // (хочу / просмотрено / нравится, оценка, обсудить, отзыв), ниже - лист: оценки и отзывы,
   // серии, актёры, отзывы, похожие, сюжет, детали.
+  // Компьютер: верх по макету Rewind (RewindHero); уже - прежний верх с постером и панелью.
+  const wide = new MediaQuery('min-width: 981px');
   let t = $state<TitleDetail | null>(null);
   let rv = $state<ReviewsData | null>(null);
   let error = $state('');
@@ -332,6 +337,63 @@
     onclose={() => (history.length > 1 ? history.back() : goto('/'))}
   />
   <Modal bind:open={moreOpen} title={c.title} sheet><div class="panel in-sheet">{@render panelBody()}</div></Modal>
+  {#if wide.current}
+    <RewindHero
+      title={c.title}
+      art={c.backdrop ?? c.posterLarge ?? c.poster}
+      poster={c.posterLarge}
+      tall={!c.backdrop}
+      meta={[c.year ? String(c.year) : '', c.runtime ? runtime(c.runtime) : ''].filter(Boolean)}
+      age={c.age}
+      tagline={t.tagline}
+      overview={c.overview ? localized(c.overview, '') : ''}
+      genres={c.genres}
+      play={t.next ? { label: started ? 'Продолжить' : 'Смотреть', href: `/watch/${t.next.fileId}` } : null}
+    >
+      {#snippet tools()}
+        {#if session.me?.manage}
+          <label class="glass" class:busy={artBusy === 'poster'}>
+            <Icon name="image" size={15} /> {artBusy === 'poster' ? 'Загружаем…' : 'Обложка'}
+            <input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => setArt('poster', e)} hidden />
+          </label>
+          <label class="glass" class:busy={artBusy === 'backdrop'}>
+            <Icon name="image" size={15} /> {artBusy === 'backdrop' ? 'Загружаем…' : 'Фон'}
+            <input type="file" accept="image/jpeg,image/png,image/webp" onchange={(e) => setArt('backdrop', e)} hidden />
+          </label>
+        {/if}
+      {/snippet}
+      {#snippet under()}
+        {#if next && started}
+          <div class="where">
+            <span>{next.label || 'Вы остановились'} · {left(next.position, next.duration)}</span>
+            <span class="pbar"><i style:width="{percent(next.position, next.duration)}%"></i></span>
+          </div>
+        {/if}
+        <FriendsStrip friends={t?.friends ?? []} />
+      {/snippet}
+      {#snippet panel()}
+        <div class="rw-box">
+          <div class="rw-tri">
+            <button class:on={c.status === 'watched'} aria-pressed={c.status === 'watched'} onclick={() => toggleWatched(c)}>
+              <Icon name="eye" size={30} /><span>Смотрел</span>
+            </button>
+            <button class:on={c.myRating === 2} aria-pressed={c.myRating === 2} onclick={() => rate(c, 2)}>
+              <Icon name="heart" size={30} /><span>Нравится</span>
+            </button>
+            <button class:on={c.status === 'want'} aria-pressed={c.status === 'want'} disabled={c.status === 'watching' || c.status === 'watched'} onclick={() => toggleList(c)}>
+              <Icon name="plus" size={30} /><span>Хочу</span>
+            </button>
+          </div>
+          <div class="rw-rate"><small>Оценка</small><StarInput value={mine?.stars ?? null} onchange={setStars} size={28} label="Ваша оценка" /></div>
+        </div>
+        <button class="rw-btn" onclick={() => (picking = true)}>В списки</button>
+        <div class="rw-row">
+          <button class="rw-btn" onclick={writeReview}>Отзыв</button>
+          <button class="rw-btn round" aria-label="Ещё действия" onclick={() => (moreOpen = true)}><Icon name="dots" size={22} /></button>
+        </div>
+      {/snippet}
+    </RewindHero>
+  {:else}
   <section class="hero" style:--tint={c.accent ?? '#1c1c1e'}>
     <div class="bg" aria-hidden="true">
       {#key c.backdrop}
@@ -398,14 +460,9 @@
     </div>
   </section>
   {/if}
+  {/if}
 
-  <main class="sheet">
-    {#if t.gallery.length}
-      <section class="block gallery-feature" aria-label="Галерея кадров"><h2>Галерея</h2>
-        <div class="gallery">{#each t.gallery.slice(0, 9) as g, k (k)}<button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={g} alt="" loading="lazy" decoding="async" /></button>{/each}</div>
-      </section>
-    {/if}
-
+  <main class="sheet rw-sheet">
     <section class="block summary" aria-labelledby="s-rating">
       <h2 id="s-rating">Оценки и отзывы</h2>
       <div class="score">
@@ -445,7 +502,7 @@
       <section class="block" aria-labelledby="s-cast">
         <h2 id="s-cast">Актёры и съёмочная группа</h2>
         <ul class="cast">
-          {#each castAll ? team : team.slice(0, 10) as p, i (i)}
+          {#each castAll ? team : team.slice(0, 7) as p, i (i)}
             <li>
               <a class="pl" href={personHref(p)} title="{p.name} - фильмография">
                 <span class="ava" style:background={p.photo ? undefined : placeholder(p.name)}>
@@ -457,7 +514,7 @@
             </li>
           {/each}
         </ul>
-        {#if team.length > 10}
+        {#if team.length > 7}
           <button class="btn ghost sm" onclick={() => (castAll = !castAll)}>{castAll ? 'Свернуть' : `Все (${team.length})`}</button>
         {/if}
       </section>
@@ -514,6 +571,12 @@
           <small>{[kindLabel(c.kind), ...c.genres.slice(0, 3)].join(' · ')}</small>
           {#if c.overview}<p>{localized(c.overview, 'Описание на русском пока недоступно')}</p>{/if}
         </div>
+      </section>
+    {/if}
+
+    {#if t.gallery.length}
+      <section class="block gallery-feature" aria-label="Галерея кадров"><h2>Галерея</h2>
+        <div class="gallery">{#each t.gallery.slice(0, 9) as g, k (k)}<button onclick={() => (shot = k)} aria-label="Кадр {k + 1}"><img use:fadeIn src={g} alt="" loading="lazy" decoding="async" /></button>{/each}</div>
       </section>
     {/if}
 

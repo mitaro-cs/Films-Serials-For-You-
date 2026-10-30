@@ -28,10 +28,12 @@
       sessionStorage.removeItem(`nova-onboarding:${profile}`);
       window.dispatchEvent(new Event('nova-preferences'));
       open = false;
+      // Новому человеку - сразу экскурсия по сервису.
+      setTimeout(() => window.dispatchEvent(new Event('nova-tour')), 450);
     } catch { error = 'Не удалось сохранить выбор. Проверьте соединение и попробуйте снова.'; }
     finally { busy = false; }
   }
-  function skip() { if(profile) sessionStorage.removeItem(`nova-onboarding:${profile}`); open=false; }
+  function skip() { if(profile) sessionStorage.removeItem(`nova-onboarding:${profile}`); open=false; setTimeout(() => window.dispatchEvent(new Event('nova-tour')), 450); }
 </script>
 
 {#if open}
