@@ -1,12 +1,13 @@
 {
   "name": "fsfy-web",
   "private": true,
-  "version": "0.6.4-alpha",
+  "version": "0.6.5-alpha",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "svelte-kit sync && vite build",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "build:tv": "vite build -c vite.tv.config.ts",
+    "build": "npm run build:tv && svelte-kit sync && vite build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && tsc -p tv/tsconfig.json",
     "test": "vitest run",
     "e2e": "playwright test"
   },

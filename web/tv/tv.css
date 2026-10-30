@@ -1,0 +1,544 @@
+/* ТВ-интерфейс. Стили рассчитаны на Chrome 69 (Samsung Tizen 5.5): без gap во flex, aspect-ratio,
+   inset, clamp, min/max, :focus-visible. Размеры - в rem, 1rem = 16px на экране 1920 px. */
+
+html {
+  font-size: calc(100vw / 120);
+  background: #0b0b0f;
+  scroll-behavior: smooth;
+}
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+body {
+  margin: 0;
+  color: #f4f4f6;
+  background: #0b0b0f;
+  font: 400 1.5rem/1.35 'Inter', 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow-x: hidden;
+}
+body.screen-watch {
+  background: #000;
+  overflow: hidden;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+img {
+  display: block;
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+/* фокус: белая рамка и лёгкое увеличение */
+.f {
+  outline: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.f:focus {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 0.25rem #fff, 0 1rem 2.5rem rgba(0, 0, 0, 0.6);
+  z-index: 3;
+}
+
+.loading,
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  font-size: 2rem;
+  color: #b9b9c4;
+  text-align: center;
+}
+.empty .btn {
+  margin-top: 2rem;
+}
+.empty.small {
+  min-height: 30vh;
+  grid-column: 1 / -1;
+}
+.loading i,
+.spin i {
+  width: 4rem;
+  height: 4rem;
+  border: 0.4rem solid rgba(255, 255, 255, 0.2);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: turn 0.9s linear infinite;
+}
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* шапка */
+.bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  padding: 2rem 4rem;
+}
+.bar .logo {
+  font-weight: 800;
+  font-size: 2.6rem;
+  letter-spacing: 0.02em;
+  margin-right: 4rem;
+}
+.bar nav {
+  display: flex;
+  flex: 1;
+}
+.tab {
+  display: block;
+  padding: 0.7rem 1.8rem;
+  margin-right: 0.6rem;
+  border-radius: 3rem;
+  font-size: 1.6rem;
+  font-weight: 600;
+  color: #d8d8e0;
+  background: rgba(20, 20, 26, 0.55);
+}
+.tab.on {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.tab:focus {
+  background: #fff;
+  color: #0b0b0f;
+}
+.bar .who {
+  display: flex;
+  align-items: center;
+  color: #b9b9c4;
+  font-size: 1.5rem;
+}
+.bar .who span {
+  margin-right: 1.4rem;
+}
+.bar .who .tab {
+  margin-right: 0;
+}
+
+/* кнопки и ярлыки */
+.btn {
+  display: inline-block;
+  padding: 1.1rem 2.6rem;
+  margin-right: 1.2rem;
+  border-radius: 0.9rem;
+  font-size: 1.7rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.btn.pri {
+  background: #fff;
+  color: #0b0b0f;
+}
+.btn:focus {
+  background: #fff;
+  color: #0b0b0f;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 0.4rem 4rem 1rem;
+}
+.chip {
+  display: inline-block;
+  padding: 0.7rem 1.8rem;
+  margin: 0 0.8rem 0.8rem 0;
+  border-radius: 3rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.14);
+}
+.chip.on {
+  background: rgba(255, 255, 255, 0.34);
+}
+.chip:focus {
+  background: #fff;
+  color: #0b0b0f;
+}
+
+/* герой главной и карточка фильма */
+.hero,
+.film {
+  position: relative;
+  height: 62vh;
+  background-color: #14141a;
+  background-size: cover;
+  background-position: center 20%;
+}
+.film {
+  height: 74vh;
+}
+.shade {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(11, 11, 15, 0.92) 0%, rgba(11, 11, 15, 0.55) 45%, rgba(11, 11, 15, 0.1) 100%),
+    linear-gradient(0deg, #0b0b0f 0%, rgba(11, 11, 15, 0) 40%);
+}
+.hero .info,
+.film .info {
+  position: absolute;
+  left: 4rem;
+  bottom: 4rem;
+  width: 62rem;
+}
+.hero h1,
+.film h1 {
+  font-size: 4.6rem;
+  line-height: 1.08;
+  font-weight: 800;
+  margin-bottom: 1rem;
+}
+.orig {
+  color: #b9b9c4;
+  font-size: 1.7rem;
+  margin-bottom: 0.6rem;
+}
+.meta {
+  color: #d8d8e0;
+  font-size: 1.6rem;
+  margin-bottom: 1.2rem;
+}
+.tag {
+  color: #fff;
+  font-size: 1.7rem;
+  font-style: italic;
+  margin-bottom: 0.8rem;
+}
+.ov {
+  color: #e3e3ea;
+  font-size: 1.6rem;
+  line-height: 1.45;
+  margin-bottom: 1.8rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.ov.long {
+  -webkit-line-clamp: 5;
+}
+.crew {
+  color: #d8d8e0;
+  font-size: 1.5rem;
+  margin-bottom: 0.4rem;
+}
+.crew span {
+  color: #8d8d99;
+  margin-right: 0.8rem;
+}
+.btns {
+  margin-top: 1.6rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.marks {
+  display: inline-flex;
+}
+
+/* ряды */
+.rows {
+  position: relative;
+  z-index: 2;
+  padding-bottom: 6rem;
+}
+.sec {
+  padding-top: 1.4rem;
+}
+.sec h2 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  padding: 0 4rem 0.4rem;
+}
+.track {
+  display: flex;
+  overflow-x: hidden;
+  padding: 1.4rem 4rem 2.6rem;
+  scroll-behavior: smooth;
+}
+.card {
+  display: block;
+  flex: 0 0 auto;
+  margin-right: 1.8rem;
+  border-radius: 1rem;
+}
+.card .art {
+  position: relative;
+  overflow: hidden;
+  border-radius: 1rem;
+  background: #1c1c24;
+}
+.card.p {
+  width: 15rem;
+}
+.card.p .art {
+  height: 22.5rem;
+}
+.card.w {
+  width: 28rem;
+}
+.card.w .art {
+  height: 15.75rem;
+}
+.card .art img,
+.card .art .blank {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.card .cap {
+  padding: 0.7rem 0.2rem 0;
+}
+.card .cap b {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.card .cap small {
+  display: block;
+  color: #9d9daa;
+  font-size: 1.2rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mark {
+  position: absolute;
+  left: 0.6rem;
+  bottom: 0.6rem;
+  padding: 0.2rem 0.7rem;
+  border-radius: 0.5rem;
+  background: rgba(0, 0, 0, 0.7);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.prog {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0.5rem;
+  background: rgba(255, 255, 255, 0.25);
+}
+.prog b {
+  display: block;
+  height: 100%;
+  background: #fff;
+}
+
+/* карточка фильма: страница ниже героя */
+.film + .sec {
+  position: relative;
+  z-index: 2;
+}
+
+/* поиск */
+.find {
+  padding: 9rem 4rem 4rem;
+}
+.field {
+  display: block;
+  width: 100%;
+  padding: 1.2rem 1.8rem;
+  border: 0;
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font: inherit;
+  font-size: 2rem;
+}
+.field:focus {
+  background: #fff;
+  color: #0b0b0f;
+}
+.field::-webkit-input-placeholder {
+  color: #9d9daa;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 15rem);
+  grid-gap: 2.4rem 1.8rem;
+  padding: 2.4rem 0;
+}
+.grid .card {
+  margin-right: 0;
+}
+
+/* вход */
+.login {
+  width: 56rem;
+  margin: 0 auto;
+  padding-top: 10vh;
+  text-align: center;
+}
+.logo.big {
+  font-weight: 800;
+  font-size: 6rem;
+  margin-bottom: 1rem;
+}
+.hint {
+  color: #b9b9c4;
+  margin-bottom: 3rem;
+}
+.login .field {
+  margin-bottom: 1.4rem;
+}
+.login .btn {
+  margin: 1rem 0 0;
+  width: 100%;
+}
+.err {
+  color: #ff8a8a;
+  margin-top: 1.6rem;
+  min-height: 2rem;
+}
+
+/* плеер */
+.player,
+.player video {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}
+.player video {
+  object-fit: contain;
+}
+.off {
+  display: none !important;
+}
+.osd .top {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 3rem 5rem 6rem;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.75), rgba(0, 0, 0, 0));
+}
+.osd .top b {
+  font-size: 2.6rem;
+  font-weight: 700;
+  margin-right: 1.6rem;
+}
+.osd .top span {
+  font-size: 1.9rem;
+  color: #d8d8e0;
+}
+.osd .low {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 7rem 5rem 3.4rem;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0));
+}
+.seekbar {
+  position: relative;
+  height: 0.7rem;
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+}
+.seekbar i {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+}
+.seekbar .buf {
+  background: rgba(255, 255, 255, 0.28);
+}
+.seekbar .pos {
+  background: #fff;
+}
+.times {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1rem;
+  font-size: 1.7rem;
+  color: #e3e3ea;
+}
+.tips {
+  margin-top: 1rem;
+  font-size: 1.3rem;
+  color: #9d9daa;
+  text-align: center;
+}
+.subs {
+  position: fixed;
+  left: 10vw;
+  right: 10vw;
+  bottom: 9vh;
+  text-align: center;
+  font-size: 2.8rem;
+  line-height: 1.3;
+  font-weight: 600;
+  text-shadow: 0 0.1rem 0.4rem #000, 0 0 0.6rem #000;
+  white-space: pre-line;
+  pointer-events: none;
+}
+.spin {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.msg {
+  position: fixed;
+  left: 10vw;
+  right: 10vw;
+  top: 40vh;
+  text-align: center;
+  font-size: 2.4rem;
+}
+.pm {
+  position: fixed;
+  right: 4rem;
+  bottom: 14rem;
+  width: 62rem;
+  padding: 2.4rem 2rem 1.4rem;
+  border-radius: 1.4rem;
+  background: rgba(16, 16, 22, 0.94);
+}
+.pm h3 {
+  font-size: 1.5rem;
+  color: #9d9daa;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0 4rem 0.2rem 0;
+}
+.pm .chips {
+  padding: 0.8rem 0 0.6rem;
+}

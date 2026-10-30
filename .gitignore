@@ -1,6 +1,7 @@
 /target
 /web/build
 /web/.svelte-kit
+/web/static/tv
 /web/node_modules
 /desktop/node_modules
 /data-dev

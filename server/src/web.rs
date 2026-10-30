@@ -40,12 +40,28 @@ fn pack(name: &str, data: &[u8], br: bool) -> bytes::Bytes {
 
 /// Сжать всё неизменяемое заранее (при запуске, в фоне): первый зритель не ждёт.
 pub fn warm() {
-    for name in Assets::iter().filter(|n| n.starts_with("_app/immutable/") && !n.ends_with(".png")) {
+    for name in Assets::iter().filter(|n| immutable(n) && !n.ends_with(".png")) {
         if let Some(f) = Assets::get(&name).filter(|f| f.data.len() > 1024) {
             pack(&name, &f.data, true);
             pack(&name, &f.data, false);
         }
     }
+}
+
+/// Файлы, имя которых меняется вместе с содержимым: можно кэшировать навсегда и сжимать заранее.
+fn immutable(name: &str) -> bool {
+    name.starts_with("_app/immutable/") || name.starts_with("tv/assets/")
+}
+
+/// Телевизор со старым браузером (Samsung Tizen, LG webOS, HbbTV): обычный сайт он показывает
+/// криво - ему отдаём ТВ-интерфейс (`web/tv`). Обычный сайт на телевизоре - `/?full=1`.
+fn is_tv(headers: &HeaderMap, query: Option<&str>) -> bool {
+    if query.is_some_and(|q| q.split('&').any(|p| p == "full=1")) {
+        return false;
+    }
+    headers.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).is_some_and(|ua| {
+        ua.contains("SMART-TV") || ua.contains("Tizen") || ua.contains("Web0S") || ua.contains("HbbTV")
+    })
 }
 
 /// Какое сжатие понимает браузер: brotli лучше, иначе gzip.
@@ -66,6 +82,9 @@ pub async fn spa(uri: Uri, headers: HeaderMap) -> Response {
     if path.starts_with("api/") {
         return crate::error::ApiError::not_found().into_response();
     }
+    // ТВ-интерфейс: телевизорам - вместо главной страницы, остальным - по адресу `/tv/`.
+    let tv_home = path.is_empty() && is_tv(&headers, uri.query());
+    let path = if path == "tv" || path == "tv/" || tv_home { "tv/index.html" } else { path };
     let (file, name) = match Assets::get(path).filter(|_| !path.is_empty()) {
         Some(f) => (f, path),
         None => match Assets::get("index.html") {
@@ -74,9 +93,9 @@ pub async fn spa(uri: Uri, headers: HeaderMap) -> Response {
         },
     };
     let mime = mime_guess::from_path(name).first_or_octet_stream();
-    let cache = if name.starts_with("_app/immutable/") {
+    let cache = if immutable(name) {
         "public, max-age=31536000, immutable"
-    } else if name == "index.html" {
+    } else if name == "index.html" || name == "tv/index.html" {
         "no-cache"
     } else {
         "public, max-age=3600"
@@ -92,15 +111,14 @@ pub async fn spa(uri: Uri, headers: HeaderMap) -> Response {
         .header(header::CONTENT_TYPE, mime.as_ref())
         .header(header::CACHE_CONTROL, cache)
         .header(header::ETAG, etag)
-        .header(header::VARY, "accept-encoding");
+        .header(header::VARY, "accept-encoding, user-agent");
     if unchanged {
         return res
             .status(StatusCode::NOT_MODIFIED)
             .body(Body::empty())
             .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
     }
-    let packable =
-        name.starts_with("_app/immutable/") && file.data.len() > 1024 && !mime.type_().eq(&mime_guess::mime::IMAGE);
+    let packable = immutable(name) && file.data.len() > 1024 && !mime.type_().eq(&mime_guess::mime::IMAGE);
     if let Some(br) = accepts(&headers).filter(|_| packable) {
         let data = file.data.clone();
         let name = name.to_string();
@@ -168,6 +186,42 @@ mod tests {
         let mut stale = HeaderMap::new();
         stale.insert(header::IF_NONE_MATCH, HeaderValue::from_static("\"old\""));
         assert_eq!(spa(uri, stale).await.status(), StatusCode::OK);
+    }
+}
+
+#[cfg(test)]
+mod tv_tests {
+    use super::*;
+
+    fn ua(s: &'static str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(header::USER_AGENT, HeaderValue::from_static(s));
+        h
+    }
+
+    #[test]
+    fn televisions_get_the_tv_interface() {
+        let samsung = ua("Mozilla/5.0 (SMART-TV; LINUX; Tizen 5.5) AppleWebKit/537.36 (KHTML, like Gecko) 69.0.3497.106.1/5.5 TV Safari/537.36");
+        assert!(is_tv(&samsung, None));
+        assert!(is_tv(
+            &ua("Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 Chrome/79.0.3945.79 Safari/537.36"),
+            None
+        ));
+        // Обычный сайт на телевизоре - по просьбе.
+        assert!(!is_tv(&samsung, Some("full=1")));
+        assert!(!is_tv(
+            &ua("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36"),
+            None
+        ));
+        assert!(!is_tv(&HeaderMap::new(), None));
+    }
+
+    #[test]
+    fn immutable_names_cover_both_interfaces() {
+        assert!(immutable("_app/immutable/chunks/a.js"));
+        assert!(immutable("tv/assets/index-abc.js"));
+        assert!(!immutable("tv/index.html"));
+        assert!(!immutable("index.html"));
     }
 }
 

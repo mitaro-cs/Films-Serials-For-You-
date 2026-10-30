@@ -189,6 +189,15 @@
   автокачество; отчёт `net` в прогрессе → `App.playback` → «Сейчас смотрят».
   Инструменты в PATH новой оболочки не видны: `$env:Path` = Machine + User. e2e на Windows —
   `FSFY_BIN=target\release\fsfy.exe`.
+- Alpha 0.6.5: ТВ-интерфейс `web/tv/` (обычный TypeScript без Svelte, свой `vite.tv.config.ts`, цель
+  Chrome 69 - Samsung Tizen 5.5, UE50TU7097) собирается в `web/static/tv` (`npm run build:tv`, входит в
+  `npm run build`, в git не лежит). `web.rs`: телевизорам (`User-Agent` SMART-TV/Tizen/Web0S/HbbTV) `/`
+  отдаёт `tv/index.html`, остальным он по `/tv/`; обычный сайт на ТВ - `/?full=1`. Стили без gap во flex,
+  aspect-ratio, inset, clamp, min/max (в Chrome 69 их нет); фокус - свой (`tv/nav.ts`, ближайший `.f` по
+  направлению, `data-k` - ключ для возврата), «Назад» - 10009/461/Esc. Проверка без телевизора: Chromium 69
+  (снимок `Win/576753`, без H.264 - видео в нём не играет) по DevTools; `fetch` с `keepalive` в Chrome 69
+  не уходит. Сделано: вход, главная, фильмы/сериалы, карточка, поиск, плеер. Не сделано: обёртка Tizen
+  (.wgt, иконка в списке приложений), вход по коду с телефона, проверка на самом телевизоре.
 - (до 1.0) Выпуск собирался сам: `release.yml` на пуш в `miaro` смотрел `version` в
   `tauri.conf.json` и создавал выпуск с тегом.
 - В `tauri-action` нет `tauriScript`: с `npm run tauri --` он сам добавлял ещё один `--`,
