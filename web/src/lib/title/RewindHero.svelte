@@ -114,6 +114,8 @@
   }
   .shot {
     z-index: -2;
+    /* Кадр «осаживается» из увеличенного: края не должны вылезать за экран (на телефоне героя не обрезаем). */
+    overflow: hidden;
   }
   .shot img,
   .shot .ph {
@@ -122,7 +124,16 @@
     max-width: none;
     object-fit: cover;
     object-position: center 28%;
-    animation: shot-in 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: shot-in 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  /* Переход к фильму: весь верх появляется сразу (кадр медленно «осаживается»), блоки всплывают по очереди. */
+  .rwh {
+    animation: hero-open 0.5s ease-out both;
+  }
+  @keyframes hero-open {
+    from {
+      opacity: 0;
+    }
   }
   .shot img.tall {
     filter: blur(6px);
@@ -148,7 +159,7 @@
   @keyframes shot-in {
     from {
       opacity: 0;
-      transform: scale(1.05);
+      transform: scale(1.12);
     }
   }
   @keyframes rise {
@@ -164,11 +175,12 @@
     right: calc(121 * var(--s));
     bottom: calc(86 * var(--s));
     display: grid;
-    grid-template-columns: calc(275 * var(--s)) minmax(0, calc(558 * var(--s))) calc(250 * var(--s));
+    /* Как на макете: название стоит вплотную к постеру, плашка - у правого края, свободное место - между ними. */
+    grid-template-columns: calc(275 * var(--s)) minmax(0, calc(560 * var(--s))) minmax(0, 1fr) calc(250 * var(--s));
+    column-gap: calc(30 * var(--s));
     grid-template-areas:
-      'poster text plate'
-      'go pills .';
-    justify-content: space-between;
+      'poster text . plate'
+      'go pills pills .';
     align-items: end;
   }
   .poster {
@@ -264,6 +276,8 @@
     min-height: max(40px, calc(58 * var(--s)));
     padding: 6px calc(14 * var(--s));
     box-sizing: border-box;
+    height: auto;
+    white-space: normal;
     text-align: center;
     line-height: 1.15;
     border-radius: 999px;
@@ -520,7 +534,7 @@
     }
   }
 
-  :global(.no-motion) :is(.shot img, .shot .ph, .poster, .text, .go, .pills, .plate) {
+  :global(.no-motion) :is(.rwh, .shot img, .shot .ph, .poster, .text, .go, .pills, .plate) {
     animation: none;
   }
 </style>

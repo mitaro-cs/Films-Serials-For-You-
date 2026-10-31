@@ -591,3 +591,62 @@ async fn seen_episode_marks_previous_seasons_too() {
     );
     running.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn admin_import_and_priority_are_shared_and_viewer_cannot_change_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let (running, mut host) = common::start(dir.path()).await;
+    fsfy::discover::upsert(&running.app, &[ext("tt1234567", "Тестовый фильм", false)]).unwrap();
+    let public = format!("http://127.0.0.1:{}", running.app.ports.0);
+    let mut viewer = Client::new(public);
+    assert!(viewer
+        .send(
+            "POST",
+            "/api/auth/register",
+            json!({"name":"Зритель", "login":"prioritytest", "password":"пароль-12345"})
+        )
+        .await
+        .status()
+        .is_success());
+    let payload = json!({"extId":"tt1234567", "url":"https://example.com/video.mp4"});
+    assert_eq!(viewer.send("POST", "/api/admin/video-source", payload.clone()).await.status(), 403);
+    let r = host.send("POST", "/api/admin/video-source", payload).await;
+    assert!(r.status().is_success(), "{}", r.status());
+    assert_eq!(r.json::<Value>().await.unwrap()["count"], 1);
+    let links = viewer.json("/api/links?extId=tt1234567").await;
+    let id = links[0]["id"].as_i64().unwrap();
+    assert_eq!(links[0]["preferred"], true);
+    assert_eq!(viewer.send("PUT", &format!("/api/links/{id}/priority"), json!({})).await.status(), 403);
+    assert!(host.send("PUT", &format!("/api/links/{id}/priority"), json!({})).await.status().is_success());
+    assert_eq!(
+        host.send("POST", "/api/admin/video-source", json!({"extId":"tt1234567", "url":"http://127.0.0.1/a.mp4"}))
+            .await
+            .status(),
+        400
+    );
+    running.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires live series page and external player"]
+async fn admin_imports_real_series_playlist() {
+    let dir = tempfile::tempdir().unwrap();
+    let (running, mut host) = common::start(dir.path()).await;
+    fsfy::discover::upsert(&running.app, &[ext("tt1234567", "Дюна: Пророчество", true)]).unwrap();
+    let response = host
+        .send(
+            "POST",
+            "/api/admin/video-source",
+            json!({"extId":"tt1234567", "url":"https://sg.lordfilm5.pro/serialy/51890-djuna-prorochestvo-2024.html"}),
+        )
+        .await;
+    assert!(response.status().is_success(), "{}", response.status());
+    assert!(response.json::<Value>().await.unwrap()["count"].as_u64().unwrap() > 1);
+    let links = host.json("/api/links?extId=tt1234567").await;
+    assert!(links
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|link| link["season"] == 1 && link["episode"] == 2 && link["preferred"] == true));
+    running.shutdown().await;
+}

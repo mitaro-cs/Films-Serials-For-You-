@@ -6,6 +6,7 @@
   import LoginJournal from './LoginJournal.svelte';
   import ThemeSettings from './ThemeSettings.svelte';
   import Icon from '$lib/ui/Icon.svelte';
+  import type { ExtCard } from '$lib/types';
 
   interface S {
     metadataLanguage: 'ru' | 'source';
@@ -30,6 +31,21 @@
   let kpKey = $state('');
   let vkToken = $state('');
   let site = $state('');
+  let sourceQuery = $state(''), sourceUrl = $state('');
+  let sourceOptions = $state<ExtCard[]>([]), sourceTitle = $state<ExtCard | null>(null), sourceBusy = $state(false);
+  async function findSourceTitle() {
+    if (sourceQuery.trim().length < 2) return;
+    sourceBusy = true; error = '';
+    try { sourceOptions = await api<ExtCard[]>('/api/discover/search?q=' + encodeURIComponent(sourceQuery.trim())); }
+    catch (e) { error = errorText(e); } finally { sourceBusy = false; }
+  }
+  async function importSource(e: SubmitEvent) {
+    e.preventDefault(); if (!sourceTitle || !sourceUrl.trim() || sourceBusy) return;
+    sourceBusy = true; error = msg = '';
+    try { const result = await post<{count:number}>('/api/admin/video-source', {extId: sourceTitle.id, url: sourceUrl.trim()});
+      msg = 'Добавлено источников: ' + result.count + '. Они выбраны для всех зрителей.'; sourceUrl = '';
+    } catch (e) { error = errorText(e); } finally { sourceBusy = false; }
+  }
   let msg = $state('');
   let error = $state('');
 
@@ -150,6 +166,21 @@
       </label>
       <button class="btn">Сохранить</button>
     </form>
+  </section>
+
+  <section class="card pane" aria-labelledby="video-import">
+    <h3 id="video-import">Источник для фильма или сериала</h3>
+    <p class="muted">Найдите фильм, сериал или аниме, затем вставьте ссылку на видео или страницу. Для поддерживаемого сериала Nova загрузит доступные серии и выберет их для всех зрителей.</p>
+    <form class="line" onsubmit={(e) => { e.preventDefault(); void findSourceTitle(); }}>
+      <label class="field grow"><span>Название</span><input class="input" bind:value={sourceQuery} placeholder="Название фильма или сериала" /></label>
+      <button class="btn" disabled={sourceBusy || sourceQuery.trim().length < 2}>Найти</button>
+    </form>
+    {#if sourceOptions.length}<label class="field"><span>Выберите из каталога</span><select class="input" value={sourceTitle?.id ?? ''} onchange={(e) => sourceTitle = sourceOptions.find(x => x.id === e.currentTarget.value) ?? null}><option value="">Выберите название</option>{#each sourceOptions as item (item.id)}<option value={item.id}>{item.title} {item.year ?? ''} · {item.kind === 'series' ? 'сериал' : 'фильм'}</option>{/each}</select></label>{/if}
+    <form class="line" onsubmit={importSource}>
+      <label class="field grow"><span>Ссылка на видео или страницу сериала</span><input class="input" type="url" bind:value={sourceUrl} placeholder="https://…" required /></label>
+      <button class="btn" disabled={!sourceTitle || !sourceUrl.trim() || sourceBusy}>{sourceBusy ? 'Загружаем…' : 'Добавить и выбрать'}</button>
+    </form>
+    <p class="muted">Автоматический импорт серий поддерживает страницы LordFilm с доступным списком эпизодов. Для остальных сайтов поддержка зависит от формата.</p>
   </section>
 
   <section class="card pane" aria-labelledby="own-sites">

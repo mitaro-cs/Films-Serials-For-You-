@@ -381,6 +381,7 @@ export interface ExtDetail {
 
 /** Видео по ссылке: Rutube, VK, YouTube (их плеер) или прямой файл (наш). */
 export interface VideoLink {
+  preferred?: boolean;
   season?: number | null;
   episode?: number | null;
   id: number;

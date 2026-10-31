@@ -31,7 +31,7 @@ pub async fn next(State(app): State<Arc<App>>, v: Viewer, Path(id): Path<i64>) -
         super::discover::ext_card(&app, &v, e)?;
     }
     let existing = |s: i64, e: i64| -> ApiResult<Option<(i64, String)>> {
-        Ok(app.db.with(|c|c.query_row("SELECT id,label FROM links WHERE title_id IS ? AND ext_id IS ? AND season=? AND episode=? AND kind!='youtube' AND (?=0 OR url LIKE 'https://sd.lordfilm5.pro/%') ORDER BY added_at DESC LIMIT 1",params![title,ext,s,e,lordfilm],|r|Ok((r.get(0)?,r.get(1)?))).optional())?)
+        Ok(app.db.with(|c|c.query_row("SELECT id,label FROM links WHERE title_id IS ? AND ext_id IS ? AND season=? AND episode=? AND kind!='youtube' AND (?=0 OR url LIKE 'https://sd.lordfilm5.pro/%' OR url LIKE 'https://sg.lordfilm5.pro/%' OR EXISTS (SELECT 1 FROM settings pref WHERE pref.key = ('video.preferred.' || COALESCE('t' || links.title_id, 'e' || links.ext_id) || '.' || COALESCE(links.season, -1) || '.' || COALESCE(links.episode, -1)) AND pref.value = CAST(links.id AS TEXT))) ORDER BY EXISTS (SELECT 1 FROM settings pref WHERE pref.key = ('video.preferred.' || COALESCE('t' || links.title_id, 'e' || links.ext_id) || '.' || COALESCE(links.season, -1) || '.' || COALESCE(links.episode, -1)) AND pref.value = CAST(links.id AS TEXT)) DESC, added_at DESC LIMIT 1",params![title,ext,s,e,lordfilm],|r|Ok((r.get(0)?,r.get(1)?))).optional())?)
     };
     if let Some((id, label)) = existing(season, episode + 1)? {
         return Ok(Json(json!({"next":{"id":id,"title":label}})));

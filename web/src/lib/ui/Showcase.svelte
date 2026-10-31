@@ -1,7 +1,6 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
-  import { artW, heroSet } from '$lib/ui/art';
-  import { toneOfUrl } from '$lib/ui/tone';
+  import { heroSet } from '$lib/ui/art';
   import { fitTitle } from '$lib/ui/fitTitle';
   import { getDetail, peekDetail } from '$lib/discover/details';
   import { genreRu } from '$lib/genres';
@@ -74,19 +73,6 @@
 
   // «Кинозал+»: надпись над названием и цвет кадра - по фильму (у своих - цвет постера).
   const accent = '#ffffff';
-  // Цвет страницы - по кадру: фон героя и верх рядов ниже плавно переходят в него (см. @property --tone).
-  let tone = $state('#15161a');
-  $effect(() => {
-    const src = selected?.card?.backdropSmall ?? artW(backdrop, 640) ?? backdrop;
-    if (!src) return;
-    let live = true;
-    void toneOfUrl(src).then((c) => { if (live && c) tone = c; });
-    return () => { live = false; };
-  });
-  $effect(() => {
-    document.documentElement.style.setProperty('--tone', tone);
-    return () => document.documentElement.style.removeProperty('--tone');
-  });
   const ext = $derived(selected?.ext);
   const eyebrow = $derived(
     selected?.card?.resume ? 'Вы смотрели'

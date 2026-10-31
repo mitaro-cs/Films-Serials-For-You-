@@ -28,7 +28,7 @@
   import RatingsGrid from '$lib/title/RatingsGrid.svelte';
   import SeriesHero, { type Ep } from '$lib/title/SeriesHero.svelte';
   import { upcomingYear } from '$lib/title/upcoming';
-  import type { ExtCard, ExtDetail, ExtEpisode, FoundVideo, Review, Reviews as ReviewsData } from '$lib/types';
+  import type { ExtCard, ExtDetail, ExtEpisode, FoundVideo, VideoLink, Review, Reviews as ReviewsData } from '$lib/types';
   import { left, percent } from '$lib/library';
   import { personHref } from '$lib/people';
   import { artSet, artW, placeholder } from '$lib/ui/art';
@@ -63,6 +63,7 @@
   let episodes = $state<ExtEpisode[]>([]);
   let epsLoading = $state(false);
   const loadedSeasons = new Set<number>();
+  const seasonTries = new Map<number, number>();
 
   $effect(() => {
     const want = id;
@@ -74,8 +75,10 @@
     shot = null;
     online = null;
     episodes = [];
+    epsSettled = false;
     chosen = null;
     loadedSeasons.clear();
+    seasonTries.clear();
     load(want);
   });
 
@@ -137,12 +140,17 @@
     try {
       const r = await api<{ items: ExtEpisode[]; refreshing?: boolean }>(`/api/discover/title/${want}/episodes?season=${s}`);
       if (want !== id) return;
-      if (r.refreshing) setTimeout(() => { if(want===id) { loadedSeasons.delete(s); void loadSeason(s); } },1500);
+      // Сервер ещё собирает серии: спрашиваем снова, но не бесконечно.
+      const again = !!r.refreshing && (seasonTries.get(s) ?? 0) < 10;
+      seasonTries.set(s, (seasonTries.get(s) ?? 0) + 1);
+      if (again) setTimeout(() => { if(want===id) { loadedSeasons.delete(s); void loadSeason(s); } },1500);
       if (!r.refreshing && !r.items.length) loadedSeasons.delete(s);
+      if (!again) epsSettled = true;
       episodes = [...episodes.filter((e) => e.season !== s), ...r.items].sort((a, b) => a.season - b.season || a.episode - b.episode);
       if (!r.refreshing && r.items.length && chosen?.startsWith(s+'-') && !r.items.some((e)=>e.season+'-'+e.episode===chosen)) {const next=d?.seasons.find((n)=>n>s);if(next){chosen=next+'-1';void loadSeason(next);}}
     } catch {
       loadedSeasons.delete(s);
+      if (want === id) epsSettled = true;
     } finally {
       epsLoading = false;
     }
@@ -186,14 +194,28 @@
   }
 
   const selected = $derived(eps.find((e) => e.current && !e.upcomingYear) ?? eps.find(e => !e.upcomingYear) ?? null);
+  // Источник администратор может изменить, пока страница открыта у зрителя.
+  $effect(() => {
+    const want = id; let live = true;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      api<VideoLink[]>('/api/links?extId=' + encodeURIComponent(want)).then(items => {
+        if (live && d?.card.id === want && JSON.stringify(d.links) !== JSON.stringify(items)) d.links = items;
+      }).catch(() => {});
+    }, 10000);
+    return () => { live = false; clearInterval(timer); };
+  });
   const episodeLinks = $derived(d?.links.filter((l) => !isSeries || (l.season === selected?.season && l.episode === selected?.episode && !l.label.toLowerCase().includes('(фильм'))) ?? []);
   const episodeKey = $derived(d?.card.kind === 'series' ? `${id}/${selected?.season}/${selected?.episode}` : id);
   let onlineFor = $state('');
+  // Серии загрузились (или их нет) - выбирать больше нечего.
+  let epsSettled = $state(false);
   let episodeFinding = $state(false);
   let sourceError = $state(false);
   $effect(() => {
-    const saved = episodeLinks.some(l => isLordfilm(l.url));
-    if (!d || c?.local || (isSeries && (!selected || selected.episode === null)) || saved) {
+    const saved = episodeLinks.some(l => l.preferred || isLordfilm(l.url));
+    // Серии ещё грузятся - ждём; не нашлось ни одной - ищем сериал по названию (иначе кнопка «горела» вечно).
+    if (!d || c?.local || (isSeries && !selected && !epsSettled) || saved) {
       episodeFinding = false;
       return;
     }
@@ -212,7 +234,15 @@
       .then(items => { if (!controller.signal.aborted) online = items; })
       .catch(() => { if (!controller.signal.aborted) { online = []; sourceError = true; } })
       .finally(() => { if (!controller.signal.aborted) episodeFinding = false; });
-    return () => controller.abort();
+    // Источник молчит - не держим кнопку заблокированной: даём искать вручную.
+    const timer = setTimeout(() => {
+      if (controller.signal.aborted) return;
+      controller.abort();
+      online = [];
+      sourceError = true;
+      episodeFinding = false;
+    }, 30000);
+    return () => { clearTimeout(timer); controller.abort(); };
   });
 
   /** Галочка: не отмечена - «досюда посмотрел» (и все раньше, с прошлыми сезонами); отмечена - снять. */
@@ -296,7 +326,7 @@
   // «Хочу на Nova» - только когда фильма нет ни у нас, ни по ссылкам, ни на Rutube/VK.
   const canWish = $derived(!!d && !d.card.local && !d.links.length && online !== null && !online.length);
   // Главная кнопка под постером: у нас - «Смотреть на Nova», иначе - первое видео онлайн.
-  const first = $derived(episodeLinks.find(l => isLordfilm(l.url)) ?? null);
+  const first = $derived(episodeLinks.find(l => l.preferred) ?? episodeLinks.find(l => isLordfilm(l.url)) ?? null);
   // Начали смотреть по ссылке - «Продолжить просмотр» и сколько осталось.
   const resumeAt = $derived(first?.progress && first.progress.position > 5 && first.progress.position < first.progress.duration * 0.95 ? first.progress : null);
 
@@ -325,7 +355,7 @@
     }
   }
   const firstFound = $derived(onlineFor === episodeKey ? online?.[0] ?? null : null);
-  const sourcePending = $derived(!c?.local && !first && (!d || (isSeries && !selected) || onlineFor !== episodeKey || online === null || episodeFinding));
+  const sourcePending = $derived(!c?.local && !first && (!d || (isSeries && !selected && !epsSettled) || onlineFor !== episodeKey || online === null || episodeFinding));
   const sourceMissing = $derived(!!d && !c?.local && !first && !firstFound && !sourcePending);
 
   async function mark(status: 'want' | 'watching' | 'watched' | 'dropped') {
@@ -660,13 +690,6 @@
   {/if}
 
   <main class="sheet rw-sheet">
-
-    {#if sourceMissing}
-      <section class="block" aria-label="Другие источники">
-        <p class="muted">{sourceError ? 'LordFilm сейчас не отвечает.' : isSeries ? 'Эта серия не найдена на LordFilm.' : 'Фильм не найден на LordFilm.'}</p>
-        <button class="btn" onclick={() => (finding = true)}><Icon name="search" size={16} /> Найти на другом источнике</button>
-      </section>
-    {/if}
     <section class="block summary" aria-labelledby="s-rating">
       <h2 id="s-rating">Оценки и отзывы</h2>
       <div class="score">
@@ -682,15 +705,6 @@
         <button class="unrate" class:hidden={!mine} disabled={!mine} onclick={() => setStars(null)}>Убрать оценку</button>
         <button class="btn sm" disabled={!rv} onclick={writeReview}><Icon name="edit" size={14} /> Написать отзыв</button>
       </div>
-    </section>
-
-    <section class="block" id="reviews" aria-labelledby="s-reviews">
-      <h2 id="s-reviews">Недавние отзывы <Icon name="right" size={16} /></h2>
-      {#if rv}
-        <Reviews compact bind:this={reviewsBox} base="/api/discover/title/{c.id}" bind:data={rv} manage={!!session.me?.manage} />
-      {:else}
-        <div class="sk-reviews skeleton"></div>
-      {/if}
     </section>
 
     {#if team.length}
@@ -714,6 +728,15 @@
         {/if}
       </section>
     {/if}
+
+    <section class="block" id="reviews" aria-labelledby="s-reviews">
+      <h2 id="s-reviews">Недавние отзывы <Icon name="right" size={16} /></h2>
+      {#if rv}
+        <Reviews compact bind:this={reviewsBox} base="/api/discover/title/{c.id}" bind:data={rv} manage={!!session.me?.manage} />
+      {:else}
+        <div class="sk-reviews skeleton"></div>
+      {/if}
+    </section>
 
     {#if d?.similar.length}
       <section class="block" aria-labelledby="s-similar">
@@ -771,6 +794,14 @@
 
       </section>
     {/if}
+
+    {#if sourceMissing}
+      <section class="block" aria-label="Другие источники">
+        <p class="muted">{sourceError ? 'Не удалось проверить доступность видео.' : isSeries ? 'Этой серии пока нет в нашей базе.' : 'Этого фильма пока нет в нашей базе.'}</p>
+        <button class="btn" onclick={() => (finding = true)}><Icon name="search" size={16} /> Найти на другом источнике</button>
+      </section>
+    {/if}
+    {#if session.me?.manage && d}<section class="block" aria-label="Управление источником"><button class="btn sm" onclick={() => (finding = true)}>Источники видео</button></section>{/if}
   </main>
 
   {#if d}<Lightbox images={d.gallery} bind:index={shot} />{/if}

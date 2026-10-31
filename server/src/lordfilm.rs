@@ -11,7 +11,7 @@ pub fn movie_url(u: &Url) -> bool {
 
 fn source_url(u: &Url) -> bool {
     u.scheme() == "https"
-        && u.host_str() == Some(HOST)
+        && matches!(u.host_str(), Some(HOST | "sg.lordfilm5.pro"))
         && u.port().is_none()
         && u.username().is_empty()
         && u.password().is_none()
@@ -123,6 +123,61 @@ pub async fn episode_stream(url: &Url) -> anyhow::Result<(String, Option<i64>)> 
     anyhow::bail!("LordFilm не предоставил выбранную серию: сезон {season}, серия {episode}")
 }
 
+/// Получить только подтверждённые серии из структурированного плейлиста источника.
+fn episode_numbers(html: &str) -> Vec<(i64, i64)> {
+    let Ok(re) = regex::Regex::new(r"\bseasons\s*:\s*(\[)") else { return vec![] };
+    let mut result = Vec::new();
+    for capture in re.captures_iter(html) {
+        let Some(start) = capture.get(1).map(|m| m.start()) else { continue };
+        let Some(Ok(seasons)) = serde_json::Deserializer::from_str(&html[start..]).into_iter::<Value>().next() else {
+            continue;
+        };
+        for s in seasons.as_array().into_iter().flatten() {
+            let number = |v: &Value| v.as_i64().or_else(|| v.as_str()?.parse::<i64>().ok());
+            let Some(season) = number(&s["season"]) else { continue };
+            if !(0..=1000).contains(&season) || s["blocked"] == true {
+                continue;
+            }
+            for e in s["episodes"].as_array().into_iter().flatten() {
+                let Some(episode) = number(&e["episode"]) else { continue };
+                if !(1..=10000).contains(&episode) || e["blocked"] == true {
+                    continue;
+                }
+                if e["hls"]
+                    .as_str()
+                    .and_then(|u| Url::parse(u).ok())
+                    .is_some_and(|u| crate::outbound::valid_url(&u) && u.path().ends_with(".m3u8"))
+                {
+                    result.push((season, episode));
+                }
+            }
+        }
+    }
+    result.sort_unstable();
+    result.dedup();
+    result.truncate(500);
+    result
+}
+
+pub async fn episodes_on_page(url: &Url) -> anyhow::Result<Vec<(i64, i64)>> {
+    anyhow::ensure!(series_url(url), "Этот сайт пока не поддерживает автоматический импорт серий");
+    let mut page_url = url.clone();
+    page_url.set_fragment(None);
+    let (base, html) = crate::api::stream_link::page_with_url(page_url.as_str()).await?;
+    for frame in crate::api::stream_link::find_iframes(&html, &base)
+        .iter()
+        .filter(|u| u.scheme() == "https" && u.host_str() == Some("api.nextembed.ws"))
+    {
+        if let Ok(html) = crate::api::stream_link::page(frame.as_str()).await {
+            let episodes = episode_numbers(&html);
+            if !episodes.is_empty() {
+                return Ok(episodes);
+            }
+        }
+    }
+    anyhow::bail!("Список доступных серий не найден")
+}
+
 pub async fn search_episode(title: &str, year: Option<i64>, season: i64, episode: i64) -> Option<Vec<Value>> {
     let url = Url::parse_with_params(
         &format!("{BASE}index.php"),
@@ -167,6 +222,7 @@ mod tests {
         assert_eq!(results[0]["url"], format!("{BASE}filmy/1.html"));
         assert!(results[0]["duration"].is_null());
         assert!(parse(&html, "Дюна", Some(2020), false).is_empty());
+        assert!(series_url(&Url::parse("https://sg.lordfilm5.pro/serialy/1.html").unwrap()));
         assert!(!movie_url(&Url::parse("https://sd.lordfilm5.pro.evil.example/filmy/1.html").unwrap()));
         assert!(!movie_url(&Url::parse("https://user@sd.lordfilm5.pro/filmy/1.html").unwrap()));
     }
@@ -175,6 +231,7 @@ mod tests {
     fn selects_exact_episode_and_rejects_missing_or_blocked() {
         let html = r#"playlist: {seasons:[{"season":1,"episodes":[{"episode":"1","hls":"https://cdn.example/one.m3u8"},{"episode":"2","hls":"https://cdn.example/two.m3u8","duration":1200},{"episode":"3","hls":"https://cdn.example/three.m3u8","blocked":true}]},{"season":2,"blocked":true,"episodes":[{"episode":"1","hls":"https://cdn.example/other.m3u8"}]}]}, other: true"#;
         assert_eq!(episode_media(html, 1, 2), Some(("https://cdn.example/two.m3u8".into(), Some(1200))));
+        assert_eq!(episode_numbers(html), vec![(1, 1), (1, 2)]);
         for (s, e) in [(1, 3), (1, 10), (2, 1), (3, 1)] {
             assert!(episode_media(html, s, e).is_none());
         }

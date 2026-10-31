@@ -2,7 +2,8 @@
   import { fadeIn } from '$lib/ui/fade';
   import { goto } from '$app/navigation';
   import { untrack } from 'svelte';
-  import { errorText, post } from '$lib/api';
+  import { errorText, post, put } from '$lib/api';
+  import { session } from '$lib/session.svelte';
   import { searchVideos, sourceName } from './search';
   import type { VideoLink } from '$lib/types';
   import { clock } from '$lib/fmt';
@@ -72,7 +73,7 @@
     if (season === null || episode === null) return raw;
     try {
       const u = new URL(raw);
-      if (u.protocol === 'https:' && u.hostname === 'sd.lordfilm5.pro' && u.pathname.startsWith('/serialy/') && u.pathname.endsWith('.html')) {
+      if (u.protocol === 'https:' && ['sd.lordfilm5.pro', 'sg.lordfilm5.pro'].includes(u.hostname) && u.pathname.startsWith('/serialy/') && u.pathname.endsWith('.html')) {
         u.hash = `nova-season=${season}&episode=${episode}`;
         return u.toString();
       }
@@ -113,6 +114,12 @@
     }
   }
 
+  async function prefer(link: VideoLink) {
+    busy = true; error = '';
+    try { await put('/api/links/' + link.id + '/priority', {}); onadded?.(); open = false; }
+    catch (e) { error = errorText(e); } finally { busy = false; }
+  }
+
   function submit(e: SubmitEvent) {
     e.preventDefault();
     if (isUrl) save(text.trim(), {}, true);
@@ -124,7 +131,7 @@
   {#if saved.length}
     <div class="saved">
       {#each saved.filter((l) => season === null || !l.label.toLowerCase().includes('(фильм')) as link (link.id)}
-        <a class="btn" href="/watch/link/{link.id}"><Icon name="play" size={16} />{link.progress && link.progress.position < link.progress.duration * 0.95 ? 'Продолжить' : 'Смотреть'} · {link.label}</a>
+        <div class="saved-row"><a class="btn" href="/watch/link/{link.id}"><Icon name="play" size={16} />{link.progress && link.progress.position < link.progress.duration * 0.95 ? 'Продолжить' : 'Смотреть'} · {link.label}</a>{#if session.me?.manage}<button class="btn sm" disabled={busy || link.preferred} onclick={() => prefer(link)}>{link.preferred ? 'Для всех' : 'Выбрать для всех'}</button>{/if}</div>
       {/each}
     </div>
   {/if}
@@ -167,6 +174,8 @@
 </Modal>
 
 <style>
+  .saved-row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  .saved-row a { flex:1 1 220px; min-width:0; }
   .saved { display: grid; gap: 8px; margin-bottom: 20px; }
   .saved a { height: auto; min-height: 44px; white-space: normal; justify-content: start; padding: 12px 16px; }
   .bar {

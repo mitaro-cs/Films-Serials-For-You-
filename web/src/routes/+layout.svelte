@@ -55,8 +55,9 @@
     return () => window.removeEventListener('keydown', hold);
   });
 
-  // Навигация без искусственной задержки; появление новой страницы задано в app.css.
-  const leaving = false;
+  // Навигация без искусственной задержки: пока открывается страница, старая лишь тускнеет (мгновенный
+  // отклик на нажатие), а появление новой задано в app.css и у героя фильма.
+  const leaving = $derived(!!navigating.to);
   $effect(() => applyMotion());
 
   // Окно приложения хоста: перетаскивают файлы - подсказка, бросили - что сделано.
@@ -144,12 +145,20 @@
   main {
     min-height: 100dvh;
     transition:
-      opacity 0.12s ease-in,
-      transform 0.12s ease-in;
+      opacity 0.2s ease-out,
+      transform 0.2s ease-out;
   }
   main.leaving {
-    opacity: 0;
-    transform: translateY(-6px);
+    opacity: 0.45;
+    transform: scale(0.99);
+    transform-origin: 50% 35%;
+  }
+  :global(.no-motion) main {
+    transition: none;
+  }
+  :global(.no-motion) main.leaving {
+    opacity: 1;
+    transform: none;
   }
   footer {
     display: grid;

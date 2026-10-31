@@ -467,14 +467,10 @@ select.input option {
   inherits: true;
   initial-value: #15161a;
 }
+/* Главная - ровный чёрный фон без цветного градиента (просьба владельца, 0.6.10): --tone-dark остаётся
+   только как цвет краёв кадра героя и равен фону страницы. */
 :root {
-  --tone-dark: color-mix(in srgb, var(--tone) 55%, #000);
-}
-html {
-  transition: --tone 0.9s ease;
-}
-.homepage {
-  background: linear-gradient(180deg, var(--tone-dark) 0, var(--tone-dark) 780px, var(--bg) 1500px);
+  --tone-dark: var(--bg);
 }
 /* Заставка входа: пока идут буквы, страница скрыта и чуть увеличена, потом плавно ложится на место. */
 .intro-reveal main {

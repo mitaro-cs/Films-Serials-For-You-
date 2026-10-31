@@ -30,5 +30,5 @@ export async function searchLordfilm(params: URLSearchParams, signal?: AbortSign
 }
 
 export function isLordfilm(url: string) {
-  try { return new URL(url).hostname === 'sd.lordfilm5.pro'; } catch { return false; }
+  try { return ['sd.lordfilm5.pro', 'sg.lordfilm5.pro'].includes(new URL(url).hostname); } catch { return false; }
 }

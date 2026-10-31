@@ -2,7 +2,7 @@
 //! внутри нашего, прямые mp4/webm/m3u8 - нашим плеером) или найти на Rutube (VK - если хост
 //! указал ключ VK). Ссылка привязывается к фильму с сервиса, к фильму из ленты или живёт сама.
 
-use crate::auth::Viewer;
+use crate::auth::{Manager, Viewer};
 use crate::error::{ApiError, ApiResult};
 use crate::util::now_ms;
 use crate::App;
@@ -184,7 +184,8 @@ async fn page_info(url: &str) -> (Option<String>, Option<String>) {
 }
 
 const COLS: &str = "l.id, l.kind, l.url, l.embed, l.label, NULLIF(l.thumb, ''), l.duration, l.title_id, l.ext_id, \
-    l.added_by, COALESCE(p.name, ''), l.added_at, lp.position, lp.duration, l.season, l.episode";
+    l.added_by, COALESCE(p.name, ''), l.added_at, lp.position, lp.duration, l.season, l.episode, \
+    EXISTS (SELECT 1 FROM settings pref WHERE pref.key = ('video.preferred.' || COALESCE('t' || l.title_id, 'e' || l.ext_id) || '.' || COALESCE(l.season, -1) || '.' || COALESCE(l.episode, -1)) AND pref.value = CAST(l.id AS TEXT))";
 
 /// Ссылки с автором и местом, где остановился этот зритель (`?1` - его профиль).
 const FROM: &str = "links l LEFT JOIN profiles p ON p.id = l.added_by
@@ -198,7 +199,7 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Value> {
         "titleId": r.get::<_, Option<i64>>(7)?, "extId": r.get::<_, Option<String>>(8)?,
         "addedBy": r.get::<_, Option<i64>>(9)?, "author": r.get::<_, String>(10)?, "addedAt": r.get::<_, i64>(11)?,
         "progress": r.get::<_, Option<f64>>(12)?.map(|p| json!({"position": p, "duration": r.get::<_, Option<f64>>(13).ok().flatten().unwrap_or(0.0)})),
-        "season": r.get::<_, Option<i64>>(14)?, "episode": r.get::<_, Option<i64>>(15)?,
+        "season": r.get::<_, Option<i64>>(14)?, "episode": r.get::<_, Option<i64>>(15)?, "preferred": r.get::<_, bool>(16)?,
     }))
 }
 
@@ -206,13 +207,101 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Value> {
 pub fn of(app: &App, profile: i64, title: Option<i64>, ext: Option<&str>) -> ApiResult<Vec<Value>> {
     let sql = format!(
         "SELECT {COLS} FROM {FROM}
-         WHERE l.title_id IS ?2 AND l.ext_id IS ?3 ORDER BY lp.updated_at IS NULL, lp.updated_at DESC, l.added_at DESC LIMIT 200"
+         WHERE l.title_id IS ?2 AND l.ext_id IS ?3 ORDER BY lp.updated_at IS NULL, lp.updated_at DESC, l.added_at DESC LIMIT 2000"
     );
     Ok(app.db.with(|c| {
         let mut st = c.prepare(&sql)?;
         let r = st.query_map(params![profile, title, ext], row)?;
         r.collect::<rusqlite::Result<Vec<_>>>()
     })?)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSource {
+    ext_id: String,
+    url: String,
+}
+
+/// Импорт источника к известному фильму из каталога; сериал - только по подтверждённому списку серий.
+pub async fn import_source(
+    State(app): State<Arc<App>>,
+    m: Manager,
+    Json(b): Json<ImportSource>,
+) -> ApiResult<Json<Value>> {
+    let ext = b.ext_id.trim();
+    let card = super::discover::ext_card(&app, &m.0, ext)?;
+    let raw = Url::parse(b.url.trim()).map_err(|_| ApiError::bad("bad_link", "Введите корректную ссылку"))?;
+    if !crate::outbound::valid_url(&raw) {
+        return Err(ApiError::bad("bad_link", "Недопустимый адрес"));
+    }
+    let series = card.kind == "series";
+    let mut sites = extra_sites(&app);
+    // Администратор явно добавляет адрес: сохраняем домен, чтобы источник работал для зрителей.
+    if !series && parse_with(raw.as_str(), &sites).is_none() {
+        let domain = raw.host_str().and_then(site_domain).ok_or_else(|| ApiError::bad("bad_link", BAD_LINK))?;
+        if !sites.contains(&domain) {
+            if sites.len() >= 30 {
+                return Err(ApiError::bad("too_many", "Не больше 30 сайтов"));
+            }
+            sites.push(domain);
+            app.db.set_setting("video.sites", &serde_json::to_string(&sites).unwrap_or_else(|_| "[]".into()))?;
+        }
+    }
+    let entries: Vec<(Option<i64>, Option<i64>, String)> = if series {
+        let list = crate::lordfilm::episodes_on_page(&raw).await.map_err(|_| {
+            ApiError::bad("unsupported_source", "Не удалось импортировать серии: проверьте ссылку и поддержку сайта")
+        })?;
+        list.into_iter()
+            .map(|(s, e)| {
+                let mut u = raw.clone();
+                u.set_fragment(Some(&format!("nova-season={s}&episode={e}")));
+                (Some(s), Some(e), u.to_string())
+            })
+            .collect()
+    } else {
+        let parsed = parse_with(raw.as_str(), &sites).ok_or_else(|| ApiError::bad("bad_link", BAD_LINK))?;
+        vec![(None, None, parsed.url)]
+    };
+    let profile = m.0.profile.id;
+    let title_id = card.local;
+    let ext_id = if title_id.is_some() { None } else { Some(ext) };
+    let scope = title_id.map(|id| format!("t{id}")).unwrap_or_else(|| format!("e{ext}"));
+    let count = app.db.tx(|c| {
+        let mut count = 0;
+        for (season, episode, url) in &entries {
+            let Some(parsed) = parse_with(url, &sites) else { continue };
+            let old: Option<i64> = c.query_row("SELECT id FROM links WHERE title_id IS ?1 AND ext_id IS ?2 AND url=?3 AND season IS ?4 AND episode IS ?5", params![title_id, ext_id, parsed.url, season, episode], |r| r.get(0)).optional()?;
+            let id = if let Some(id)=old { id } else {
+                c.execute("INSERT INTO links (title_id,ext_id,kind,url,embed,label,added_by,added_at,season,episode) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", params![title_id,ext_id,parsed.kind,parsed.url,parsed.embed,card.title,profile,now_ms(),season,episode])?;
+                c.last_insert_rowid()
+            };
+            let key=format!("video.preferred.{scope}.{}.{}",season.unwrap_or(-1),episode.unwrap_or(-1));
+            c.execute("INSERT INTO settings(key,value) VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", params![key,id.to_string()])?;
+            count += 1;
+        }
+        Ok(count)
+    })?;
+    Ok(Json(json!({"count":count})))
+}
+
+/// Источник выбирает только администратор; привязка общая для всех профилей.
+pub async fn prefer(State(app): State<Arc<App>>, _m: Manager, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
+    type LinkTarget = (Option<i64>, Option<String>, Option<i64>, Option<i64>);
+    let target: Option<LinkTarget> = app.db.with(|c| {
+        c.query_row("SELECT title_id, ext_id, season, episode FROM links WHERE id = ?", [id], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })
+        .optional()
+    })?;
+    let (title, ext, season, episode) = target.ok_or_else(ApiError::not_found)?;
+    let scope = title
+        .map(|n| format!("t{n}"))
+        .or_else(|| ext.map(|e| format!("e{e}")))
+        .ok_or_else(|| ApiError::bad("bad_link", "Сначала привяжите видео к фильму или сериалу"))?;
+    let key = format!("video.preferred.{scope}.{}.{}", season.unwrap_or(-1), episode.unwrap_or(-1));
+    app.db.set_setting(&key, &id.to_string())?;
+    Ok(Json(json!({"ok": true})))
 }
 
 #[derive(Deserialize)]

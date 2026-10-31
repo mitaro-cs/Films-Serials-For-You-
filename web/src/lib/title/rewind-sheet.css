@@ -167,3 +167,10 @@
     background: #2a2a2a;
   }
 }
+
+/* Оценка ставится в плашке героя (и в окне «…» на телефоне) - в листе её второй раз нет, как на макете. */
+@media (min-width: 981px), (max-width: 640px) {
+  main.sheet.rw-sheet .rate-s {
+    display: none;
+  }
+}

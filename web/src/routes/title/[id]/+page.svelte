@@ -157,6 +157,18 @@
     return Math.min(100, (f.progress.position / f.progress.duration) * 100);
   }
 
+  $effect(() => {
+    const want = id; let live = true;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      api<VideoLink[]>('/api/links?titleId=' + want).then(items => {
+        if (live && JSON.stringify(links) !== JSON.stringify(items)) links = items;
+      }).catch(() => {});
+    }, 10000);
+    return () => { live = false; clearInterval(timer); };
+  });
+  const preferredMovie = $derived(links.find(l => l.preferred && l.season == null && l.episode == null) ?? null);
+  const preferredFor = (season: number | null, episode: number | null) => links.find(l => l.preferred && l.season === season && l.episode === episode);
   // Серии для ленты сериала (как у HBO GO): все сезоны подряд, текущая - та, что запустит «Смотреть».
   const eps = $derived<Ep[]>(
     (t?.files ?? []).map((f) => {
@@ -175,7 +187,7 @@
         pct: p,
         done: !!f.progress?.done,
         left: f.progress && !f.progress.done && f.progress.position > 5 ? left(f.progress.position, f.progress.duration) : null,
-        href: `/watch/${f.id}`,
+        href: preferredFor(f.season ?? 1, f.episode)?.id ? `/watch/link/${preferredFor(f.season ?? 1, f.episode)!.id}` : `/watch/${f.id}`,
         current: f.id === t?.next?.fileId,
       };
     }),
@@ -247,7 +259,7 @@
       rating={c.rating}
       badge={c.status === 'watching' ? 'Смотрю' : c.status === 'watched' ? 'Просмотрено' : c.status === 'want' ? 'В планах' : null}
       overview={c.overview ? localized(c.overview, '') : ''}
-      play={next ? { label: next.label ? next.label.replace(/^(\d+) сезон, (\d+) серия$/, 'Сезон $1, серия $2') : started ? 'Продолжить' : 'Смотреть', href: `/watch/${next.fileId}` } : null}
+      play={next ? { label: next.label ? next.label.replace(/^(\d+) сезон, (\d+) серия$/, 'Сезон $1, серия $2') : started ? 'Продолжить' : 'Смотреть', href: eps.find(e => e.current)?.href ?? `/watch/${next.fileId}` } : null}
       wanted={c.status === 'want'}
       wantDisabled={c.status === 'watching' || c.status === 'watched'}
       onwant={() => toggleList(c)}
@@ -268,7 +280,7 @@
     >
       {#snippet actions()}
         {#if next}
-          <a class="btn white go" href="/watch/{next.fileId}"><Icon name="play" size={16} /> {started || seriesProgress ? 'Продолжить' : 'Смотреть'}</a>
+          <a class="btn white go" href={eps.find(e => e.current)?.href ?? `/watch/${next.fileId}`}><Icon name="play" size={16} /> {started || seriesProgress ? 'Продолжить' : 'Смотреть'}</a>
         {/if}
         <button class="btn want" class:on={c.status === 'want'} aria-pressed={c.status === 'want'} onclick={() => toggle(c, 'want')}>
           <Icon name={c.status === 'want' ? 'check' : 'plus'} size={16} /> Хочу
@@ -331,7 +343,7 @@
     rating={c.rating}
     badge={c.status === 'watching' ? 'Смотрю' : c.status === 'watched' ? 'Просмотрено' : null}
     overview={c.overview ? localized(c.overview, '') : ''}
-    play={t.next ? { label: started ? 'Продолжить' : 'Смотреть', href: `/watch/${t.next.fileId}`, note: started ? `${t.next.label || 'Вы остановились'} · ${left(t.next.position, t.next.duration)}` : undefined } : null}
+    play={preferredMovie ? { label: 'Смотреть', href: `/watch/link/${preferredMovie.id}` } : t.next ? { label: started ? 'Продолжить' : 'Смотреть', href: `/watch/${t.next.fileId}`, note: started ? `${t.next.label || 'Вы остановились'} · ${left(t.next.position, t.next.duration)}` : undefined } : null}
     wanted={c.status === 'want'}
     wantDisabled={c.status === 'watching' || c.status === 'watched'}
     onwant={() => toggleList(c)}
@@ -353,7 +365,7 @@
       tagline={t.tagline}
       overview={c.overview ? localized(c.overview, '') : ''}
       genres={c.genres}
-      play={t.next ? { label: started ? 'Продолжить' : 'Смотреть', href: `/watch/${t.next.fileId}` } : null}
+      play={preferredMovie ? { label: 'Смотреть', href: `/watch/link/${preferredMovie.id}` } : t.next ? { label: started ? 'Продолжить' : 'Смотреть', href: `/watch/${t.next.fileId}` } : null}
     >
       {#snippet tools()}
         {#if session.me?.manage}
@@ -436,7 +448,7 @@
           {#if c.posterLarge}<img use:fadeIn src={c.posterLarge} alt={c.title} width="460" height="690" decoding="async" />{:else}<span>{c.title}</span>{/if}
         </div>
         {#if t.next}
-          <a class="btn white block watch" href="/watch/{t.next.fileId}">
+          <a class="btn white block watch" href={preferredMovie ? `/watch/link/${preferredMovie.id}` : `/watch/${t.next.fileId}`}>
             <Icon name="play" size={16} /> {started ? 'Продолжить' : 'Смотреть'}
           </a>
         {/if}
